@@ -38,7 +38,9 @@ import {
   setYouthClubBadge,
   resetYouthClubBadge,
   cleanUnknownOrCorruptVideos,
-  triggerGlobalCacheBust
+  triggerGlobalCacheBust,
+  syncLocalDataToServer,
+  fetchAndMergeServerStore
 } from '../utils/reportsStore';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
 import {
@@ -1065,18 +1067,51 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     showToast('نشان باشگاه جوانان به طرح اصلی بازنشانی گردید.');
   };
 
+  const [isSyncingServer, setIsSyncingServer] = useState(false);
+
+  const handleSyncToServer = async () => {
+    setIsSyncingServer(true);
+    try {
+      const ok = await syncLocalDataToServer();
+      if (ok) {
+        showToast('تمامی لوگوها، گزارش‌ها، امتیازات و تنظیمات با موفقیت روی سرور مرکزی منتشر و ذخیره شد.');
+      } else {
+        showToast('خطا در انتشار روی سرور مرکزی. لطفاً اتصال اینترنت را بررسی کنید.', 'error');
+      }
+    } catch {
+      showToast('خطا در اتصال به سرور', 'error');
+    } finally {
+      setIsSyncingServer(false);
+    }
+  };
+
+  const handlePullFromServer = async () => {
+    setIsSyncingServer(true);
+    try {
+      const ok = await fetchAndMergeServerStore();
+      if (ok) {
+        showToast('اطلاعات و لوگوها با موفقیت از سرور مرکزی دریافت و اعمال گردید.');
+      } else {
+        showToast('دریافت اطلاعات از سرور انجام نشد.', 'error');
+      }
+    } catch {
+      showToast('خطا در اتصال به سرور', 'error');
+    } finally {
+      setIsSyncingServer(false);
+    }
+  };
+
   const handleAssignBadgeToTeam = (teamSlug: string, logoData: string, badgeTitle?: string) => {
     const targetTeam = teams[teamSlug];
     if (!targetTeam) return;
-    updateTeamDetails(teamSlug, { logo: logoData });
-    showToast(`لوگوی تیم «${targetTeam.name}» به «${badgeTitle || 'نشان انتخابی'}» تغییر یافت.`);
+    saveTeamLogo(teamSlug, logoData);
+    showToast(`لوگوی تیم «${targetTeam.name}» به «${badgeTitle || 'نشان انتخابی'}» تغییر یافت و پایدار شد.`);
   };
 
   const handleResetTeamLogo = (teamSlug: string) => {
     const targetTeam = teams[teamSlug];
     if (!targetTeam) return;
-    const defaultPlaceholder = getTeamLogoPlaceholder(targetTeam.id, targetTeam.name);
-    updateTeamDetails(teamSlug, { logo: '' });
+    resetTeamLogo(teamSlug);
     showToast(`لوگوی تیم «${targetTeam.name}» به نشان پیش‌فرض بازنشانی شد.`);
   };
 
@@ -1489,6 +1524,28 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSyncToServer}
+              disabled={isSyncingServer}
+              title="ارسال و ذخیره‌سازی دائمی تمامی لوگوها و گزارش‌ها در سرور مرکزی تا در تمام سیستم‌ها و دامنه عمومی دقیقاً یکسان نمایش داده شود"
+              className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingServer ? 'animate-spin' : ''}`} />
+              <span>{isSyncingServer ? 'در حال انتشار...' : '🚀 انتشار سراسری تغییرات و لوگوها در سرور'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePullFromServer}
+              disabled={isSyncingServer}
+              title="دریافت آخرین لوگوها و اطلاعات از سرور"
+              className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-white/10 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>بروزرسانی از سرور</span>
+            </button>
+
             <button
               type="button"
               onClick={handleRunVideoCleanup}

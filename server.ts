@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
@@ -8,11 +9,224 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Ensure public uploads directory exists
+const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  } catch (err) {
+    console.warn('Could not create uploads directory:', err);
+  }
+}
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(UPLOADS_DIR));
+
+// ----------------------------------------------------
+// Persistent Server Data Store (Persists across all domains & restarts)
+// ----------------------------------------------------
+const DATA_STORE_FILE = path.join(process.cwd(), 'data_store.json');
+
+interface ServerStoreData {
+  teamLogos: Record<string, string>;
+  teamOverrides: Record<string, any>;
+  mahashLogo?: string | null;
+  clubEmblem?: string | null;
+  customReports: any[];
+  deletedReports: string[];
+  scores: any[];
+  events: any[];
+  customBadges: any[];
+  reportViews: Record<string, number>;
+  updatedAt?: string;
+}
+
+let inMemoryStore: ServerStoreData = {
+  teamLogos: {},
+  teamOverrides: {},
+  mahashLogo: null,
+  clubEmblem: null,
+  customReports: [],
+  deletedReports: [],
+  scores: [],
+  events: [],
+  customBadges: [],
+  reportViews: {},
+  updatedAt: new Date().toISOString()
+};
+
+// Load initial store from disk if exists
+try {
+  if (fs.existsSync(DATA_STORE_FILE)) {
+    const raw = fs.readFileSync(DATA_STORE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      inMemoryStore = {
+        ...inMemoryStore,
+        ...parsed,
+        teamLogos: parsed.teamLogos || {},
+        teamOverrides: parsed.teamOverrides || {},
+        customReports: Array.isArray(parsed.customReports) ? parsed.customReports : [],
+        deletedReports: Array.isArray(parsed.deletedReports) ? parsed.deletedReports : [],
+        scores: Array.isArray(parsed.scores) ? parsed.scores : [],
+        events: Array.isArray(parsed.events) ? parsed.events : [],
+        customBadges: Array.isArray(parsed.customBadges) ? parsed.customBadges : [],
+        reportViews: parsed.reportViews || {}
+      };
+      console.log('✅ Loaded persistent server store from disk.');
+    }
+  }
+} catch (err) {
+  console.warn('⚠️ Could not load data_store.json, starting with fresh memory store:', err);
+}
+
+function saveStoreToDisk() {
+  try {
+    fs.writeFileSync(DATA_STORE_FILE, JSON.stringify(inMemoryStore, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('⚠️ Could not write data_store.json to disk:', err);
+  }
+}
 
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Shared Server Store GET endpoint
+app.get('/api/store', (req, res) => {
+  res.json(inMemoryStore);
+});
+
+// Shared Server Store POST/Sync endpoint
+app.post('/api/store', (req, res) => {
+  try {
+    const payload = req.body || {};
+    
+    // Merge team logos
+    if (payload.teamLogos && typeof payload.teamLogos === 'object') {
+      inMemoryStore.teamLogos = {
+        ...inMemoryStore.teamLogos,
+        ...payload.teamLogos
+      };
+    }
+
+    // Merge team overrides
+    if (payload.teamOverrides && typeof payload.teamOverrides === 'object') {
+      inMemoryStore.teamOverrides = {
+        ...inMemoryStore.teamOverrides,
+        ...payload.teamOverrides
+      };
+    }
+
+    // Update logos & emblems if supplied
+    if (payload.mahashLogo !== undefined) {
+      inMemoryStore.mahashLogo = payload.mahashLogo;
+    }
+    if (payload.clubEmblem !== undefined) {
+      inMemoryStore.clubEmblem = payload.clubEmblem;
+    }
+
+    // Update custom reports
+    if (Array.isArray(payload.customReports)) {
+      inMemoryStore.customReports = payload.customReports;
+    }
+
+    // Update deleted reports
+    if (Array.isArray(payload.deletedReports)) {
+      inMemoryStore.deletedReports = payload.deletedReports;
+    }
+
+    // Update scores
+    if (Array.isArray(payload.scores)) {
+      inMemoryStore.scores = payload.scores;
+    }
+
+    // Update events
+    if (Array.isArray(payload.events)) {
+      inMemoryStore.events = payload.events;
+    }
+
+    // Update custom badges
+    if (Array.isArray(payload.customBadges)) {
+      inMemoryStore.customBadges = payload.customBadges;
+    }
+
+    // Update report views
+    if (payload.reportViews && typeof payload.reportViews === 'object') {
+      inMemoryStore.reportViews = {
+        ...inMemoryStore.reportViews,
+        ...payload.reportViews
+      };
+    }
+
+    inMemoryStore.updatedAt = new Date().toISOString();
+    saveStoreToDisk();
+
+    res.json({ success: true, store: inMemoryStore });
+  } catch (err: any) {
+    console.error('Error updating store:', err);
+    res.status(500).json({ error: 'Failed to update server store', details: err?.message });
+  }
+});
+
+// Reset Server Store endpoint
+app.post('/api/store/reset', (req, res) => {
+  inMemoryStore = {
+    teamLogos: {},
+    teamOverrides: {},
+    mahashLogo: null,
+    clubEmblem: null,
+    customReports: [],
+    deletedReports: [],
+    scores: [],
+    events: [],
+    customBadges: [],
+    reportViews: {},
+    updatedAt: new Date().toISOString()
+  };
+  saveStoreToDisk();
+  res.json({ success: true, message: 'Server store reset to defaults.' });
+});
+
+// Upload image/logo/asset endpoint
+app.post('/api/upload', (req, res) => {
+  try {
+    const { filename, base64Data, contentType } = req.body || {};
+    if (!base64Data || typeof base64Data !== 'string') {
+      res.status(400).json({ error: 'base64Data is required.' });
+      return;
+    }
+
+    // Extract raw base64 data and extension
+    let cleanBase64 = base64Data;
+    let ext = '.png';
+    if (base64Data.startsWith('data:')) {
+      const parts = base64Data.split(';base64,');
+      cleanBase64 = parts[1] || '';
+      const mime = parts[0].replace('data:', '');
+      if (mime.includes('jpeg') || mime.includes('jpg')) ext = '.jpg';
+      else if (mime.includes('webp')) ext = '.webp';
+      else if (mime.includes('svg')) ext = '.svg';
+      else if (mime.includes('pdf')) ext = '.pdf';
+      else if (mime.includes('mp4')) ext = '.mp4';
+    }
+
+    const safeName = (filename || `upload-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const targetFileName = `${safeName}-${Date.now()}${ext}`;
+    const targetFilePath = path.join(UPLOADS_DIR, targetFileName);
+
+    fs.writeFileSync(targetFilePath, Buffer.from(cleanBase64, 'base64'));
+
+    const publicUrl = `/uploads/${targetFileName}`;
+    res.json({ success: true, url: publicUrl, filename: targetFileName });
+  } catch (err: any) {
+    console.error('Upload Error:', err);
+    res.status(500).json({ error: 'Failed to save file on server', details: err?.message });
+  }
 });
 
 // Lazy-initialized Gemini AI client

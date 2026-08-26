@@ -61,7 +61,7 @@ export function isValidImageFormat(data: unknown): boolean {
   }
 
   // Safe HTTP/HTTPS or local assets
-  if (/^https?:\/\/.+/i.test(trimmed) || /^\/(img|assets|images)\/.+/i.test(trimmed)) {
+  if (/^https?:\/\/.+/i.test(trimmed) || /^\/(img|assets|images|uploads)\/.+/i.test(trimmed)) {
     return true;
   }
 

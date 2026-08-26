@@ -38,7 +38,7 @@ export function isCustomImageDataUrlOrUrl(val: unknown): boolean {
       return true;
     }
   }
-  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/img/') || s.startsWith('blob:')) {
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/img/') || s.startsWith('/uploads/') || s.startsWith('blob:') || s.startsWith('indexeddb:')) {
     return true;
   }
   return false;
@@ -991,6 +991,9 @@ export function saveTeamLogo(teamSlugOrId: string, logoDataUrl: string): void {
   } catch {}
 
   triggerGlobalCacheBust();
+  try {
+    syncLocalDataToServer().catch(() => {});
+  } catch {}
 }
 
 export function resetTeamLogo(teamSlugOrId: string): void {
@@ -1165,6 +1168,207 @@ export function setReportViews(reportId: string, count: number): void {
   views[reportId] = Math.max(0, count);
   localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
   triggerStoreUpdate();
+}
+
+// ----------------------------------------------------
+// Server Store Synchronization & Cloud Persistence
+// ----------------------------------------------------
+
+let isSyncingToServer = false;
+let hasLoadedFromServer = false;
+
+export async function fetchAndMergeServerStore(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  try {
+    const res = await fetch('/api/store');
+    if (!res.ok) return false;
+    const serverData = await res.json();
+    if (!serverData || typeof serverData !== 'object') return false;
+
+    let modified = false;
+
+    // Merge team logos
+    if (serverData.teamLogos && typeof serverData.teamLogos === 'object' && Object.keys(serverData.teamLogos).length > 0) {
+      const rawMap = localStorage.getItem(TEAM_LOGOS_MAP_KEY);
+      const parsedMap = rawMap ? JSON.parse(rawMap) : {};
+      Object.entries(serverData.teamLogos).forEach(([k, v]) => {
+        if (typeof v === 'string' && v.trim()) {
+          parsedMap[k] = v;
+          const shortId = k.replace(/^team-/, '');
+          const normSlug = k.startsWith('team-') ? k : `team-${k}`;
+          localStorage.setItem(`mahash_team_logo_${shortId}`, v);
+          localStorage.setItem(`mahash_team_logo_${normSlug}`, v);
+          localStorage.setItem(`team_logo_${shortId}`, v);
+        }
+      });
+      localStorage.setItem(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
+      modified = true;
+    }
+
+    // Merge team overrides
+    if (serverData.teamOverrides && typeof serverData.teamOverrides === 'object' && Object.keys(serverData.teamOverrides).length > 0) {
+      const rawOverrides = localStorage.getItem(TEAM_OVERRIDES_KEY);
+      const parsedOverrides = rawOverrides ? JSON.parse(rawOverrides) : {};
+      Object.entries(serverData.teamOverrides).forEach(([k, v]) => {
+        parsedOverrides[k] = { ...(parsedOverrides[k] || {}), ...(v as any) };
+      });
+      localStorage.setItem(TEAM_OVERRIDES_KEY, JSON.stringify(parsedOverrides));
+      modified = true;
+    }
+
+    // Mahash logo
+    if (serverData.mahashLogo && isCustomImageDataUrlOrUrl(serverData.mahashLogo)) {
+      localStorage.setItem(MAHASH_LOGO_KEY, serverData.mahashLogo);
+      localStorage.setItem('mahash_site_logo', serverData.mahashLogo);
+      localStorage.setItem('club_emblem_logo', serverData.mahashLogo);
+      modified = true;
+    }
+
+    // Club emblem
+    if (serverData.clubEmblem && isCustomImageDataUrlOrUrl(serverData.clubEmblem)) {
+      localStorage.setItem(CLUB_EMBLEM_KEY, serverData.clubEmblem);
+      modified = true;
+    }
+
+    // Custom reports
+    if (Array.isArray(serverData.customReports) && serverData.customReports.length > 0) {
+      const map: Record<string, ActivityReport[]> = {};
+      serverData.customReports.forEach((rep: ActivityReport) => {
+        if (rep && rep.id) {
+          const teamSlug = rep.teamSlug || 'thinker';
+          const normSlug = teamSlug.startsWith('team-') ? teamSlug : `team-${teamSlug}`;
+          if (!map[normSlug]) map[normSlug] = [];
+          map[normSlug].push(rep);
+        }
+      });
+      localStorage.setItem(CUSTOM_REPORTS_KEY, JSON.stringify(map));
+      modified = true;
+    }
+
+    // Deleted reports
+    if (Array.isArray(serverData.deletedReports) && serverData.deletedReports.length > 0) {
+      localStorage.setItem(DELETED_REPORTS_KEY, JSON.stringify(serverData.deletedReports));
+      modified = true;
+    }
+
+    // Scores
+    if (Array.isArray(serverData.scores) && serverData.scores.length > 0) {
+      localStorage.setItem(SCORES_KEY, JSON.stringify(serverData.scores));
+      modified = true;
+    }
+
+    // Events
+    if (Array.isArray(serverData.events) && serverData.events.length > 0) {
+      localStorage.setItem(EVENTS_KEY, JSON.stringify(serverData.events));
+      modified = true;
+    }
+
+    // Custom badges
+    if (Array.isArray(serverData.customBadges) && serverData.customBadges.length > 0) {
+      localStorage.setItem('mahash_custom_badges_v1', JSON.stringify(serverData.customBadges));
+      modified = true;
+    }
+
+    // Report views
+    if (serverData.reportViews && typeof serverData.reportViews === 'object') {
+      localStorage.setItem(VIEWS_KEY, JSON.stringify(serverData.reportViews));
+      modified = true;
+    }
+
+    hasLoadedFromServer = true;
+
+    if (modified) {
+      autoRecoverAllSavedLogos();
+      triggerGlobalCacheBust();
+      triggerStoreUpdate();
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[reportsStore] Could not fetch server store:', err);
+    return false;
+  }
+}
+
+export async function syncLocalDataToServer(): Promise<boolean> {
+  if (typeof window === 'undefined' || isSyncingToServer) return false;
+  isSyncingToServer = true;
+
+  try {
+    // 1. Gather all local custom logos
+    const rawMap = localStorage.getItem(TEAM_LOGOS_MAP_KEY);
+    const parsedMap = rawMap ? JSON.parse(rawMap) : {};
+    
+    // Also scan individual keys
+    const officialShortIds = ['thinker', 'tomorrow', 'angels', 'ghorbani', 'silence'];
+    officialShortIds.forEach((shortId) => {
+      const slug = `team-${shortId}`;
+      const indVal = localStorage.getItem(`mahash_team_logo_${shortId}`) || 
+                     localStorage.getItem(`mahash_team_logo_${slug}`) ||
+                     localStorage.getItem(`team_logo_${shortId}`);
+      if (indVal && isCustomImageDataUrlOrUrl(indVal)) {
+        parsedMap[slug] = indVal;
+        parsedMap[shortId] = indVal;
+      }
+    });
+
+    const teamOverrides = getTeamOverrides();
+    const mahashLogo = getMahashLogo();
+    const clubEmblem = getYouthClubBadge();
+    
+    // Flatten all custom reports
+    const customMap = getCustomReportsMap();
+    const customReportsList: ActivityReport[] = [];
+    Object.values(customMap).forEach((list) => {
+      if (Array.isArray(list)) {
+        customReportsList.push(...list);
+      }
+    });
+
+    const deletedReports = getDeletedReportsList();
+    const scores = getAllScores();
+    const events = getAllEvents();
+    const reportViews = getAllReportViews();
+
+    let customBadges: any[] = [];
+    try {
+      const rawBadges = localStorage.getItem('mahash_custom_badges_v1');
+      if (rawBadges) customBadges = JSON.parse(rawBadges);
+    } catch {}
+
+    const payload = {
+      teamLogos: parsedMap,
+      teamOverrides,
+      mahashLogo: isCustomImageDataUrlOrUrl(mahashLogo) ? mahashLogo : undefined,
+      clubEmblem: isCustomImageDataUrlOrUrl(clubEmblem) ? clubEmblem : undefined,
+      customReports: customReportsList,
+      deletedReports,
+      scores,
+      events,
+      customBadges,
+      reportViews
+    };
+
+    const res = await fetch('/api/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.warn('[reportsStore] Failed to sync data to server:', err);
+    return false;
+  } finally {
+    isSyncingToServer = false;
+  }
+}
+
+// Auto-fetch on client boot
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    fetchAndMergeServerStore();
+  }, 100);
 }
 
 export function resetReportViews(): void {
