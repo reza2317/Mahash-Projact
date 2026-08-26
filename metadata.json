@@ -1,0 +1,6 @@
+{
+  "name": "موسسه محاش — باشگاه جوانان و حمایت از افراد با افت شنوایی",
+  "description": "پرتال جامع و وب‌سایت رسمی موسسه محاش و باشگاه جوانان ناشنوایان و کم‌شنوایان با بخش‌های تیم‌ها، عضویت، مشاوره، آموزش و خدمات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,348 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  *, ::before, ::after {
+    font-family: 'Vazirmatn', 'Vazir', 'Vazirmatn FD', Tahoma, system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01" 1, "ss02" 1;
+    font-variant-numeric: tabular-nums;
+  }
+  
+  html {
+    direction: rtl;
+    text-align: right;
+    font-family: 'Vazirmatn', 'Vazir', Tahoma, sans-serif;
+    font-feature-settings: "ss01" 1, "ss02" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: 'Vazirmatn', 'Vazir', Tahoma, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: "ss01" 1, "ss02" 1;
+    letter-spacing: normal;
+    transition: background-color 0.25s ease, color 0.25s ease;
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
+  html.dark body {
+    background-color: #0b132b;
+    color: #f8fafc;
+  }
+
+  button, input, optgroup, select, textarea, h1, h2, h3, h4, h5, h6, p, span, a, label, table, tr, th, td {
+    font-family: 'Vazirmatn', 'Vazir', Tahoma, sans-serif;
+    font-feature-settings: "ss01" 1, "ss02" 1;
+  }
+}
+
+/* Accessible Font Scaling Classes */
+html.text-scale-normal {
+  font-size: 16px;
+}
+
+html.text-scale-large {
+  font-size: 18px;
+}
+
+html.text-scale-xlarge {
+  font-size: 20px;
+}
+
+/* =========================================================
+   COMPREHENSIVE DARK MODE CONTRAST & LEGIBILITY RULES
+   ========================================================= */
+html.dark {
+  color-scheme: dark;
+}
+
+/* Dark mode text colors - ensuring high legibility and contrast */
+html.dark .text-slate-900,
+html.dark .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+/* Brand blue & accent colors in dark mode */
+html.dark .text-\[\#173b82\],
+html.dark .text-\[\#0f275a\],
+html.dark .text-\[\#102758\],
+html.dark .text-\[\#0f2f6b\] {
+  color: #60a5fa !important;
+}
+
+html.dark .text-\[\#0f766e\],
+html.dark .text-\[\#115e59\],
+html.dark .text-\[\#147d70\] {
+  color: #2dd4bf !important;
+}
+
+html.dark .text-\[\#4338ca\] {
+  color: #a5b4fc !important;
+}
+
+html.dark .text-amber-900,
+html.dark .text-amber-800,
+html.dark .text-amber-700 {
+  color: #fde047 !important;
+}
+
+html.dark .text-emerald-900,
+html.dark .text-emerald-800,
+html.dark .text-emerald-700,
+html.dark .text-green-700 {
+  color: #6ee7b7 !important;
+}
+
+html.dark .text-purple-900,
+html.dark .text-purple-800,
+html.dark .text-purple-700 {
+  color: #d8b4fe !important;
+}
+
+/* Dark Mode Backgrounds & Card Surfaces */
+html.dark .bg-white {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-slate-50,
+html.dark .bg-\[\#f8fafc\] {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #334155 !important;
+}
+
+html.dark .bg-slate-200 {
+  background-color: #475569 !important;
+}
+
+/* Tinted Card Backgrounds in Dark Mode */
+html.dark .bg-blue-50,
+html.dark .bg-blue-50\/80,
+html.dark .bg-blue-50\/40,
+html.dark .bg-blue-100,
+html.dark .bg-blue-100\/80 {
+  background-color: rgba(30, 58, 138, 0.45) !important;
+}
+
+html.dark .bg-teal-50,
+html.dark .bg-teal-50\/40,
+html.dark .bg-teal-100,
+html.dark .bg-\[\#eef6f8\] {
+  background-color: rgba(19, 78, 74, 0.45) !important;
+}
+
+html.dark .bg-amber-50,
+html.dark .bg-amber-100 {
+  background-color: rgba(120, 53, 15, 0.45) !important;
+}
+
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-100,
+html.dark .bg-green-100 {
+  background-color: rgba(6, 78, 59, 0.45) !important;
+}
+
+html.dark .bg-purple-50,
+html.dark .bg-purple-100 {
+  background-color: rgba(88, 28, 135, 0.45) !important;
+}
+
+html.dark .bg-indigo-50,
+html.dark .bg-indigo-50\/40,
+html.dark .bg-indigo-100 {
+  background-color: rgba(67, 56, 202, 0.35) !important;
+}
+
+/* Dark Mode Borders */
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-200\/80,
+html.dark .border-slate-200\/90,
+html.dark .border-slate-200\/70,
+html.dark .border-slate-300,
+html.dark .border-blue-100,
+html.dark .border-teal-100,
+html.dark .border-indigo-100,
+html.dark .border-\[\#cfe3ea\] {
+  border-color: #334155 !important;
+}
+
+/* Dark Mode Form Inputs & Controls */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #475569 !important;
+}
+
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: #60a5fa !important;
+  outline-color: #60a5fa !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Hero Section gradient in dark mode */
+html.dark .bg-gradient-to-b.from-blue-50\/70.via-slate-50.to-white {
+  background: linear-gradient(to bottom, #0f172a 0%, #0b132b 100%) !important;
+}
+
+/* High Contrast Mode Adjustments */
+html.high-contrast body {
+  font-weight: 500;
+}
+
+html.high-contrast.dark {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+html.high-contrast.dark * {
+  border-color: #64748b !important;
+}
+
+html.high-contrast.dark .text-slate-900,
+html.high-contrast.dark .text-slate-800,
+html.high-contrast.dark .text-slate-700,
+html.high-contrast.dark .text-slate-600,
+html.high-contrast.dark .text-slate-500 {
+  color: #ffffff !important;
+}
+
+html.high-contrast:not(.dark) {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+html.high-contrast:not(.dark) * {
+  border-color: #000000 !important;
+}
+
+.font-vazir {
+  font-family: 'Vazirmatn', 'Vazir', Tahoma, sans-serif !important;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(50%); }
+}
+
+.animate-marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 85s linear infinite;
+  will-change: transform;
+}
+
+.animate-marquee:hover,
+.animate-marquee:focus-within {
+  animation-play-state: paused;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-8px) scale(1.02); }
+}
+
+.animate-float {
+  animation: float-slow 4s ease-in-out infinite;
+}
+
+/* =========================================================
+   ATTRACTIVE HOVER & INTERACTION SYSTEM FOR MENUS & BUTTONS
+   ========================================================= */
+
+/* Smooth global transition for buttons, links, and interactive elements */
+button, a, [role="button"], input[type="submit"], input[type="button"] {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Base button hover enhancements */
+button:not(:disabled):hover, a:not(:disabled):hover {
+  cursor: pointer;
+}
+
+/* Subtle pulse & glow for active/hovered primary buttons */
+button.bg-\[\#173b82\]:hover,
+button.bg-blue-600:hover,
+button.bg-blue-700:hover,
+a.bg-\[\#173b82\]:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 10px 25px -5px rgba(23, 59, 130, 0.35), 0 8px 10px -6px rgba(23, 59, 130, 0.2);
+}
+
+html.dark button.bg-\[\#173b82\]:hover,
+html.dark button.bg-blue-600:hover,
+html.dark button.bg-blue-700:hover,
+html.dark a.bg-\[\#173b82\]:hover {
+  box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.35), 0 8px 10px -6px rgba(56, 189, 248, 0.2);
+}
+
+/* Consultation teal button hover */
+button.bg-\[\#0f766e\]:hover,
+button.bg-teal-600:hover,
+button.bg-teal-700:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 10px 25px -5px rgba(15, 118, 110, 0.35), 0 8px 10px -6px rgba(15, 118, 110, 0.2);
+}
+
+html.dark button.bg-\[\#0f766e\]:hover,
+html.dark button.bg-teal-600:hover,
+html.dark button.bg-teal-700:hover {
+  box-shadow: 0 10px 25px -5px rgba(45, 212, 191, 0.35), 0 8px 10px -6px rgba(45, 212, 191, 0.2);
+}
+
+/* Hover color for text links and menus */
+.hover-brand-glow:hover {
+  color: #1d4ed8 !important;
+  text-shadow: 0 0 12px rgba(29, 78, 216, 0.25);
+}
+
+html.dark .hover-brand-glow:hover {
+  color: #38bdf8 !important;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+}
+
+/* Interactive Navigation Menu Link Hover Effects */
+nav button:hover span,
+nav a:hover span {
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+/* Dropdown menu items active hover state */
+.dropdown-menu-item {
+  position: relative;
+  transition: all 0.18s ease-in-out;
+}
+
+.dropdown-menu-item:hover {
+  transform: translateX(-4px);
+}
+
+
