@@ -10,6 +10,56 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+    <script>
+      (function() {
+        try {
+          var savedTheme = localStorage.getItem('mahash_theme_mode');
+          var savedTextSize = localStorage.getItem('mahash_text_size');
+          var savedContrast = localStorage.getItem('mahash_high_contrast');
+          var userPrefsRaw = localStorage.getItem('mahash_user_preferences');
+          if (userPrefsRaw) {
+            try {
+              var p = JSON.parse(userPrefsRaw);
+              if (p && p.theme && !savedTheme) savedTheme = p.theme;
+              if (p && p.textSize && !savedTextSize) savedTextSize = p.textSize;
+              if (p && p.highContrast !== undefined && savedContrast === null) savedContrast = String(p.highContrast);
+            } catch(e) {}
+          }
+
+          var isDark = false;
+          if (savedTheme === 'dark') {
+            isDark = true;
+          } else if (savedTheme === 'system' || !savedTheme) {
+            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
+
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.setAttribute('data-theme', 'dark');
+            root.style.colorScheme = 'dark';
+          } else {
+            root.classList.remove('dark');
+            root.setAttribute('data-theme', 'light');
+            root.style.colorScheme = 'light';
+          }
+
+          if (savedContrast === 'true') {
+            root.classList.add('high-contrast');
+            root.setAttribute('data-contrast', 'high');
+          }
+
+          if (savedTextSize && (savedTextSize === 'normal' || savedTextSize === 'large' || savedTextSize === 'xlarge')) {
+            root.classList.remove('text-scale-normal', 'text-scale-large', 'text-scale-xlarge');
+            root.classList.add('text-scale-' + savedTextSize);
+          } else {
+            root.classList.add('text-scale-normal');
+          }
+        } catch(err) {
+          console.warn('[Mahash Prefs Bootstrap]', err);
+        }
+      })();
+    </script>
   </head>
   <body class="bg-[#f8fafc] text-[#1e293b] font-vazir antialiased selection:bg-[#173b82] selection:text-white" dir="rtl">
     <div id="root"></div>

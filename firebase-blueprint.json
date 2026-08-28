@@ -1,0 +1,20 @@
+{
+  "entities": {
+    "StoreChunk": {
+      "title": "Store Chunk",
+      "description": "A chunk of the global application state.",
+      "type": "object",
+      "properties": {
+        "data": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["data", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "store/{chunkId}": {
+      "schema": { "$ref": "#/entities/StoreChunk" },
+      "description": "Stores chunks of the global application state (JSON strings) to bypass 1MB limit slightly and organize."
+    }
+  }
+}

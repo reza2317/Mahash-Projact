@@ -42,9 +42,8 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 }) => {
   const isAdmin = isAdminAuthenticated();
 
-  // Check if this specific video is restricted to Admin only (Team Thinker Report 2: thinker-02)
-  const isThinkerReport2 = report.id === 'thinker-02' || (teamSlug === 'thinker' && report.reportNum?.includes('۲'));
-  const isRestrictedToAdmin = isThinkerReport2 && !isAdmin;
+  // Removed hardcoded restriction so Report 2 in Team Thinker is open and playable for all public users
+  const isRestrictedToAdmin = false;
 
   // Use our dedicated isolated video hook per team and report
   const {
@@ -233,7 +232,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               <Film className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden xs:inline" />
               <span className="truncate">{report.title}</span>
             </span>
-            {isThinkerReport2 && isAdmin && (
+            {isAdmin && (
               <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3 text-amber-400" />
                 <span>دسترسی ادمین</span>

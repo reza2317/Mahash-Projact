@@ -1,9 +1,13 @@
-import { ActivityReport, TeamData, ScoreItem, EventItem, PageId, TranscriptScene } from '../types';
-import { TEAMS_DATA, SCORES_DATA } from '../data/mahashData';
+import { runGarbageCollection } from './cleanupUtils';
+import { globalEventBus } from './eventBus';
+import { saveToFirebaseStore, loadFromFirebaseStore } from './firebaseSync';
+import { ActivityReport, TeamData, ScoreItem, EventItem, PageId, TranscriptScene, Consultant } from '../types';
+import { TEAMS_DATA, SCORES_DATA, CONSULTANTS } from '../data/mahashData';
 import { EVENTS_DATA } from '../data/eventsData';
 import { parseReportTimestamp, formatReportNumberDisplay, toPersianDigits } from './persianDate';
 import { toEnglishDigits } from './persianDigitsHandler';
-import { MAHESH_LOGO_SVG, MAHESH_CLUB_EMBLEM_SVG } from './assets';
+import { MAHESH_LOGO_SVG, MAHESH_CLUB_EMBLEM_SVG, NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from './assets';
+import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage, freeUpLocalStorageQuota } from './storage';
 
 const CUSTOM_REPORTS_KEY = 'mahash_custom_reports_v1';
 const DELETED_REPORTS_KEY = 'mahash_deleted_reports_v1';
@@ -19,6 +23,9 @@ const CLUB_EMBLEM_KEY = 'mahash_custom_club_emblem_v1';
 const CLUB_EMBLEM_LEGACY_KEYS = ['mahash_custom_club_emblem', 'mahash_club_emblem'];
 const TEAM_LOGOS_MAP_KEY = 'mahash_team_logos_v1';
 const TEAM_LOGOS_MAP_LEGACY_KEYS = ['mahash_team_logos', 'mahash_logos', 'team_logos'];
+const MEMBER_AVATARS_KEY = 'mahash_member_avatars_v1';
+const CONSULTANTS_STORAGE_KEY = 'mahash_consultants_list_v1';
+const CONSULTANT_PHOTOS_KEY = 'mahash_consultant_custom_photos_v1';
 const ADMIN_SESSION_KEY = 'mahash_admin_session_v1';
 const ADMIN_USERNAME_KEY = 'mahash_admin_username_v1';
 const ADMIN_PASSWORD_KEY = 'mahash_admin_password_v1';
@@ -29,16 +36,20 @@ export function isCustomImageDataUrlOrUrl(val: unknown): boolean {
   if (typeof val !== 'string' || !val.trim()) return false;
   const s = val.trim();
   if (s.startsWith('data:image/')) {
-    // Treat as custom user image if it is image/png, image/jpeg, image/webp, etc. or non-default svg
-    if (s.startsWith('data:image/png') || s.startsWith('data:image/jpeg') || s.startsWith('data:image/jpg') || s.startsWith('data:image/webp')) {
-      return true;
-    }
-    // Check if it is a custom SVG
-    if (!s.includes('TEAM_THINKER_LOGO_SVG') && !s.includes('TEAM_TOMORROW_LOGO_SVG') && !s.includes('TEAM_ANGELS_LOGO_SVG') && !s.includes('TEAM_GHORBANI_LOGO_SVG') && !s.includes('TEAM_SILENCE_LOGO_SVG')) {
-      return true;
-    }
+    return true;
   }
-  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/img/') || s.startsWith('/uploads/') || s.startsWith('blob:') || s.startsWith('indexeddb:')) {
+  if (s.startsWith('<svg') && s.includes('</svg>')) {
+    return true;
+  }
+  if (
+    s.startsWith('http://') ||
+    s.startsWith('https://') ||
+    s.startsWith('/img/') ||
+    s.startsWith('/uploads/') ||
+    s.startsWith('blob:') ||
+    s.startsWith('indexeddb:') ||
+    s.startsWith('/')
+  ) {
     return true;
   }
   return false;
@@ -50,13 +61,13 @@ export function autoRecoverAllSavedLogos(): void {
   if (typeof window === 'undefined') return;
 
   try {
-    const rawOverrides = localStorage.getItem(TEAM_OVERRIDES_KEY);
+    const rawOverrides = safeGetLocalStorage(TEAM_OVERRIDES_KEY);
     let overrides: Record<string, Partial<TeamData>> = rawOverrides ? JSON.parse(rawOverrides) : {};
     let overridesModified = false;
 
     // 1. Recover from legacy overrides key
     try {
-      const legacyRaw = localStorage.getItem(TEAM_OVERRIDES_LEGACY_KEY);
+      const legacyRaw = safeGetLocalStorage(TEAM_OVERRIDES_LEGACY_KEY);
       if (legacyRaw) {
         const parsed = JSON.parse(legacyRaw);
         if (parsed && typeof parsed === 'object') {
@@ -81,7 +92,7 @@ export function autoRecoverAllSavedLogos(): void {
     // 2. Recover from team logo maps
     [TEAM_LOGOS_MAP_KEY, ...TEAM_LOGOS_MAP_LEGACY_KEYS].forEach((mapKey) => {
       try {
-        const rawMap = localStorage.getItem(mapKey);
+        const rawMap = safeGetLocalStorage(mapKey);
         if (rawMap) {
           const parsed = JSON.parse(rawMap);
           if (parsed && typeof parsed === 'object') {
@@ -112,12 +123,16 @@ export function autoRecoverAllSavedLogos(): void {
         `mahash_team_logo_${shortId}`,
         `mahash_team_logo_${slug}`,
         `team_logo_${shortId}`,
-        `team_logo_${slug}`
+        `team_logo_${slug}`,
+        // Specific aliases for angels, ghorbani, silence
+        ...(shortId === 'angels' ? ['mahash_team_logo_fereshtegan', 'team_logo_fereshtegan', 'mahash_team_logo_fereshteha'] : []),
+        ...(shortId === 'ghorbani' ? ['mahash_team_logo_ghorbanikhani', 'team_logo_ghorbanikhani', 'mahash_team_logo_ghorbooni', 'team_logo_ghorbooni', 'mahash_team_logo_khadem', 'team_logo_khadem'] : []),
+        ...(shortId === 'silence' ? ['mahash_team_logo_yavaran', 'team_logo_yavaran', 'mahash_team_logo_sokoot', 'team_logo_sokoot', 'mahash_team_logo_avaye_sokoot'] : [])
       ];
 
       for (const candKey of candidateKeys) {
         try {
-          const val = localStorage.getItem(candKey);
+          const val = safeGetLocalStorage(candKey);
           if (val && isCustomImageDataUrlOrUrl(val)) {
             if (!overrides[slug]?.logo) {
               overrides[slug] = { ...(overrides[slug] || {}), logo: val };
@@ -135,7 +150,7 @@ export function autoRecoverAllSavedLogos(): void {
     // 4. Recover from stored scores arrays
     [SCORES_KEY, SCORES_LEGACY_KEY].forEach((sKey) => {
       try {
-        const rawScores = localStorage.getItem(sKey);
+        const rawScores = safeGetLocalStorage(sKey);
         if (rawScores) {
           const parsedScores = JSON.parse(rawScores);
           if (Array.isArray(parsedScores)) {
@@ -159,28 +174,28 @@ export function autoRecoverAllSavedLogos(): void {
     });
 
     if (overridesModified) {
-      localStorage.setItem(TEAM_OVERRIDES_KEY, JSON.stringify(overrides));
+      safeSetLocalStorage(TEAM_OVERRIDES_KEY, JSON.stringify(overrides));
     }
 
     // 5. Recover Mahash Institution Logo
-    const currentMahash = localStorage.getItem(MAHASH_LOGO_KEY);
+    const currentMahash = safeGetLocalStorage(MAHASH_LOGO_KEY);
     if (!currentMahash || !isCustomImageDataUrlOrUrl(currentMahash)) {
       for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-        const legacyLogo = localStorage.getItem(mKey);
+        const legacyLogo = safeGetLocalStorage(mKey);
         if (legacyLogo && isCustomImageDataUrlOrUrl(legacyLogo)) {
-          localStorage.setItem(MAHASH_LOGO_KEY, legacyLogo);
+          safeSetLocalStorage(MAHASH_LOGO_KEY, legacyLogo);
           break;
         }
       }
     }
 
     // 6. Recover Youth Club Emblem
-    const currentClub = localStorage.getItem(CLUB_EMBLEM_KEY);
+    const currentClub = safeGetLocalStorage(CLUB_EMBLEM_KEY);
     if (!currentClub || !isCustomImageDataUrlOrUrl(currentClub)) {
       for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-        const legacyEmblem = localStorage.getItem(cKey);
+        const legacyEmblem = safeGetLocalStorage(cKey);
         if (legacyEmblem && isCustomImageDataUrlOrUrl(legacyEmblem)) {
-          localStorage.setItem(CLUB_EMBLEM_KEY, legacyEmblem);
+          safeSetLocalStorage(CLUB_EMBLEM_KEY, legacyEmblem);
           break;
         }
       }
@@ -210,15 +225,16 @@ const CACHE_VERSION_KEY = 'mahash_cache_version_v1';
 
 export function getGlobalCacheVersion(): number {
   if (typeof window === 'undefined') return 1;
-  const val = localStorage.getItem(CACHE_VERSION_KEY);
+  const val = safeGetLocalStorage(CACHE_VERSION_KEY);
   return val ? parseInt(val, 10) || 1 : 1;
 }
 
 export function triggerGlobalCacheBust(): number {
   if (typeof window === 'undefined') return 1;
   const newVer = Date.now();
-  localStorage.setItem(CACHE_VERSION_KEY, String(newVer));
+  safeSetLocalStorage(CACHE_VERSION_KEY, String(newVer));
   triggerStoreUpdate();
+  syncLocalDataToServer().catch(console.error);
   return newVer;
 }
 
@@ -250,7 +266,7 @@ export function normalizeAuthInput(val: string): string {
 export function getAdminUsername(): string {
   if (typeof window === 'undefined') return DEFAULT_ADMIN_USERNAME;
   try {
-    return localStorage.getItem(ADMIN_USERNAME_KEY) || DEFAULT_ADMIN_USERNAME;
+    return safeGetLocalStorage(ADMIN_USERNAME_KEY) || DEFAULT_ADMIN_USERNAME;
   } catch {
     return DEFAULT_ADMIN_USERNAME;
   }
@@ -259,8 +275,7 @@ export function getAdminUsername(): string {
 export function setAdminUsername(newUsername: string): boolean {
   if (!newUsername || newUsername.trim().length < 2) return false;
   try {
-    localStorage.setItem(ADMIN_USERNAME_KEY, newUsername.trim());
-    return true;
+    return safeSetLocalStorage(ADMIN_USERNAME_KEY, newUsername.trim());
   } catch {
     return false;
   }
@@ -269,7 +284,7 @@ export function setAdminUsername(newUsername: string): boolean {
 export function getAdminPassword(): string {
   if (typeof window === 'undefined') return DEFAULT_ADMIN_PASSWORD;
   try {
-    return localStorage.getItem(ADMIN_PASSWORD_KEY) || DEFAULT_ADMIN_PASSWORD;
+    return safeGetLocalStorage(ADMIN_PASSWORD_KEY) || DEFAULT_ADMIN_PASSWORD;
   } catch {
     return DEFAULT_ADMIN_PASSWORD;
   }
@@ -278,8 +293,7 @@ export function getAdminPassword(): string {
 export function setAdminPassword(newPassword: string): boolean {
   if (!newPassword || newPassword.trim().length < 3) return false;
   try {
-    localStorage.setItem(ADMIN_PASSWORD_KEY, newPassword.trim());
-    return true;
+    return safeSetLocalStorage(ADMIN_PASSWORD_KEY, newPassword.trim());
   } catch {
     return false;
   }
@@ -287,8 +301,8 @@ export function setAdminPassword(newPassword: string): boolean {
 
 export function resetAdminCredentialsToDefault(): { username: string; password: string } {
   try {
-    localStorage.setItem(ADMIN_USERNAME_KEY, DEFAULT_ADMIN_USERNAME);
-    localStorage.setItem(ADMIN_PASSWORD_KEY, DEFAULT_ADMIN_PASSWORD);
+    safeSetLocalStorage(ADMIN_USERNAME_KEY, DEFAULT_ADMIN_USERNAME);
+    safeSetLocalStorage(ADMIN_PASSWORD_KEY, DEFAULT_ADMIN_PASSWORD);
   } catch {}
   triggerStoreUpdate();
   return { username: DEFAULT_ADMIN_USERNAME, password: DEFAULT_ADMIN_PASSWORD };
@@ -342,7 +356,7 @@ export function recoverAdminPassword(
 export function isAdminAuthenticated(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true' || localStorage.getItem(ADMIN_SESSION_KEY) === 'true';
+    return sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true' || safeGetLocalStorage(ADMIN_SESSION_KEY) === 'true';
   } catch {
     return false;
   }
@@ -382,7 +396,7 @@ export function loginAdmin(usernameOrPass: string, password?: string, rememberMe
     if (isUsernameMatch && isPasswordMatch) {
       try {
         if (rememberMe) {
-          localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+          safeSetLocalStorage(ADMIN_SESSION_KEY, 'true');
         }
         sessionStorage.setItem(ADMIN_SESSION_KEY, 'true');
       } catch {}
@@ -403,7 +417,7 @@ export function loginAdmin(usernameOrPass: string, password?: string, rememberMe
   ) {
     try {
       if (rememberMe) {
-        localStorage.setItem(ADMIN_SESSION_KEY, 'true');
+        safeSetLocalStorage(ADMIN_SESSION_KEY, 'true');
       }
       sessionStorage.setItem(ADMIN_SESSION_KEY, 'true');
     } catch {}
@@ -416,7 +430,7 @@ export function loginAdmin(usernameOrPass: string, password?: string, rememberMe
 
 export function logoutAdmin(): void {
   try {
-    localStorage.removeItem(ADMIN_SESSION_KEY);
+    safeRemoveLocalStorage(ADMIN_SESSION_KEY);
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
   } catch {}
   triggerStoreUpdate();
@@ -449,7 +463,7 @@ function sanitizeReportForLocalStorage(report: ActivityReport): ActivityReport {
 
 function getCustomReportsMap(): Record<string, ActivityReport[]> {
   try {
-    const raw = localStorage.getItem(CUSTOM_REPORTS_KEY);
+    const raw = safeGetLocalStorage(CUSTOM_REPORTS_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return { ...parsed, ...memoryFallbackMap };
   } catch {
@@ -466,9 +480,9 @@ function saveCustomReportsMap(map: Record<string, ActivityReport[]>) {
         cleanMap[slug] = reports.map(sanitizeReportForLocalStorage);
       }
     }
-    localStorage.setItem(CUSTOM_REPORTS_KEY, JSON.stringify(cleanMap));
+    safeSetLocalStorage(CUSTOM_REPORTS_KEY, JSON.stringify(cleanMap));
   } catch (err) {
-    console.warn('Initial save to localStorage had quota issue, compressing data:', err);
+    console.warn('Initial save to storage had quota issue, compressing data:', err);
     try {
       const slimMap: Record<string, ActivityReport[]> = {};
       for (const [slug, reports] of Object.entries(map)) {
@@ -487,9 +501,9 @@ function saveCustomReportsMap(map: Record<string, ActivityReport[]>) {
           });
         }
       }
-      localStorage.setItem(CUSTOM_REPORTS_KEY, JSON.stringify(slimMap));
+      safeSetLocalStorage(CUSTOM_REPORTS_KEY, JSON.stringify(slimMap));
     } catch (e2) {
-      console.warn('localStorage completely full, keeping in memory and sessionStorage:', e2);
+      console.warn('Storage full, keeping in memory and sessionStorage:', e2);
       try {
         sessionStorage.setItem(CUSTOM_REPORTS_KEY, JSON.stringify(map));
       } catch {}
@@ -500,7 +514,7 @@ function saveCustomReportsMap(map: Record<string, ActivityReport[]>) {
 
 function getDeletedReportsList(): string[] {
   try {
-    const raw = localStorage.getItem(DELETED_REPORTS_KEY);
+    const raw = safeGetLocalStorage(DELETED_REPORTS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -508,14 +522,14 @@ function getDeletedReportsList(): string[] {
 }
 
 function saveDeletedReportsList(list: string[]) {
-  localStorage.setItem(DELETED_REPORTS_KEY, JSON.stringify(list));
+  safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify(list));
   triggerStoreUpdate();
 }
 
 export function getTeamOverrides(): Record<string, Partial<TeamData>> {
   autoRecoverAllSavedLogos();
   try {
-    const raw = localStorage.getItem(TEAM_OVERRIDES_KEY);
+    const raw = safeGetLocalStorage(TEAM_OVERRIDES_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -523,10 +537,10 @@ export function getTeamOverrides(): Record<string, Partial<TeamData>> {
 }
 
 export function saveTeamOverrides(map: Record<string, Partial<TeamData>>) {
-  localStorage.setItem(TEAM_OVERRIDES_KEY, JSON.stringify(map));
-  // Keep legacy key in sync for backwards-compatibility
+  safeSetLocalStorage(TEAM_OVERRIDES_KEY, JSON.stringify(map));
+  // Keep legacy key in sync for backwards-compatibility safely
   try {
-    localStorage.setItem(TEAM_OVERRIDES_LEGACY_KEY, JSON.stringify(map));
+    safeSetLocalStorage(TEAM_OVERRIDES_LEGACY_KEY, JSON.stringify(map));
   } catch {}
   triggerStoreUpdate();
 }
@@ -634,7 +648,7 @@ export function getLatestReportUpdateDate(): string {
   }
   if (typeof window !== 'undefined') {
     try {
-      const savedLast = localStorage.getItem('mahash_last_activity_date');
+      const savedLast = safeGetLocalStorage('mahash_last_activity_date');
       if (savedLast) return savedLast;
     } catch {}
   }
@@ -642,7 +656,15 @@ export function getLatestReportUpdateDate(): string {
 }
 
 
+let _memoizedTeamsCache: Record<string, TeamData> | null = null;
+let _lastTeamsCacheVersion: number = -1;
+
 export function getAllTeams(): Record<string, TeamData> {
+  const currentVersion = getGlobalCacheVersion();
+  if (_memoizedTeamsCache && _lastTeamsCacheVersion === currentVersion) {
+    return _memoizedTeamsCache;
+  }
+  
   autoRecoverAllSavedLogos();
   const customMap = getCustomReportsMap();
   const deletedList = getDeletedReportsList();
@@ -666,7 +688,7 @@ export function getAllTeams(): Record<string, TeamData> {
     let effectiveLogo = overrides.logo;
     if (!effectiveLogo) {
       try {
-        const indVal = localStorage.getItem(`mahash_team_logo_${shortId}`) || localStorage.getItem(`mahash_team_logo_${slug}`) || localStorage.getItem(`team_logo_${shortId}`);
+        const indVal = safeGetLocalStorage(`mahash_team_logo_${shortId}`) || safeGetLocalStorage(`mahash_team_logo_${slug}`) || safeGetLocalStorage(`team_logo_${shortId}`);
         if (indVal && isCustomImageDataUrlOrUrl(indVal)) {
           effectiveLogo = indVal;
         }
@@ -674,7 +696,7 @@ export function getAllTeams(): Record<string, TeamData> {
     }
     if (!effectiveLogo) {
       try {
-        const rawScores = localStorage.getItem(SCORES_KEY);
+        const rawScores = safeGetLocalStorage(SCORES_KEY);
         if (rawScores) {
           const parsedScores = JSON.parse(rawScores);
           if (Array.isArray(parsedScores)) {
@@ -711,10 +733,14 @@ export function getAllTeams(): Record<string, TeamData> {
       }
     });
 
+    const isAdmin = isAdminAuthenticated();
+
     // Sort reports inside each team: newest first (index 0)
-    const sortedReports = Array.from(mergedReportsMap.values()).sort((a, b) => {
-      return parseReportTimestamp(b) - parseReportTimestamp(a);
-    });
+    const sortedReports = Array.from(mergedReportsMap.values())
+      .filter((r) => isAdmin || r.status !== 'draft')
+      .sort((a, b) => {
+        return parseReportTimestamp(b) - parseReportTimestamp(a);
+      });
 
     result[slug] = {
       ...baseTeam,
@@ -760,7 +786,14 @@ export function getTeam(slug: string): TeamData | undefined {
   return teams[slug];
 }
 
+let _memoizedReportsCache: (ActivityReport & { teamName: string; teamSlug: string })[] | null = null;
+let _lastReportsCacheVersion: number = -1;
+
 export function getAllReports(): (ActivityReport & { teamName: string; teamSlug: string })[] {
+  const currentVersion = getGlobalCacheVersion();
+  if (_memoizedReportsCache && _lastReportsCacheVersion === currentVersion) {
+    return _memoizedReportsCache;
+  }
   const teams = getAllTeams();
   const all: (ActivityReport & { teamName: string; teamSlug: string })[] = [];
 
@@ -828,7 +861,7 @@ export function saveReport(report: ActivityReport, teamSlug: string): void {
   customMap[teamSlug] = teamReports;
   if (report.date) {
     try {
-      localStorage.setItem('mahash_last_activity_date', report.date);
+      safeSetLocalStorage('mahash_last_activity_date', report.date);
     } catch {}
   }
   saveCustomReportsMap(customMap);
@@ -872,7 +905,7 @@ export function deleteReport(reportId: string, teamSlug?: string): void {
   try {
     const remainingReports = getAllReports();
     if (remainingReports.length > 0 && remainingReports[0].date) {
-      localStorage.setItem('mahash_last_activity_date', remainingReports[0].date);
+      safeSetLocalStorage('mahash_last_activity_date', remainingReports[0].date);
     }
   } catch {}
 
@@ -936,9 +969,72 @@ export function getNextReportNumberForTeam(teamSlug: string): string {
   return `گزارش ${toPersianDigits(nextNum)}`;
 }
 
+/**
+ * Resolves any team slug, ID, or Persian name into its official canonical slug, short ID, and all known aliases.
+ */
+export function resolveCanonicalTeamIdentifiers(input: string): { slug: string; shortId: string; aliases: string[] } {
+  if (!input) return { slug: 'team-thinker', shortId: 'thinker', aliases: ['team-thinker', 'thinker'] };
+  const raw = String(input).trim().toLowerCase();
+  
+  if (raw.includes('angel') || raw.includes('فرشتگان') || raw.includes('fereshte')) {
+    return {
+      slug: 'team-angels',
+      shortId: 'angels',
+      aliases: ['team-angels', 'angels', 'fereshtegan', 'fereshteha', 'team-fereshtegan', 'فرشتگان', 'تیم فرشتگان ناشنوایان']
+    };
+  }
+  
+  if (raw.includes('ghorban') || raw.includes('قربان') || raw.includes('قربونی') || raw.includes('خادم')) {
+    return {
+      slug: 'team-ghorbani',
+      shortId: 'ghorbani',
+      aliases: ['team-ghorbani', 'ghorbani', 'ghorbanikhani', 'ghorbooni', 'khadem', 'khademoshohada', 'team-khadem', 'قربانی', 'قربونی', 'تیم خادم الشهدا']
+    };
+  }
+  
+  if (raw.includes('silence') || raw.includes('سکوت') || raw.includes('آوا') || raw.includes('یاوران')) {
+    return {
+      slug: 'team-silence',
+      shortId: 'silence',
+      aliases: ['team-silence', 'silence', 'yavaran', 'sokoot', 'avaye-sokoot', 'team-yavaran', 'سکوت', 'آوای سکوت', 'تیم آوای سکوت', 'یاوران سکوت']
+    };
+  }
+  
+  if (raw.includes('tomorrow') || raw.includes('فردا') || raw.includes('سازندگان')) {
+    return {
+      slug: 'team-tomorrow',
+      shortId: 'tomorrow',
+      aliases: ['team-tomorrow', 'tomorrow', 'farda', 'team-farda', 'سازندگان فردا', 'باشگاه فردا']
+    };
+  }
+  
+  if (raw.includes('think') || raw.includes('متفکر') || raw.includes('تفکر')) {
+    return {
+      slug: 'team-thinker',
+      shortId: 'thinker',
+      aliases: ['team-thinker', 'thinker', 'moteffaker', 'team-moteffaker', 'مغز متفکر', 'اهل تفکر']
+    };
+  }
+  
+  const shortId = raw.replace(/^team-/, '');
+  const slug = raw.startsWith('team-') ? raw : `team-${raw}`;
+  return { slug, shortId, aliases: [slug, shortId] };
+}
+
+export function normalizeConsultantKey(name: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .replace(/^خانم\s+دکتر\s+/g, '')
+    .replace(/^دکتر\s+/g, '')
+    .replace(/^آقای\s+/g, '')
+    .replace(/^خانم\s+/g, '')
+    .replace(/[\u200c\s]+/g, ' ')
+    .trim();
+}
+
 export function updateTeamDetails(teamSlugOrId: string, updates: Partial<TeamData>): void {
-  const normSlug = teamSlugOrId.startsWith('team-') ? teamSlugOrId : `team-${teamSlugOrId}`;
-  const shortId = teamSlugOrId.replace(/^team-/, '');
+  const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamSlugOrId);
 
   const overrides = getTeamOverrides();
   overrides[normSlug] = {
@@ -946,48 +1042,103 @@ export function updateTeamDetails(teamSlugOrId: string, updates: Partial<TeamDat
     ...(overrides[shortId] || {}),
     ...updates
   };
-  // Also keep shortId in sync
+  // Keep shortId and aliases in sync
   overrides[shortId] = {
     ...(overrides[normSlug] || {})
   };
+  aliases.forEach((al) => {
+    overrides[al] = { ...(overrides[normSlug] || {}) };
+  });
+
   saveTeamOverrides(overrides);
   triggerGlobalCacheBust();
 }
 
-export function saveTeamLogo(teamSlugOrId: string, logoDataUrl: string): void {
-  if (!teamSlugOrId || !logoDataUrl) return;
-  const normSlug = teamSlugOrId.startsWith('team-') ? teamSlugOrId : `team-${teamSlugOrId}`;
-  const shortId = teamSlugOrId.replace(/^team-/, '');
+export function getTeamLogo(teamSlugOrId: string): string | null {
+  if (!teamSlugOrId) return null;
+  const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamSlugOrId);
 
-  // 1. Update team overrides
-  updateTeamDetails(normSlug, { logo: logoDataUrl });
-
-  // 2. Direct individual keys persistence for ultimate safety
   try {
-    localStorage.setItem(`mahash_team_logo_${shortId}`, logoDataUrl);
-    localStorage.setItem(`mahash_team_logo_${normSlug}`, logoDataUrl);
-    localStorage.setItem(`team_logo_${shortId}`, logoDataUrl);
+    const overrides = getTeamOverrides();
+    if (overrides[normSlug]?.logo && isCustomImageDataUrlOrUrl(overrides[normSlug].logo)) return overrides[normSlug].logo as string;
+    if (overrides[shortId]?.logo && isCustomImageDataUrlOrUrl(overrides[shortId].logo)) return overrides[shortId].logo as string;
+    for (const al of aliases) {
+      if (overrides[al]?.logo && isCustomImageDataUrlOrUrl(overrides[al].logo)) return overrides[al].logo as string;
+    }
+
+    const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
+    if (rawMap) {
+      const parsedMap = JSON.parse(rawMap);
+      if (parsedMap[normSlug] && isCustomImageDataUrlOrUrl(parsedMap[normSlug])) return parsedMap[normSlug];
+      if (parsedMap[shortId] && isCustomImageDataUrlOrUrl(parsedMap[shortId])) return parsedMap[shortId];
+      for (const al of aliases) {
+        if (parsedMap[al] && isCustomImageDataUrlOrUrl(parsedMap[al])) return parsedMap[al];
+      }
+    }
+
+    const keysToCheck = [
+      `mahash_team_logo_${shortId}`,
+      `mahash_team_logo_${normSlug}`,
+      `team_logo_${shortId}`,
+      `team_logo_${normSlug}`,
+      ...aliases.map((al) => `mahash_team_logo_${al}`),
+      ...aliases.map((al) => `team_logo_${al}`)
+    ];
+
+    for (const key of keysToCheck) {
+      const val = safeGetLocalStorage(key);
+      if (val && isCustomImageDataUrlOrUrl(val)) return val;
+    }
   } catch {}
 
-  // 3. Team logos map persistence
+  return null;
+}
+
+export function isTeamLogoSaveRestricted(teamSlugOrId: string): boolean {
+  // Allow all youth teams and workgroups to upload and save logos freely
+  return false;
+}
+
+export function saveTeamLogo(teamSlugOrId: string, logoDataUrl: string): void {
+  if (!teamSlugOrId || !logoDataUrl) return;
+  if (isTeamLogoSaveRestricted(teamSlugOrId)) {
+    console.info(`Saving logo for ${teamSlugOrId} is disabled by user policy.`);
+    return;
+  }
+  const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamSlugOrId);
+
+  // 1. Update team overrides (primary store)
+  updateTeamDetails(normSlug, { logo: logoDataUrl });
+
+  // 2. Team logos map persistence (clean single JSON entry)
   try {
-    const rawMap = localStorage.getItem(TEAM_LOGOS_MAP_KEY);
+    const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
     const parsedMap = rawMap ? JSON.parse(rawMap) : {};
     parsedMap[normSlug] = logoDataUrl;
     parsedMap[shortId] = logoDataUrl;
-    localStorage.setItem(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
+    aliases.forEach((al) => {
+      parsedMap[al] = logoDataUrl;
+    });
+    safeSetLocalStorage(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
   } catch {}
 
-  // 4. Keep scores list logo property updated as well
+  // 3. Keep scores list logo property updated as well
   try {
     const rawScores = getAllScores();
     const updatedScores = rawScores.map((s) => {
-      if (s.id === shortId || s.id === normSlug) {
+      if (s.id === shortId || s.id === normSlug || aliases.includes(s.id)) {
         return { ...s, logo: logoDataUrl };
       }
       return s;
     });
     saveAllScores(updatedScores);
+  } catch {}
+
+  // 4. In-memory update of base TEAMS_DATA
+  try {
+    if (TEAMS_DATA[normSlug]) {
+      TEAMS_DATA[normSlug].logo = logoDataUrl;
+    }
   } catch {}
 
   triggerGlobalCacheBust();
@@ -998,8 +1149,7 @@ export function saveTeamLogo(teamSlugOrId: string, logoDataUrl: string): void {
 
 export function resetTeamLogo(teamSlugOrId: string): void {
   if (!teamSlugOrId) return;
-  const normSlug = teamSlugOrId.startsWith('team-') ? teamSlugOrId : `team-${teamSlugOrId}`;
-  const shortId = teamSlugOrId.replace(/^team-/, '');
+  const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamSlugOrId);
 
   const overrides = getTeamOverrides();
   if (overrides[normSlug]) {
@@ -1008,22 +1158,35 @@ export function resetTeamLogo(teamSlugOrId: string): void {
   if (overrides[shortId]) {
     delete overrides[shortId].logo;
   }
+  aliases.forEach((al) => {
+    if (overrides[al]) delete overrides[al].logo;
+  });
   saveTeamOverrides(overrides);
 
   try {
-    localStorage.removeItem(`mahash_team_logo_${shortId}`);
-    localStorage.removeItem(`mahash_team_logo_${normSlug}`);
-    localStorage.removeItem(`team_logo_${shortId}`);
-    localStorage.removeItem(`team_logo_${normSlug}`);
+    const keysToRemove = [
+      `mahash_team_logo_${shortId}`,
+      `mahash_team_logo_${normSlug}`,
+      `team_logo_${shortId}`,
+      `team_logo_${normSlug}`,
+      ...aliases.map((al) => `mahash_team_logo_${al}`),
+      ...aliases.map((al) => `team_logo_${al}`)
+    ];
+    keysToRemove.forEach((k) => {
+      safeRemoveLocalStorage(k);
+    });
   } catch {}
 
   try {
-    const rawMap = localStorage.getItem(TEAM_LOGOS_MAP_KEY);
+    const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
     if (rawMap) {
       const parsedMap = JSON.parse(rawMap);
       delete parsedMap[normSlug];
       delete parsedMap[shortId];
-      localStorage.setItem(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
+      aliases.forEach((al) => {
+        delete parsedMap[al];
+      });
+      safeSetLocalStorage(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
     }
   } catch {}
 
@@ -1032,7 +1195,7 @@ export function resetTeamLogo(teamSlugOrId: string): void {
     const baseDefault = SCORES_DATA.find((s) => s.id === shortId || s.id === normSlug);
     const rawScores = getAllScores();
     const updatedScores = rawScores.map((s) => {
-      if (s.id === shortId || s.id === normSlug) {
+      if (s.id === shortId || s.id === normSlug || aliases.includes(s.id)) {
         return { ...s, logo: baseDefault?.logo };
       }
       return s;
@@ -1044,6 +1207,225 @@ export function resetTeamLogo(teamSlugOrId: string): void {
 }
 
 // ----------------------------------------------------
+// Member Avatars Management
+// ----------------------------------------------------
+
+export function getMemberAvatars(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = safeGetLocalStorage(MEMBER_AVATARS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getMemberAvatar(teamSlugOrId: string, memberName: string, fallbackEmoji: string = '👤'): string {
+  if (!memberName || typeof memberName !== 'string') return fallbackEmoji;
+  const normSlug = teamSlugOrId ? (teamSlugOrId.startsWith('team-') ? teamSlugOrId : `team-${teamSlugOrId}`) : '';
+  const shortId = teamSlugOrId ? teamSlugOrId.replace(/^team-/, '') : '';
+  const avatars = getMemberAvatars();
+  const trimmed = memberName.trim();
+  
+  return avatars[`${normSlug}_${trimmed}`] || avatars[`${shortId}_${trimmed}`] || avatars[trimmed] || fallbackEmoji;
+}
+
+export function saveMemberAvatar(teamSlugOrId: string, memberName: string, avatarDataUrlOrEmoji: string): void {
+  if (!memberName || !avatarDataUrlOrEmoji) return;
+  const normSlug = teamSlugOrId ? (teamSlugOrId.startsWith('team-') ? teamSlugOrId : `team-${teamSlugOrId}`) : '';
+  const shortId = teamSlugOrId ? teamSlugOrId.replace(/^team-/, '') : '';
+  const avatars = getMemberAvatars();
+  const trimmed = memberName.trim();
+
+  if (normSlug) avatars[`${normSlug}_${trimmed}`] = avatarDataUrlOrEmoji;
+  if (shortId) avatars[`${shortId}_${trimmed}`] = avatarDataUrlOrEmoji;
+  avatars[trimmed] = avatarDataUrlOrEmoji;
+
+  try {
+    safeSetLocalStorage(MEMBER_AVATARS_KEY, JSON.stringify(avatars));
+  } catch (err) {
+    console.warn('Failed to save member avatar:', err);
+  }
+  triggerGlobalCacheBust();
+}
+
+export function resetMemberAvatar(teamSlugOrId: string, memberName: string): void {
+  if (!memberName) return;
+  const normSlug = teamSlugOrId ? (teamSlugOrId.startsWith('team-') ? teamSlugOrId : `team-${teamSlugOrId}`) : '';
+  const shortId = teamSlugOrId ? teamSlugOrId.replace(/^team-/, '') : '';
+  const avatars = getMemberAvatars();
+  const trimmed = memberName.trim();
+
+  if (normSlug) delete avatars[`${normSlug}_${trimmed}`];
+  if (shortId) delete avatars[`${shortId}_${trimmed}`];
+  delete avatars[trimmed];
+
+  try {
+    safeSetLocalStorage(MEMBER_AVATARS_KEY, JSON.stringify(avatars));
+  } catch {}
+  triggerGlobalCacheBust();
+}
+
+// ----------------------------------------------------
+// Consultants Management
+// ----------------------------------------------------
+
+export function getConsultantPhotos(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = safeGetLocalStorage(CONSULTANT_PHOTOS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getConsultantPhoto(consultantName: string, defaultAvatar?: string): string {
+  if (!consultantName) return defaultAvatar || '';
+  const trimmed = consultantName.trim();
+  const normalized = normalizeConsultantKey(trimmed);
+  const photos = getConsultantPhotos();
+
+  if (photos[trimmed] && isCustomImageDataUrlOrUrl(photos[trimmed])) return photos[trimmed];
+  if (normalized && photos[normalized] && isCustomImageDataUrlOrUrl(photos[normalized])) return photos[normalized];
+
+  try {
+    const direct1 = safeGetLocalStorage(`mahash_consultant_photo_${encodeURIComponent(trimmed)}`);
+    if (direct1 && isCustomImageDataUrlOrUrl(direct1)) return direct1;
+    if (normalized) {
+      const direct2 = safeGetLocalStorage(`mahash_consultant_photo_${encodeURIComponent(normalized)}`);
+      if (direct2 && isCustomImageDataUrlOrUrl(direct2)) return direct2;
+    }
+  } catch {}
+
+  const match = Object.keys(photos).find((k) => {
+    const normK = normalizeConsultantKey(k);
+    return k.includes(trimmed) || trimmed.includes(k) || (normalized && normK && (normK.includes(normalized) || normalized.includes(normK)));
+  });
+  if (match && photos[match] && isCustomImageDataUrlOrUrl(photos[match])) return photos[match];
+
+  return defaultAvatar || '';
+}
+
+export function isConsultantPhotoSaveRestricted(consultantName?: string): boolean {
+  return false;
+}
+
+export function saveConsultantPhoto(consultantName: string, photoDataUrl: string): void {
+  if (!consultantName || !photoDataUrl) return;
+  if (isConsultantPhotoSaveRestricted(consultantName)) {
+    console.info(`Saving photo for consultant ${consultantName} is disabled by user policy.`);
+    return;
+  }
+  const trimmed = consultantName.trim();
+  const normalized = normalizeConsultantKey(trimmed);
+
+  const photos = getConsultantPhotos();
+  photos[trimmed] = photoDataUrl;
+  if (normalized) {
+    photos[normalized] = photoDataUrl;
+  }
+
+  try {
+    safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(photos));
+  } catch (err) {
+    console.warn('Failed to save consultant photo:', err);
+  }
+
+  // Also update in consultants storage list
+  try {
+    const list = getAllConsultants();
+    const updated = list.map((c) => {
+      const cNorm = normalizeConsultantKey(c.name);
+      if (c.name.trim() === trimmed || (normalized && cNorm === normalized)) {
+        return { ...c, image: photoDataUrl };
+      }
+      return c;
+    });
+    saveAllConsultants(updated);
+  } catch {}
+
+  triggerGlobalCacheBust();
+}
+
+export function resetConsultantPhoto(consultantName: string): void {
+  if (!consultantName) return;
+  const trimmed = consultantName.trim();
+  const normalized = normalizeConsultantKey(trimmed);
+
+  const photos = getConsultantPhotos();
+  delete photos[trimmed];
+  if (normalized) delete photos[normalized];
+
+  try {
+    safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(photos));
+    safeRemoveLocalStorage(`mahash_consultant_photo_${encodeURIComponent(trimmed)}`);
+    if (normalized) {
+      safeRemoveLocalStorage(`mahash_consultant_photo_${encodeURIComponent(normalized)}`);
+    }
+  } catch {}
+
+  triggerGlobalCacheBust();
+}
+
+export function getAllConsultants(): Consultant[] {
+  if (typeof window === 'undefined') return CONSULTANTS;
+  try {
+    const raw = safeGetLocalStorage(CONSULTANTS_STORAGE_KEY);
+    const photos = getConsultantPhotos();
+    let baseList = CONSULTANTS;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        baseList = parsed;
+      }
+    }
+    return baseList.map((c, idx) => {
+      const defaultImg = idx === 0 ? NAZI_AVATAR_SVG : (c.image || RADIN_AVATAR_SVG);
+      return {
+        ...c,
+        image: photos[c.name.trim()] || c.image || defaultImg
+      };
+    });
+  } catch {
+    return CONSULTANTS;
+  }
+}
+
+export function saveAllConsultants(consultants: Consultant[]): void {
+  try {
+    safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(consultants));
+  } catch {}
+  triggerGlobalCacheBust();
+}
+
+export function updateConsultantInfo(consultantName: string, updates: Partial<Consultant>): void {
+  const currentList = getAllConsultants();
+  const trimmed = consultantName.trim();
+  const updatedList = currentList.map((c) => {
+    if (c.name.trim() === trimmed || c.name.includes(trimmed)) {
+      return { ...c, ...updates };
+    }
+    return c;
+  });
+  saveAllConsultants(updatedList);
+}
+
+export function addConsultant(consultant: Consultant): void {
+  const currentList = getAllConsultants();
+  currentList.push(consultant);
+  saveAllConsultants(currentList);
+}
+
+export function deleteConsultant(consultantName: string): void {
+  const currentList = getAllConsultants();
+  const trimmed = consultantName.trim();
+  const updatedList = currentList.filter((c) => c.name.trim() !== trimmed);
+  saveAllConsultants(updatedList);
+  resetConsultantPhoto(consultantName);
+}
+
+// ----------------------------------------------------
 // Scores Management
 // ----------------------------------------------------
 
@@ -1051,7 +1433,7 @@ export function getAllScores(): ScoreItem[] {
   autoRecoverAllSavedLogos();
   let list: ScoreItem[] = SCORES_DATA;
   try {
-    const raw = localStorage.getItem(SCORES_KEY);
+    const raw = safeGetLocalStorage(SCORES_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -1071,7 +1453,7 @@ export function getAllScores(): ScoreItem[] {
       return { ...item, logo: override.logo };
     }
     try {
-      const indVal = localStorage.getItem(`mahash_team_logo_${shortId}`) || localStorage.getItem(`mahash_team_logo_${normSlug}`);
+      const indVal = safeGetLocalStorage(`mahash_team_logo_${shortId}`) || safeGetLocalStorage(`mahash_team_logo_${normSlug}`);
       if (indVal && isCustomImageDataUrlOrUrl(indVal)) {
         return { ...item, logo: indVal };
       }
@@ -1081,7 +1463,7 @@ export function getAllScores(): ScoreItem[] {
 }
 
 export function saveAllScores(scores: ScoreItem[]): void {
-  localStorage.setItem(SCORES_KEY, JSON.stringify(scores));
+  safeSetLocalStorage(SCORES_KEY, JSON.stringify(scores));
   triggerStoreUpdate();
 }
 
@@ -1100,7 +1482,7 @@ export function updateTeamScore(teamId: string, newScore: number): void {
 
 export function getAllEvents(): EventItem[] {
   try {
-    const raw = localStorage.getItem(EVENTS_KEY);
+    const raw = safeGetLocalStorage(EVENTS_KEY);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
@@ -1119,14 +1501,14 @@ export function saveEvent(event: EventItem): void {
   } else {
     updated = [event, ...currentEvents];
   }
-  localStorage.setItem(EVENTS_KEY, JSON.stringify(updated));
+  safeSetLocalStorage(EVENTS_KEY, JSON.stringify(updated));
   triggerStoreUpdate();
 }
 
 export function deleteEvent(eventId: string): void {
   const currentEvents = getAllEvents();
   const updated = currentEvents.filter((e) => e.id !== eventId);
-  localStorage.setItem(EVENTS_KEY, JSON.stringify(updated));
+  safeSetLocalStorage(EVENTS_KEY, JSON.stringify(updated));
   triggerStoreUpdate();
 }
 
@@ -1136,7 +1518,7 @@ export function deleteEvent(eventId: string): void {
 
 export function getAllReportViews(): Record<string, number> {
   try {
-    const raw = localStorage.getItem(VIEWS_KEY);
+    const raw = safeGetLocalStorage(VIEWS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       return { ...DEFAULT_VIEWS, ...parsed };
@@ -1157,7 +1539,7 @@ export function incrementReportViews(reportId: string): number {
   const current = views[reportId] ?? 0;
   const next = current + 1;
   views[reportId] = next;
-  localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
+  safeSetLocalStorage(VIEWS_KEY, JSON.stringify(views));
   triggerStoreUpdate();
   return next;
 }
@@ -1166,7 +1548,7 @@ export function setReportViews(reportId: string, count: number): void {
   if (!reportId) return;
   const views = getAllReportViews();
   views[reportId] = Math.max(0, count);
-  localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
+  safeSetLocalStorage(VIEWS_KEY, JSON.stringify(views));
   triggerStoreUpdate();
 }
 
@@ -1174,194 +1556,289 @@ export function setReportViews(reportId: string, count: number): void {
 // Server Store Synchronization & Cloud Persistence
 // ----------------------------------------------------
 
-let isSyncingToServer = false;
+
 let hasLoadedFromServer = false;
 
 export async function fetchAndMergeServerStore(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   try {
-    const res = await fetch('/api/store');
-    if (!res.ok) return false;
-    const serverData = await res.json();
-    if (!serverData || typeof serverData !== 'object') return false;
+    const keys = [
+      'teamLogos', 'teamOverrides', 'mahashLogo', 'clubEmblem', 
+      'customReports', 'deletedReports', 'scores', 'events', 
+      'customBadges', 'consultantPhotos', 'consultantsList', 'memberAvatars'
+    ];
+    
+    let serverData: any = {};
+    const results = await Promise.all(keys.map(k => loadFromFirebaseStore(k)));
+
+    let needsPushToServer = false;
+
+    keys.forEach((k, idx) => {
+      if (results[idx]) {
+        if (results[idx].__corrupt) {
+          needsPushToServer = true;
+        } else {
+          serverData[k] = results[idx];
+        }
+      }
+    });
 
     let modified = false;
 
+    // Auto-restore from admin browser if server is wiped (Serverless container restart recovery)
+    if (Object.keys(serverData.teamLogos || {}).length === 0) {
+      const localLogos = safeGetLocalStorage('mahash_team_logos_map');
+      if (localLogos && Object.keys(JSON.parse(localLogos)).length > 0) {
+        needsPushToServer = true;
+      }
+    }
+
     // Merge team logos
     if (serverData.teamLogos && typeof serverData.teamLogos === 'object' && Object.keys(serverData.teamLogos).length > 0) {
-      const rawMap = localStorage.getItem(TEAM_LOGOS_MAP_KEY);
+      const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
       const parsedMap = rawMap ? JSON.parse(rawMap) : {};
       Object.entries(serverData.teamLogos).forEach(([k, v]) => {
         if (typeof v === 'string' && v.trim()) {
           parsedMap[k] = v;
-          const shortId = k.replace(/^team-/, '');
-          const normSlug = k.startsWith('team-') ? k : `team-${k}`;
-          localStorage.setItem(`mahash_team_logo_${shortId}`, v);
-          localStorage.setItem(`mahash_team_logo_${normSlug}`, v);
-          localStorage.setItem(`team_logo_${shortId}`, v);
         }
       });
-      localStorage.setItem(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
+      safeSetLocalStorage(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
       modified = true;
     }
 
     // Merge team overrides
     if (serverData.teamOverrides && typeof serverData.teamOverrides === 'object' && Object.keys(serverData.teamOverrides).length > 0) {
-      const rawOverrides = localStorage.getItem(TEAM_OVERRIDES_KEY);
+      const rawOverrides = safeGetLocalStorage(TEAM_OVERRIDES_KEY);
       const parsedOverrides = rawOverrides ? JSON.parse(rawOverrides) : {};
       Object.entries(serverData.teamOverrides).forEach(([k, v]) => {
         parsedOverrides[k] = { ...(parsedOverrides[k] || {}), ...(v as any) };
       });
-      localStorage.setItem(TEAM_OVERRIDES_KEY, JSON.stringify(parsedOverrides));
+      safeSetLocalStorage(TEAM_OVERRIDES_KEY, JSON.stringify(parsedOverrides));
       modified = true;
     }
 
-    // Mahash logo
-    if (serverData.mahashLogo && isCustomImageDataUrlOrUrl(serverData.mahashLogo)) {
-      localStorage.setItem(MAHASH_LOGO_KEY, serverData.mahashLogo);
-      localStorage.setItem('mahash_site_logo', serverData.mahashLogo);
-      localStorage.setItem('club_emblem_logo', serverData.mahashLogo);
-      modified = true;
-    }
-
-    // Club emblem
-    if (serverData.clubEmblem && isCustomImageDataUrlOrUrl(serverData.clubEmblem)) {
-      localStorage.setItem(CLUB_EMBLEM_KEY, serverData.clubEmblem);
-      modified = true;
-    }
-
-    // Custom reports
-    if (Array.isArray(serverData.customReports) && serverData.customReports.length > 0) {
-      const map: Record<string, ActivityReport[]> = {};
-      serverData.customReports.forEach((rep: ActivityReport) => {
-        if (rep && rep.id) {
-          const teamSlug = rep.teamSlug || 'thinker';
-          const normSlug = teamSlug.startsWith('team-') ? teamSlug : `team-${teamSlug}`;
-          if (!map[normSlug]) map[normSlug] = [];
-          map[normSlug].push(rep);
+    // Replace other top-level simple lists if they have content
+    if (serverData.customReports && Array.isArray(serverData.customReports) && serverData.customReports.length > 0) {
+      const grouped: Record<string, any[]> = {};
+      serverData.customReports.forEach((r: any) => {
+        if (r.teamSlug) {
+          if (!grouped[r.teamSlug]) grouped[r.teamSlug] = [];
+          grouped[r.teamSlug].push(r);
         }
       });
-      localStorage.setItem(CUSTOM_REPORTS_KEY, JSON.stringify(map));
+      safeSetLocalStorage(CUSTOM_REPORTS_KEY, JSON.stringify(grouped));
       modified = true;
     }
 
-    // Deleted reports
-    if (Array.isArray(serverData.deletedReports) && serverData.deletedReports.length > 0) {
-      localStorage.setItem(DELETED_REPORTS_KEY, JSON.stringify(serverData.deletedReports));
+    if (serverData.deletedReports && Array.isArray(serverData.deletedReports) && serverData.deletedReports.length > 0) {
+      safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify(serverData.deletedReports));
       modified = true;
     }
 
-    // Scores
-    if (Array.isArray(serverData.scores) && serverData.scores.length > 0) {
-      localStorage.setItem(SCORES_KEY, JSON.stringify(serverData.scores));
+    if (serverData.scores && Array.isArray(serverData.scores) && serverData.scores.length > 0) {
+      safeSetLocalStorage(SCORES_KEY, JSON.stringify(serverData.scores));
       modified = true;
     }
 
-    // Events
-    if (Array.isArray(serverData.events) && serverData.events.length > 0) {
-      localStorage.setItem(EVENTS_KEY, JSON.stringify(serverData.events));
+    if (serverData.events && Array.isArray(serverData.events) && serverData.events.length > 0) {
+      safeSetLocalStorage(EVENTS_KEY, JSON.stringify(serverData.events));
+      modified = true;
+    }
+    
+    if (serverData.customBadges && Array.isArray(serverData.customBadges) && serverData.customBadges.length > 0) {
+      safeSetLocalStorage('mahash_custom_badges_v1', JSON.stringify(serverData.customBadges));
       modified = true;
     }
 
-    // Custom badges
-    if (Array.isArray(serverData.customBadges) && serverData.customBadges.length > 0) {
-      localStorage.setItem('mahash_custom_badges_v1', JSON.stringify(serverData.customBadges));
+    if (serverData.consultantPhotos && Object.keys(serverData.consultantPhotos).length > 0) {
+      safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(serverData.consultantPhotos));
       modified = true;
     }
 
-    // Report views
-    if (serverData.reportViews && typeof serverData.reportViews === 'object') {
-      localStorage.setItem(VIEWS_KEY, JSON.stringify(serverData.reportViews));
+    if (serverData.consultantsList && Array.isArray(serverData.consultantsList) && serverData.consultantsList.length > 0) {
+      safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(serverData.consultantsList));
       modified = true;
     }
 
-    hasLoadedFromServer = true;
+    if (serverData.memberAvatars && Object.keys(serverData.memberAvatars).length > 0) {
+      safeSetLocalStorage(MEMBER_AVATARS_KEY, JSON.stringify(serverData.memberAvatars));
+      modified = true;
+    }
+
+    if (serverData.mahashLogo) {
+      safeSetLocalStorage(MAHASH_LOGO_KEY, serverData.mahashLogo);
+      modified = true;
+    }
+    
+    if (serverData.clubEmblem) {
+      safeSetLocalStorage(CLUB_EMBLEM_KEY, serverData.clubEmblem);
+      modified = true;
+    }
 
     if (modified) {
-      autoRecoverAllSavedLogos();
-      triggerGlobalCacheBust();
       triggerStoreUpdate();
+    }
+    
+    if (needsPushToServer) {
+      console.log('Server is empty, but local data exists. Pushing recovery data to Firebase...');
+      setTimeout(() => syncLocalDataToServer(), 1000);
     }
 
     return true;
   } catch (err) {
-    console.warn('[reportsStore] Could not fetch server store:', err);
+    console.warn('[reportsStore] Could not fetch Firebase store:', err);
     return false;
   }
 }
 
-export async function syncLocalDataToServer(): Promise<boolean> {
-  if (typeof window === 'undefined' || isSyncingToServer) return false;
-  isSyncingToServer = true;
 
-  try {
-    // 1. Gather all local custom logos
-    const rawMap = localStorage.getItem(TEAM_LOGOS_MAP_KEY);
-    const parsedMap = rawMap ? JSON.parse(rawMap) : {};
-    
-    // Also scan individual keys
-    const officialShortIds = ['thinker', 'tomorrow', 'angels', 'ghorbani', 'silence'];
-    officialShortIds.forEach((shortId) => {
-      const slug = `team-${shortId}`;
-      const indVal = localStorage.getItem(`mahash_team_logo_${shortId}`) || 
-                     localStorage.getItem(`mahash_team_logo_${slug}`) ||
-                     localStorage.getItem(`team_logo_${shortId}`);
-      if (indVal && isCustomImageDataUrlOrUrl(indVal)) {
-        parsedMap[slug] = indVal;
-        parsedMap[shortId] = indVal;
+let syncTimeout: any = null;
+let pendingResolvers: Array<(val: boolean) => void> = [];
+
+const yieldToMain = () => new Promise(r => setTimeout(r, 10));
+
+export async function syncLocalDataToServer(onProgress?: (progress: number, step: string) => void): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  
+  return new Promise((resolve) => {
+    pendingResolvers.push(resolve);
+    if (syncTimeout) clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(async () => {
+      const resolversToCall = [...pendingResolvers];
+      pendingResolvers = [];
+      try {
+        const pStart = performance.now();
+        let stepStart = performance.now();
+        const profile = (name) => {
+            const now = performance.now();
+            console.log(`[Profile] ${name}: ${(now - stepStart).toFixed(2)}ms`);
+            stepStart = now;
+        };
+
+        if (onProgress) onProgress(5, 'پاکسازی کش‌های قدیمی و بلااستفاده...');
+        globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 5, message: 'پاکسازی کش‌های قدیمی و بلااستفاده...' });
+        
+        await runGarbageCollection();
+        profile('Cache Cleanup');
+        
+        if (onProgress) onProgress(15, 'جمع‌آوری و تجمیع اطلاعات لوگوها و تصاویر تیم‌ها...');
+        globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 15, message: 'جمع‌آوری و تجمیع اطلاعات لوگوها و تصاویر تیم‌ها...' });
+        await yieldToMain();
+        const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
+        const parsedMap = rawMap ? JSON.parse(rawMap) : {};
+        
+        const officialShortIds = ['thinker', 'tomorrow', 'angels', 'ghorbani', 'silence'];
+        officialShortIds.forEach((shortId) => {
+          const slug = `team-${shortId}`;
+          const indVal = safeGetLocalStorage(`mahash_team_logo_${shortId}`) || 
+                         safeGetLocalStorage(`mahash_team_logo_${slug}`) ||
+                         safeGetLocalStorage(`team_logo_${shortId}`);
+          if (indVal && isCustomImageDataUrlOrUrl(indVal)) {
+            parsedMap[slug] = indVal;
+            parsedMap[shortId] = indVal;
+          }
+        });
+
+        const teamOverrides = getTeamOverrides();
+        const mahashLogo = safeGetLocalStorage(MAHASH_LOGO_KEY);
+        const clubEmblem = safeGetLocalStorage(CLUB_EMBLEM_KEY);
+        
+        if (onProgress) onProgress(25, 'آماده‌سازی گزارش‌ها و امتیازات...');
+        globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 25, message: 'آماده‌سازی گزارش‌ها و امتیازات...' });
+
+        await yieldToMain();
+        const customReportsMap = getCustomReportsMap();
+        const customReports = Object.values(customReportsMap).flat();
+        
+        const deletedReports = getDeletedReportsList();
+        const scores = getAllScores();
+        const events = getAllEvents();
+        
+        const customBadgesRaw = safeGetLocalStorage('mahash_custom_badges_v1');
+        const customBadges = customBadgesRaw ? JSON.parse(customBadgesRaw) : [];
+
+        const consultantPhotosRaw = safeGetLocalStorage(CONSULTANT_PHOTOS_KEY);
+        const consultantPhotos = consultantPhotosRaw ? JSON.parse(consultantPhotosRaw) : {};
+
+        const consultantsListRaw = safeGetLocalStorage(CONSULTANTS_STORAGE_KEY);
+        const consultantsList = consultantsListRaw ? JSON.parse(consultantsListRaw) : [];
+
+        const memberAvatarsRaw = safeGetLocalStorage(MEMBER_AVATARS_KEY);
+        const memberAvatars = memberAvatarsRaw ? JSON.parse(memberAvatarsRaw) : {};
+
+        profile('Processing Reports');
+        if (onProgress) onProgress(35, 'فشرده‌سازی اطلاعات و آماده‌سازی برای ارسال شبکه...');
+        globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 35, message: 'فشرده‌سازی اطلاعات و آماده‌سازی برای ارسال شبکه...' });
+
+        await yieldToMain();
+        const payload = {
+          teamLogos: parsedMap,
+          teamOverrides,
+          mahashLogo,
+          clubEmblem,
+          customReports,
+          deletedReports,
+          scores,
+          events,
+          customBadges,
+          consultantPhotos,
+          consultantsList,
+          memberAvatars
+        };
+
+        profile('Assemble Payload');
+        if (onProgress) onProgress(40, 'شروع ارتباط با سرور ابری Firebase...');
+        globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 40, message: 'شروع ارتباط با سرور ابری Firebase...' });
+        await yieldToMain();
+        const keys = Object.keys(payload);
+        
+        let completed = 0;
+        const total = keys.length;
+        
+        const uploadStart = performance.now();
+        
+        // Process uploads with a concurrency queue (e.g. 3 at a time) to prevent blocking
+        const MAX_CONCURRENCY = 2;
+        let currentIndex = 0;
+        
+        const worker = async () => {
+            while (currentIndex < keys.length) {
+                const i = currentIndex++;
+                const k = keys[i];
+                const dataToSave = (payload as any)[k];
+                
+                await yieldToMain();
+                const chunkStart = performance.now();
+                
+                const p = 40 + Math.round((completed / total) * 50);
+                if (onProgress) onProgress(p, `در حال پردازش ${k} (${completed} از ${total})...`);
+                globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: p, message: `در حال پردازش ${k} (${completed} از ${total})...` });
+                
+                const result = await saveToFirebaseStore(k, dataToSave);
+                
+                console.log(`[Profile] Upload chunk ${k}: ${(performance.now() - chunkStart).toFixed(2)}ms`);
+                completed++;
+                if (onProgress) onProgress(40 + Math.round((completed / total) * 50), `بسته ${k} با موفقیت ارسال شد.`);
+            }
+        };
+        
+        const workers = Array(Math.min(MAX_CONCURRENCY, keys.length)).fill(null).map(() => worker());
+        await Promise.all(workers);
+        
+        console.log(`[Profile] Total Upload Data time: ${(performance.now() - uploadStart).toFixed(2)}ms`);
+        console.log(`[Profile] Total Sync time: ${(performance.now() - pStart).toFixed(2)}ms`);
+        if (onProgress) onProgress(100, 'عملیات با موفقیت به پایان رسید.');
+        globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 100, message: 'عملیات با موفقیت به پایان رسید.' });
+        await yieldToMain();
+        setTimeout(() => globalEventBus.emit('SYNC_PROGRESS', { visible: false }), 2000);
+        resolversToCall.forEach(res => res(true));
+      } catch (err) {
+        console.warn('[reportsStore] Failed to sync data to Firebase:', err);
+        globalEventBus.emit('SYNC_PROGRESS', { visible: false });
+        resolversToCall.forEach(res => res(false));
       }
-    });
-
-    const teamOverrides = getTeamOverrides();
-    const mahashLogo = getMahashLogo();
-    const clubEmblem = getYouthClubBadge();
-    
-    // Flatten all custom reports
-    const customMap = getCustomReportsMap();
-    const customReportsList: ActivityReport[] = [];
-    Object.values(customMap).forEach((list) => {
-      if (Array.isArray(list)) {
-        customReportsList.push(...list);
-      }
-    });
-
-    const deletedReports = getDeletedReportsList();
-    const scores = getAllScores();
-    const events = getAllEvents();
-    const reportViews = getAllReportViews();
-
-    let customBadges: any[] = [];
-    try {
-      const rawBadges = localStorage.getItem('mahash_custom_badges_v1');
-      if (rawBadges) customBadges = JSON.parse(rawBadges);
-    } catch {}
-
-    const payload = {
-      teamLogos: parsedMap,
-      teamOverrides,
-      mahashLogo: isCustomImageDataUrlOrUrl(mahashLogo) ? mahashLogo : undefined,
-      clubEmblem: isCustomImageDataUrlOrUrl(clubEmblem) ? clubEmblem : undefined,
-      customReports: customReportsList,
-      deletedReports,
-      scores,
-      events,
-      customBadges,
-      reportViews
-    };
-
-    const res = await fetch('/api/store', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    return res.ok;
-  } catch (err) {
-    console.warn('[reportsStore] Failed to sync data to server:', err);
-    return false;
-  } finally {
-    isSyncingToServer = false;
-  }
+    }, 1500); // 1.5 seconds debounce
+  });
 }
 
 // Auto-fetch on client boot
@@ -1372,7 +1849,7 @@ if (typeof window !== 'undefined') {
 }
 
 export function resetReportViews(): void {
-  localStorage.removeItem(VIEWS_KEY);
+  safeRemoveLocalStorage(VIEWS_KEY);
   triggerStoreUpdate();
 }
 
@@ -1383,10 +1860,10 @@ export function resetReportViews(): void {
 export function getMahashLogo(): string {
   if (typeof window === 'undefined') return MAHESH_LOGO_SVG;
   autoRecoverAllSavedLogos();
-  const saved = localStorage.getItem(MAHASH_LOGO_KEY);
+  const saved = safeGetLocalStorage(MAHASH_LOGO_KEY);
   if (saved && isCustomImageDataUrlOrUrl(saved)) return saved;
   for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-    const legacy = localStorage.getItem(mKey);
+    const legacy = safeGetLocalStorage(mKey);
     if (legacy && isCustomImageDataUrlOrUrl(legacy)) return legacy;
   }
   return saved || MAHESH_LOGO_SVG;
@@ -1395,24 +1872,21 @@ export function getMahashLogo(): string {
 export function setMahashLogo(logo: string): void {
   if (typeof window === 'undefined') return;
   if (!logo) {
-    localStorage.removeItem(MAHASH_LOGO_KEY);
+    safeRemoveLocalStorage(MAHASH_LOGO_KEY);
     for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-      try { localStorage.removeItem(mKey); } catch {}
+      safeRemoveLocalStorage(mKey);
     }
   } else {
-    localStorage.setItem(MAHASH_LOGO_KEY, logo);
-    for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-      try { localStorage.setItem(mKey, logo); } catch {}
-    }
+    safeSetLocalStorage(MAHASH_LOGO_KEY, logo);
   }
   triggerGlobalCacheBust();
 }
 
 export function resetMahashLogo(): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(MAHASH_LOGO_KEY);
+  safeRemoveLocalStorage(MAHASH_LOGO_KEY);
   for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-    try { localStorage.removeItem(mKey); } catch {}
+    safeRemoveLocalStorage(mKey);
   }
   triggerGlobalCacheBust();
 }
@@ -1420,10 +1894,10 @@ export function resetMahashLogo(): void {
 export function getYouthClubBadge(): string {
   if (typeof window === 'undefined') return MAHESH_CLUB_EMBLEM_SVG;
   autoRecoverAllSavedLogos();
-  const saved = localStorage.getItem(CLUB_EMBLEM_KEY);
+  const saved = safeGetLocalStorage(CLUB_EMBLEM_KEY);
   if (saved && isCustomImageDataUrlOrUrl(saved)) return saved;
   for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-    const legacy = localStorage.getItem(cKey);
+    const legacy = safeGetLocalStorage(cKey);
     if (legacy && isCustomImageDataUrlOrUrl(legacy)) return legacy;
   }
   return saved || MAHESH_CLUB_EMBLEM_SVG;
@@ -1432,38 +1906,35 @@ export function getYouthClubBadge(): string {
 export function setYouthClubBadge(badge: string): void {
   if (typeof window === 'undefined') return;
   if (!badge) {
-    localStorage.removeItem(CLUB_EMBLEM_KEY);
+    safeRemoveLocalStorage(CLUB_EMBLEM_KEY);
     for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-      try { localStorage.removeItem(cKey); } catch {}
+      safeRemoveLocalStorage(cKey);
     }
   } else {
-    localStorage.setItem(CLUB_EMBLEM_KEY, badge);
-    for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-      try { localStorage.setItem(cKey, badge); } catch {}
-    }
+    safeSetLocalStorage(CLUB_EMBLEM_KEY, badge);
   }
   triggerStoreUpdate();
 }
 
 export function resetYouthClubBadge(): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(CLUB_EMBLEM_KEY);
+  safeRemoveLocalStorage(CLUB_EMBLEM_KEY);
   for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-    try { localStorage.removeItem(cKey); } catch {}
+    safeRemoveLocalStorage(cKey);
   }
   triggerStoreUpdate();
 }
 
 export function resetAllDataToDefault(): void {
-  localStorage.removeItem(CUSTOM_REPORTS_KEY);
-  localStorage.removeItem(DELETED_REPORTS_KEY);
-  localStorage.removeItem(TEAM_OVERRIDES_KEY);
-  localStorage.removeItem(SCORES_KEY);
-  localStorage.removeItem(EVENTS_KEY);
-  localStorage.removeItem(VIEWS_KEY);
-  localStorage.removeItem(MAHASH_LOGO_KEY);
-  localStorage.removeItem(CLUB_EMBLEM_KEY);
-  localStorage.removeItem('mahash_last_activity_date');
+  safeRemoveLocalStorage(CUSTOM_REPORTS_KEY);
+  safeRemoveLocalStorage(DELETED_REPORTS_KEY);
+  safeRemoveLocalStorage(TEAM_OVERRIDES_KEY);
+  safeRemoveLocalStorage(SCORES_KEY);
+  safeRemoveLocalStorage(EVENTS_KEY);
+  safeRemoveLocalStorage(VIEWS_KEY);
+  safeRemoveLocalStorage(MAHASH_LOGO_KEY);
+  safeRemoveLocalStorage(CLUB_EMBLEM_KEY);
+  safeRemoveLocalStorage('mahash_last_activity_date');
   triggerStoreUpdate();
 }
 
@@ -1476,10 +1947,16 @@ export function exportBackupJSON(): string {
   const views = getAllReportViews();
   const mahashLogo = getMahashLogo();
   const youthClubBadge = getYouthClubBadge();
+  const consultantPhotos = getConsultantPhotos();
+  const consultantsList = getAllConsultants();
+  const memberAvatars = getMemberAvatars();
 
   return JSON.stringify(
     {
       exportedAt: new Date().toISOString(),
+      consultantPhotos,
+      consultantsList,
+      memberAvatars,
       customReports,
       deletedReports,
       teamOverrides,
@@ -1501,10 +1978,13 @@ export function importBackupJSON(jsonStr: string): boolean {
     if (data.deletedReports) saveDeletedReportsList(data.deletedReports);
     if (data.teamOverrides) saveTeamOverrides(data.teamOverrides);
     if (data.scores) saveAllScores(data.scores);
-    if (data.events) localStorage.setItem(EVENTS_KEY, JSON.stringify(data.events));
-    if (data.views) localStorage.setItem(VIEWS_KEY, JSON.stringify(data.views));
+    if (data.events) safeSetLocalStorage(EVENTS_KEY, JSON.stringify(data.events));
+    if (data.views) safeSetLocalStorage(VIEWS_KEY, JSON.stringify(data.views));
     if (data.mahashLogo) setMahashLogo(data.mahashLogo);
     if (data.youthClubBadge) setYouthClubBadge(data.youthClubBadge);
+    if (data.consultantPhotos) safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(data.consultantPhotos));
+    if (data.consultantsList) safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(data.consultantsList));
+    if (data.memberAvatars) safeSetLocalStorage(MEMBER_AVATARS_KEY, JSON.stringify(data.memberAvatars));
     triggerStoreUpdate();
     return true;
   } catch (err) {

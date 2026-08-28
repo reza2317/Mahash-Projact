@@ -11,11 +11,13 @@ import {
   subscribeToStoreUpdates,
   getGlobalCacheVersion,
   triggerGlobalCacheBust,
-  isCustomImageDataUrlOrUrl
+  isCustomImageDataUrlOrUrl,
+  resolveCanonicalTeamIdentifiers
 } from '../utils/reportsStore';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
 import { getTeamLogoPlaceholder, MAHESH_LOGO_SVG } from '../utils/assets';
 import { SCORES_DATA, TEAMS_DATA } from '../data/mahashData';
+import { safeSetLocalStorage, safeGetLocalStorage } from '../utils/storage';
 
 export interface TeamLogoItem {
   id: string;
@@ -72,14 +74,13 @@ export function isValidImageFormat(data: unknown): boolean {
  * Validates and reads a logo key from localStorage with strict format checking
  */
 export function validateAndReadLogoKey(key: string): string | null {
-  if (!isLocalStorageAvailable()) return null;
   try {
-    const val = localStorage.getItem(key);
+    const val = safeGetLocalStorage(key);
     if (val && isValidImageFormat(val)) {
       return val;
     }
   } catch (err) {
-    console.warn(`[useTeamLogos] Error reading key ${key} from localStorage:`, err);
+    console.warn(`[useTeamLogos] Error reading key ${key} from storage:`, err);
   }
   return null;
 }
@@ -220,32 +221,26 @@ export function useTeamLogos() {
       return;
     }
 
-    if (!isLocalStorageAvailable()) return;
-
     try {
       Object.entries(logosMap).forEach(([key, val]) => {
         const logoUrl = String(val || '');
-        // Only persist custom validated image URLs (not pure default placeholders)
-        if (isValidImageFormat(logoUrl) && !logoUrl.startsWith('data:image/svg+xml') && !logoUrl.includes('<svg')) {
+        if (isValidImageFormat(logoUrl)) {
           const shortKey = key.replace(/^team-/, '');
-          localStorage.setItem(`mahash_team_logo_${shortKey}`, logoUrl);
-          localStorage.setItem(`mahash_team_logo_${key}`, logoUrl);
+          safeSetLocalStorage(`mahash_team_logo_${shortKey}`, logoUrl);
         }
       });
     } catch (err) {
-      console.warn('[useTeamLogos] Reactive localStorage write warning:', err);
+      console.warn('[useTeamLogos] Reactive storage write warning:', err);
     }
   }, [logosMap]);
 
-  // Sync Mahash logo to localStorage reactively
+  // Sync Mahash logo to storage reactively
   useEffect(() => {
-    if (!isLocalStorageAvailable()) return;
-    if (mahashLogo && isValidImageFormat(mahashLogo) && !mahashLogo.startsWith('data:image/svg+xml') && !mahashLogo.includes('<svg')) {
+    if (mahashLogo && isValidImageFormat(mahashLogo)) {
       try {
-        localStorage.setItem('mahash_site_logo', mahashLogo);
-        localStorage.setItem('club_emblem_logo', mahashLogo);
+        safeSetLocalStorage('mahash_site_logo', mahashLogo);
       } catch (err) {
-        console.warn('[useTeamLogos] Reactive Mahash logo localStorage write warning:', err);
+        console.warn('[useTeamLogos] Reactive Mahash logo storage write warning:', err);
       }
     }
   }, [mahashLogo]);
@@ -261,9 +256,13 @@ export function useTeamLogos() {
   const getLogo = useCallback(
     (teamIdOrSlug: string): string => {
       if (!teamIdOrSlug) return MAHESH_LOGO_SVG;
-      const normSlug = teamIdOrSlug.startsWith('team-') ? teamIdOrSlug : `team-${teamIdOrSlug}`;
-      const shortId = teamIdOrSlug.replace(/^team-/, '');
-      return logosMap[normSlug] || logosMap[shortId] || getTeamLogoPlaceholder(shortId, shortId);
+      const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamIdOrSlug);
+      if (logosMap[normSlug]) return logosMap[normSlug];
+      if (logosMap[shortId]) return logosMap[shortId];
+      for (const al of aliases) {
+        if (logosMap[al]) return logosMap[al];
+      }
+      return getTeamLogoPlaceholder(shortId, shortId);
     },
     [logosMap]
   );

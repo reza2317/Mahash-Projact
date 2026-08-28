@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PageId, ActivityReport, TeamData, ScoreItem, EventItem, ReportAttachment } from '../types';
+import { MonthlyReports } from '../components/MonthlyReports';
+import DatePicker, { DateObject } from 'react-multi-date-picker';
+import persian from 'react-date-object/calendars/persian';
+import persian_fa from 'react-date-object/locales/persian_fa';
+import { ResponsiveImage } from '../components/ResponsiveImage';
+import { PageId, ActivityReport, TeamData, ScoreItem, EventItem, ReportAttachment, Consultant } from '../types';
 import {
   getAllTeams,
   getAllReports,
@@ -40,8 +45,22 @@ import {
   cleanUnknownOrCorruptVideos,
   triggerGlobalCacheBust,
   syncLocalDataToServer,
-  fetchAndMergeServerStore
+  fetchAndMergeServerStore,
+  getMemberAvatars,
+  getMemberAvatar,
+  saveMemberAvatar,
+  resetMemberAvatar,
+  getAllConsultants,
+  saveAllConsultants,
+  getConsultantPhotos,
+  getConsultantPhoto,
+  saveConsultantPhoto,
+  resetConsultantPhoto,
+  updateConsultantInfo,
+  addConsultant,
+  deleteConsultant
 } from '../utils/reportsStore';
+import { NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from '../utils/assets';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
 import {
   saveVideoToCache,
@@ -63,7 +82,8 @@ import {
   validateAttachmentFile,
   validateFullReportSubmission
 } from '../utils/fileValidation';
-import { getSmartCurrentDate, toPersianDigits, formatReportNumberDisplay } from '../utils/persianDate';
+import { getSmartCurrentDate, toPersianDigits, formatReportNumberDisplay, getJalaliDayOfWeek, parseReportTimestamp } from '../utils/persianDate';
+import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from '../utils/storage';
 import {
   getTeamLogoPlaceholder,
   CIRCULAR_BADGE_PRESETS,
@@ -75,6 +95,7 @@ import { IntegrityAuditorTab } from '../components/admin/IntegrityAuditorTab';
 import { ImageUploader } from '../components/ImageUploader';
 import { RichTextEditor } from '../components/admin/RichTextEditor';
 import { PrintReportButton } from '../components/PrintReportButton';
+import { useReportSync } from '../hooks/useReportSync';
 import {
   Lock,
   Unlock,
@@ -131,7 +152,10 @@ import {
   Activity,
   FileWarning,
   XCircle,
-  Wrench
+  Wrench,
+  Send,
+  Share2,
+  Globe
 } from 'lucide-react';
 
 interface AdminPageProps {
@@ -139,6 +163,7 @@ interface AdminPageProps {
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
+  const { isSaving, saveSuccess, syncReportData } = useReportSync();
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(isAdminAuthenticated());
   const [usernameInput, setUsernameInput] = useState<string>('');
@@ -158,7 +183,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [recoverySuccess, setRecoverySuccess] = useState<boolean>(false);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'teams' | 'scores' | 'events' | 'analytics' | 'logos' | 'health' | 'storage' | 'settings'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'monthly' | 'teams' | 'scores' | 'events' | 'analytics' | 'logos' | 'health' | 'storage' | 'settings'>('create');
 
   // Store data
   const [teams, setTeams] = useState<Record<string, TeamData>>(getAllTeams());
@@ -172,6 +197,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Logos and Circular Badges Management State
   const [mahashLogoSrc, setMahashLogoSrc] = useState<string>(() => getMahashLogo());
   const [youthClubBadgeSrc, setYouthClubBadgeSrc] = useState<string>(() => getYouthClubBadge());
+  const [memberAvatars, setMemberAvatars] = useState<Record<string, string>>(() => getMemberAvatars());
+  const [consultantsList, setConsultantsList] = useState<Consultant[]>(() => getAllConsultants());
+  const [consultantPhotos, setConsultantPhotos] = useState<Record<string, string>>(() => getConsultantPhotos());
+  const [newConsultantName, setNewConsultantName] = useState<string>('');
+  const [newConsultantRole, setNewConsultantRole] = useState<string>('');
+  const [newConsultantSpecialty, setNewConsultantSpecialty] = useState<string>('');
+  const [newConsultantBio, setNewConsultantBio] = useState<string>('');
   const [activeBadgeCategoryFilter, setActiveBadgeCategoryFilter] = useState<'all' | 'mahash' | 'teams' | 'specialty' | 'custom'>('all');
   const [selectedTargetTeamForBadge, setSelectedTargetTeamForBadge] = useState<string>('team-thinker');
   const [newBadgeTitle, setNewBadgeTitle] = useState<string>('');
@@ -179,7 +211,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [newBadgeFileBase64, setNewBadgeFileBase64] = useState<string | null>(null);
   const [customBadgesList, setCustomBadgesList] = useState<CircularBadgePreset[]>(() => {
     try {
-      const saved = localStorage.getItem('mahash_custom_badges_v1');
+      const saved = safeGetLocalStorage('mahash_custom_badges_v1');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -197,6 +229,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Quick edit views modal / state
   const [editingViewsReport, setEditingViewsReport] = useState<{ id: string; title: string; currentViews: number } | null>(null);
   const [customViewsInput, setCustomViewsInput] = useState<number>(0);
+  const [editingDateReport, setEditingDateReport] = useState<{ id: string; teamSlug: string; title: string; currentDate: string } | null>(null);
+  const [customDateInput, setCustomDateInput] = useState<string>('');
 
   // Event form state
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -250,7 +284,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Load draft on initial mount if available and not editing
   useEffect(() => {
     try {
-      const savedDraft = localStorage.getItem(DRAFT_KEY);
+      const savedDraft = safeGetLocalStorage(DRAFT_KEY);
       if (savedDraft && !editingReportId) {
         const draft = JSON.parse(savedDraft);
         if (draft.reportTitle || draft.reportSummary || draft.keyPointsText) {
@@ -267,13 +301,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     } catch {}
   }, []);
 
-  // Auto-save draft changes to localStorage when creating a new report
+  // Auto-save draft changes to storage when creating a new report
   useEffect(() => {
     if (editingReportId) return; // do not overwrite draft when editing existing report
     const hasData = reportTitle.trim() || reportSummary.trim() || keyPointsText.trim();
     if (hasData) {
       try {
-        localStorage.setItem(
+        safeSetLocalStorage(
           DRAFT_KEY,
           JSON.stringify({
             selectedTeamSlug,
@@ -292,7 +326,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
   const clearFormDraft = () => {
     try {
-      localStorage.removeItem(DRAFT_KEY);
+      safeRemoveLocalStorage(DRAFT_KEY);
       setHasRestoredDraft(false);
     } catch {}
   };
@@ -428,6 +462,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       setReportViewsState(getAllReportViews());
       setMahashLogoSrc(getMahashLogo());
       setYouthClubBadgeSrc(getYouthClubBadge());
+      setMemberAvatars(getMemberAvatars());
+      setConsultantsList(getAllConsultants());
+      setConsultantPhotos(getConsultantPhotos());
       setAdminUsernameState(getAdminUsername());
       const stats = await getStorageStats();
       setStorageStats(stats);
@@ -803,10 +840,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       let videoSrc: string | undefined = undefined;
       if (videoFile) {
         try {
-          await saveVideoToCache(reportId, videoFile, videoFile.name);
-          videoSrc = `indexeddb:${reportId}`;
+          const formData = new FormData();
+          formData.append('file', videoFile, videoFile.name);
+          const uploadRes = await fetch('/api/upload-file', {
+            method: 'POST',
+            body: formData,
+          });
+          if (!uploadRes.ok) throw new Error('Upload failed');
+          const uploadData = await uploadRes.json();
+          if (uploadData.success && uploadData.url) {
+             videoSrc = uploadData.url;
+          } else {
+             throw new Error(uploadData.error || 'Upload failed');
+          }
         } catch (vErr) {
-          console.warn('Video cache warning:', vErr);
+          console.warn('Video upload error, falling back to indexedDB:', vErr);
+          await saveVideoToCache(reportId, videoFile, videoFile.name).catch(() => {});
           videoSrc = `indexeddb:${reportId}`;
         }
       } else if (videoPreviewUrl) {
@@ -860,13 +909,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
       // Clean and normalize report number to prevent duplicate 'گزارش'
       const finalReportNum = formatReportNumberDisplay(reportNum) || getNextReportNumForTeam(selectedTeamSlug);
+      const finalReportDate = reportDate.trim() || getSmartCurrentDate();
+
+      let isoToSave = new Date().toISOString();
+      const parsedTime = parseReportTimestamp({ date: finalReportDate });
+      if (parsedTime > 0) {
+        isoToSave = new Date(parsedTime).toISOString();
+      }
+
+      if (editingReportId) {
+        const oldReport = targetTeam?.reports.find(r => r.id === editingReportId);
+        if (oldReport && oldReport.date === finalReportDate) {
+          isoToSave = oldReport.datetimeIso || isoToSave;
+        }
+      }
 
       const reportObject: ActivityReport = {
         id: reportId,
         reportNum: finalReportNum,
         title: reportTitle.trim(),
-        date: reportDate.trim() || getSmartCurrentDate(),
-        datetimeIso: new Date().toISOString(),
+        date: finalReportDate,
+        datetimeIso: isoToSave,
         summary: reportSummary.trim() || 'گزارش رسمی فعالیت تیم در باشگاه جوانان محاش.',
         status: reportStatus,
         videoSrc: videoSrc || undefined,
@@ -876,16 +939,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         attachments: attachments.length > 0 ? attachments : undefined
       };
 
-      // 5. Save to store
-      saveReport(reportObject, selectedTeamSlug);
+      // 5. Save to store & trigger sync hook
+      await syncReportData(reportObject, selectedTeamSlug, (freshReports, freshTeams) => {
+        setAllReports([...freshReports]);
+        setTeams({...freshTeams});
+      });
 
       // Clear local draft upon successful submission
       clearFormDraft();
-      triggerGlobalCacheBust();
-
-      // Immediate cache sync for UI
-      setAllReports(getAllReports());
-      setTeams(getAllTeams());
 
       showToast(
         editingReportId
@@ -943,6 +1004,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       showToast('خطا در حذف گزارش.', 'error');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Transfer and publish approved reports directly to the public "My Group" / Team page
+  const handleTransferApprovedReportsToPublicGroup = (targetSlug?: string) => {
+    try {
+      const currentTeams = getAllTeams();
+      let updatedCount = 0;
+
+      // Ensure all reports in selected team or across all teams have 'published' status
+      Object.entries(currentTeams).forEach(([slug, team]) => {
+        if (!targetSlug || slug === targetSlug) {
+          (team.reports || []).forEach((r) => {
+            if (r.status !== 'published') {
+              r.status = 'published';
+              saveReport(r, slug);
+              updatedCount++;
+            }
+          });
+        }
+      });
+
+      syncLocalDataToServer().catch(console.error);
+      triggerGlobalCacheBust();
+      setAllReports(getAllReports());
+      setTeams(getAllTeams());
+
+      const destinationSlug = targetSlug || (filterTeam !== 'all' ? filterTeam : 'team-angels');
+      const targetTeamName = currentTeams[destinationSlug]?.name || 'گروه من';
+
+      showToast(`گزارش‌های تایید شده با موفقیت به صفحه عمومی «${targetTeamName}» منتقل و نمایش داده شدند.`);
+
+      // Seamlessly navigate to the public page
+      setTimeout(() => {
+        onNavigate(destinationSlug as PageId);
+      }, 500);
+    } catch (err: any) {
+      console.error('Error transferring reports:', err);
+      showToast('خطا در انتقال گزارش‌ها به صفحه عمومی', 'error');
     }
   };
 
@@ -1068,11 +1168,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   };
 
   const [isSyncingServer, setIsSyncingServer] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncMessage, setSyncMessage] = useState('');
 
   const handleSyncToServer = async () => {
     setIsSyncingServer(true);
+    setSyncProgress(0);
+    setSyncMessage('در حال آماده‌سازی...');
     try {
-      const ok = await syncLocalDataToServer();
+      const ok = await syncLocalDataToServer((progress, message) => {
+        setSyncProgress(progress);
+        setSyncMessage(message);
+      });
       if (ok) {
         showToast('تمامی لوگوها، گزارش‌ها، امتیازات و تنظیمات با موفقیت روی سرور مرکزی منتشر و ذخیره شد.');
       } else {
@@ -1081,7 +1188,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     } catch {
       showToast('خطا در اتصال به سرور', 'error');
     } finally {
-      setIsSyncingServer(false);
+      setTimeout(() => {
+        setIsSyncingServer(false);
+        setSyncProgress(0);
+        setSyncMessage('');
+      }, 1000);
     }
   };
 
@@ -1138,7 +1249,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
     const updated = [newBadgeItem, ...customBadgesList];
     setCustomBadgesList(updated);
-    localStorage.setItem('mahash_custom_badges_v1', JSON.stringify(updated));
+    safeSetLocalStorage('mahash_custom_badges_v1', JSON.stringify(updated));
 
     setNewBadgeTitle('');
     setNewBadgeDescription('');
@@ -1149,7 +1260,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const handleDeleteCustomBadge = (badgeId: string, badgeTitle: string) => {
     const updated = customBadgesList.filter((b) => b.id !== badgeId);
     setCustomBadgesList(updated);
-    localStorage.setItem('mahash_custom_badges_v1', JSON.stringify(updated));
+    safeSetLocalStorage('mahash_custom_badges_v1', JSON.stringify(updated));
     showToast(`نشان «${badgeTitle}» با موفقیت از کتابخانه حذف شد.`);
   };
 
@@ -1524,16 +1635,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={handleSyncToServer}
-              disabled={isSyncingServer}
-              title="ارسال و ذخیره‌سازی دائمی تمامی لوگوها و گزارش‌ها در سرور مرکزی تا در تمام سیستم‌ها و دامنه عمومی دقیقاً یکسان نمایش داده شود"
-              className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingServer ? 'animate-spin' : ''}`} />
-              <span>{isSyncingServer ? 'در حال انتشار...' : '🚀 انتشار سراسری تغییرات و لوگوها در سرور'}</span>
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={handleSyncToServer}
+                disabled={isSyncingServer}
+                title="ارسال و ذخیره‌سازی دائمی تمامی لوگوها و گزارش‌ها در سرور مرکزی تا در تمام سیستم‌ها و دامنه عمومی دقیقاً یکسان نمایش داده شود"
+                className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 cursor-pointer disabled:opacity-50 relative overflow-hidden"
+              >
+                {isSyncingServer && (
+                  <div 
+                    className="absolute inset-0 bg-emerald-700/50 transition-all duration-300 z-0"
+                    style={{ width: `${syncProgress}%` }}
+                  />
+                )}
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingServer ? 'animate-spin' : ''} relative z-10`} />
+                <span className="relative z-10">{isSyncingServer ? `${syncProgress}% - ${syncMessage}` : '🚀 انتشار سراسری تغییرات و لوگوها در سرور'}</span>
+              </button>
+            </div>
 
             <button
               type="button"
@@ -1643,6 +1762,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         </button>
 
         <button
+          onClick={() => setActiveTab('monthly')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'monthly'
+              ? 'bg-[#173b82] text-white shadow-sm ring-2 ring-sky-400/30'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Calendar className="w-4 h-4 text-indigo-400" />
+          <span>گزارش‌های ماهانه</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('teams')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'teams'
@@ -1726,6 +1857,104 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           <span>تنظیمات و امنیت</span>
         </button>
       </div>
+
+      {/* Quick Edit Date Modal */}
+      {/* ==================================================== */}
+      {editingDateReport && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-orange-500" />
+                <h3 className="font-black text-slate-900 dark:text-white text-sm">
+                  ویرایش سریع تاریخ گزارش
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingDateReport(null)}
+                className="text-slate-400 hover:text-slate-600 text-lg leading-none cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                شما در حال ویرایش تاریخ برای گزارش زیر هستید:
+              </p>
+              <p className="font-bold text-sm text-slate-900 dark:text-slate-200 line-clamp-2">
+                {editingDateReport.title}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                تاریخ جدید
+              </label>
+              <div className="relative" dir="rtl">
+                <DatePicker
+                  value={customDateInput ? new DateObject({ date: customDateInput, format: 'YYYY/MM/DD', calendar: persian, locale: persian_fa }) : null}
+                  onChange={(date: any) => {
+                    if (date) {
+                      // Format to match old output "۱۴۰۵/۰۶/۱۵"
+                      setCustomDateInput(date.format('YYYY/MM/DD'));
+                    } else {
+                      setCustomDateInput('');
+                    }
+                  }}
+                  format="DD MMMM YYYY"
+                  calendar={persian}
+                  locale={persian_fa}
+                  calendarPosition="bottom-right"
+                  inputClass="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-orange-500 focus:outline-none dark:text-white"
+                  placeholder="مثلاً ۲۰ مرداد ۱۴۰۵"
+                  containerClassName="w-full"
+                />
+              </div>
+            </div>
+            
+            {saveSuccess && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 p-2.5 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                <Check className="w-4 h-4" />
+                <span>تاریخ با موفقیت بروزرسانی شد!</span>
+              </div>
+            )}
+
+            <button
+              disabled={isSaving}
+              onClick={async () => {
+                const targetTeam = teams[editingDateReport.teamSlug] || getAllTeams()[editingDateReport.teamSlug];
+                if (!targetTeam) return;
+                const reportToEdit = targetTeam.reports.find(r => r.id === editingDateReport.id);
+                if (!reportToEdit) return;
+
+                const updatedReport = { ...reportToEdit, date: customDateInput.trim() };
+                
+                await syncReportData(updatedReport, editingDateReport.teamSlug, (freshReports, freshTeams) => {
+                  setAllReports(freshReports);
+                  setTeams(freshTeams);
+                });
+                
+                // Close after brief success
+                setTimeout(() => setEditingDateReport(null), 1000);
+              }}
+              className="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white rounded-xl text-sm font-bold transition shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {isSaving ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  <span>در حال ذخیره‌سازی...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>ذخیره تاریخ جدید</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* TAB 1: Create or Edit Report Form */}
@@ -1825,15 +2054,29 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     📅 درج تاریخ امروز
                   </button>
                 </div>
-                <input
+                <div className="relative">
+                  <input
                   type="text"
                   value={reportDate}
                   onChange={(e) => setReportDate(e.target.value)}
                   placeholder="مثال: ۱۴۰۵/۰۵/۲۶ یا ۲۶ مرداد ۱۴۰۵"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white pl-24"
                   required
                 />
+                {saveSuccess && (
+                  <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-emerald-600 dark:text-emerald-400 animate-in fade-in zoom-in duration-300 bg-emerald-50 dark:bg-emerald-900/50 px-2 py-1 rounded-md">
+                    <Check className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">ذخیره شد</span>
+                  </div>
+                )}
+                {isSaving && (
+                  <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-blue-600 dark:text-blue-400 animate-in fade-in zoom-in duration-300 bg-blue-50 dark:bg-blue-900/50 px-2 py-1 rounded-md">
+                    <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+                    <span className="text-[10px] font-bold">در حال ذخیره...</span>
+                  </div>
+                )}
               </div>
+            </div>
 
               {/* Publication Status */}
               <div>
@@ -2377,16 +2620,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               </p>
             </div>
 
-            <button
-              onClick={() => {
-                resetForm();
-                setActiveTab('create');
-              }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>افزودن گزارش جدید</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleTransferApprovedReportsToPublicGroup()}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer"
+                title="انتقال سریع و نمایش تمام گزارش‌های تایید شده به صفحه عمومی گروه من"
+              >
+                <Send className="w-4 h-4" />
+                <span>🚀 انتقال گزارش‌های تایید شده به صفحه عمومی «گروه من»</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  resetForm();
+                  setActiveTab('create');
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>افزودن گزارش جدید</span>
+              </button>
+            </div>
           </div>
 
           {/* Filters & Sorting Bar */}
@@ -2564,19 +2818,49 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                             <Edit3 className="w-2.5 h-2.5 opacity-50 ml-0.5" />
                           </button>
                         </td>
-                        <td className="py-3.5 text-slate-600 dark:text-slate-400 whitespace-nowrap font-bold text-[11px]">
-                          {toPersianDigits(report.date || '')}
+                        <td className="py-3.5 whitespace-nowrap text-center">
+                          <button
+                            onClick={() => {
+                              setEditingDateReport({
+                                id: report.id,
+                                teamSlug: report.teamSlug,
+                                title: report.title,
+                                currentDate: report.date || ''
+                              });
+                              setCustomDateInput(report.date || '');
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-50 dark:bg-orange-950/60 hover:bg-orange-100 dark:hover:bg-orange-900 border border-orange-200 dark:border-orange-800/80 text-orange-700 dark:text-orange-300 font-bold transition cursor-pointer"
+                            title="برای ویرایش تاریخ گزارش کلیک کنید"
+                          >
+                            <span className="font-mono text-xs font-black">{toPersianDigits(report.date || '')}</span>
+                            <Edit3 className="w-2.5 h-2.5 opacity-50 ml-0.5" />
+                          </button>
                         </td>
                         <td className="py-3.5 text-center whitespace-nowrap">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newStatus: 'published' | 'draft' = report.status === 'draft' ? 'published' : 'draft';
+                              const updated: ActivityReport = { ...report, status: newStatus };
+                              saveReport(updated, report.teamSlug);
+                              setAllReports(getAllReports());
+                              setTeams(getAllTeams());
+                              showToast(
+                                newStatus === 'published'
+                                  ? `گزارش «${report.title}» تایید و در صفحه عمومی منتشر شد.`
+                                  : `گزارش «${report.title}» به حالت پیش‌نویس تغییر یافت.`
+                              );
+                            }}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer transition shadow-xs hover:scale-105 ${
                               report.status === 'draft'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                             }`}
+                            title="برای تغییر وضعیت (پیش‌نویس / منتشر شده) کلیک کنید"
                           >
-                            {report.status === 'draft' ? 'پیش‌نویس' : 'منتشر شده'}
-                          </span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                            <span>{report.status === 'draft' ? 'پیش‌نویس' : 'منتشر شده'}</span>
+                          </button>
                         </td>
                         <td className="py-3.5 pl-2 text-left whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
@@ -2586,6 +2870,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                               teamName={report.teamName}
                               variant="minimal"
                             />
+
+                            {/* Transfer & View in Public Group Page */}
+                            <button
+                              onClick={() => {
+                                const updated = { ...report, status: 'published' as const };
+                                saveReport(updated, report.teamSlug);
+                                setAllReports(getAllReports());
+                                setTeams(getAllTeams());
+                                showToast(`گزارش «${report.title}» با تایید فوری در صفحه عمومی گروه من منتشر شد.`);
+                                onNavigate(report.teamSlug as PageId);
+                              }}
+                              className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg transition cursor-pointer"
+                              title="انتشار و نمایش فوری این گزارش در صفحه عمومی «گروه من»"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
 
                             {/* View in Team Page */}
                             <button
@@ -2628,6 +2928,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       {/* ==================================================== */}
       {/* TAB: Video Analytics & Popularity Dashboard */}
       {/* ==================================================== */}
+      {activeTab === 'monthly' && (
+        <MonthlyReports allReports={allReports} />
+      )}
+
       {activeTab === 'analytics' && (
         <div className="space-y-6">
           {/* Header */}
@@ -3022,6 +3326,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         src={team.logo || getTeamLogoPlaceholder(team.id, team.name)}
                         alt={team.name}
                         className="w-full h-full object-contain rounded-full"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(team.id, team.name);
+                        }}
                       />
                     </div>
                     <div className="flex-1 space-y-1.5">
@@ -3055,11 +3362,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                               if (file) {
                                 try {
                                   const compressedDataUrl = await compressImageToDataUrl(file, 512, 0.88);
-                                  saveTeamLogo(slug, compressedDataUrl);
+                                  const finalLogo = compressedDataUrl || (await new Promise<string>((res) => {
+                                    const r = new FileReader();
+                                    r.onload = () => res(r.result as string);
+                                    r.onerror = () => res('');
+                                    r.readAsDataURL(file);
+                                  }));
+                                  saveTeamLogo(slug, finalLogo);
+                                  setTeams(getAllTeams());
                                   showToast(`لوگوی جدید تیم «${team.name}» با موفقیت بارگذاری و ذخیره شد.`);
                                 } catch (err) {
-                                  console.error(err);
-                                  showToast('خطا در پردازش تصویر لوگو');
+                                  console.warn(err);
+                                  const reader = new FileReader();
+                                  reader.onload = () => {
+                                    const base64 = reader.result as string;
+                                    saveTeamLogo(slug, base64);
+                                    setTeams(getAllTeams());
+                                    showToast(`لوگوی تیم «${team.name}» با موفقیت ذخیره شد.`);
+                                  };
+                                  reader.readAsDataURL(file);
                                 }
                               }
                             }}
@@ -3126,6 +3447,84 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium leading-relaxed"
                     />
                   </div>
+
+                  {/* Member Avatars Management */}
+                  {team.members && team.members.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
+                        📸 تصاویر پروفایل / آواتار اعضای تیم:
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {team.members.map((member, mIdx) => {
+                          const currentAvatar = getMemberAvatar(slug, member);
+                          const isCustomPhoto = currentAvatar && (currentAvatar.startsWith('data:image') || currentAvatar.startsWith('http') || currentAvatar.startsWith('/'));
+
+                          return (
+                            <div
+                              key={mIdx}
+                              className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-8 h-8 rounded-full overflow-hidden bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0">
+                                  {isCustomPhoto ? (
+                                    <img
+                                      src={currentAvatar}
+                                      alt={member}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="text-sm">{currentAvatar || '👤'}</span>
+                                  )}
+                                </div>
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                  {member}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <label className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-lg text-[10px] font-bold cursor-pointer transition flex items-center gap-1 shadow-2xs">
+                                  <Upload className="w-3 h-3" />
+                                  <span>عکس</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        try {
+                                          const compressed = await compressImageToDataUrl(file, 256, 0.85);
+                                          saveMemberAvatar(slug, member, compressed);
+                                          setMemberAvatars(getMemberAvatars());
+                                          showToast(`عکس پروفایل «${member}» با موفقیت ذخیره شد.`);
+                                        } catch {
+                                          showToast('خطا در پردازش تصویر عضو تیم', 'error');
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </label>
+                                {isCustomPhoto && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      resetMemberAvatar(slug, member);
+                                      setMemberAvatars(getMemberAvatars());
+                                      showToast(`عکس پروفایل «${member}» بازنشانی شد.`);
+                                    }}
+                                    className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                                    title="بازنشانی آواتار به پیش‌فرض"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -3225,15 +3624,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         type="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const base64 = reader.result as string;
-                              handleApplyLogoToMahash(base64, file.name);
-                            };
-                            reader.readAsDataURL(file);
+                            try {
+                              const compressedDataUrl = await compressImageToDataUrl(file, 512, 0.88);
+                              if (compressedDataUrl) {
+                                handleApplyLogoToMahash(compressedDataUrl, file.name);
+                              } else {
+                                const reader = new FileReader();
+                                reader.onload = () => handleApplyLogoToMahash(reader.result as string, file.name);
+                                reader.readAsDataURL(file);
+                              }
+                            } catch {
+                              const reader = new FileReader();
+                              reader.onload = () => handleApplyLogoToMahash(reader.result as string, file.name);
+                              reader.readAsDataURL(file);
+                            }
                           }
                         }}
                       />
@@ -3317,15 +3724,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         type="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const base64 = reader.result as string;
-                              handleApplyBadgeToYouthClub(base64, file.name);
-                            };
-                            reader.readAsDataURL(file);
+                            try {
+                              const compressedDataUrl = await compressImageToDataUrl(file, 512, 0.88);
+                              if (compressedDataUrl) {
+                                handleApplyBadgeToYouthClub(compressedDataUrl, file.name);
+                              } else {
+                                const reader = new FileReader();
+                                reader.onload = () => handleApplyBadgeToYouthClub(reader.result as string, file.name);
+                                reader.readAsDataURL(file);
+                              }
+                            } catch {
+                              const reader = new FileReader();
+                              reader.onload = () => handleApplyBadgeToYouthClub(reader.result as string, file.name);
+                              reader.readAsDataURL(file);
+                            }
                           }
                         }}
                       />
@@ -3402,6 +3817,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       src={teams[selectedTargetTeamForBadge].logo || getTeamLogoPlaceholder(teams[selectedTargetTeamForBadge].id, teams[selectedTargetTeamForBadge].name)}
                       alt={teams[selectedTargetTeamForBadge].name}
                       className="w-full h-full object-contain rounded-full"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(teams[selectedTargetTeamForBadge].id, teams[selectedTargetTeamForBadge].name);
+                      }}
                     />
                   </div>
                   <div>
@@ -3675,6 +4093,192 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               )}
             </div>
           </div>
+
+          {/* Section 4: Consultants Photos & Profiles Management */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold text-lg shadow-2xs">
+                  👨‍⚕️
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    مدیریت تصاویر و اطلاعات مشاوران مؤسسه محاش
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    بارگذاری، بروزرسانی و بازنشانی عکس‌ها و مشخصات مشاوران و روانشناسان مؤسسه محاش
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Consultants Cards List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {consultantsList.map((consultant, cIdx) => {
+                const defaultAvatar = cIdx === 0 ? NAZI_AVATAR_SVG : (consultant.image || RADIN_AVATAR_SVG);
+                const currentPhoto = getConsultantPhoto(consultant.name, consultant.image || defaultAvatar);
+                const isCustomPhoto = currentPhoto !== defaultAvatar && currentPhoto !== consultant.image;
+
+                return (
+                  <div
+                    key={consultant.name}
+                    className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60 flex flex-col sm:flex-row items-center gap-5 space-y-3 sm:space-y-0"
+                  >
+                    {/* Photo & Actions */}
+                    <div className="relative group/avatar w-24 h-24 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 border-2 border-teal-500/30 shadow-md flex items-center justify-center shrink-0">
+                      <ResponsiveImage
+                        src={currentPhoto}
+                        alt={consultant.name}
+                        sizes="96px"
+                        className="w-full h-full object-cover"
+                        containerClassName="w-full h-full"
+                        priority={false}
+                        showSkeleton={true}
+                      />
+                    </div>
+
+                    <div className="flex-1 min-w-0 text-center sm:text-right space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-base font-black text-slate-900 dark:text-white truncate">
+                          {consultant.name}
+                        </h4>
+                        <span className="text-[11px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded-full">
+                          {consultant.role}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                        {consultant.specialty}
+                      </p>
+
+                      <div className="pt-2 flex flex-wrap gap-2 justify-center sm:justify-start">
+                        <label className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-2xs">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>تغییر / آپلود عکس</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                try {
+                                  const compressed = await compressImageToDataUrl(file, 400, 0.88);
+                                  saveConsultantPhoto(consultant.name, compressed);
+                                  setConsultantPhotos(getConsultantPhotos());
+                                  setConsultantsList(getAllConsultants());
+                                  showToast(`عکس مشاور «${consultant.name}» با موفقیت ذخیره شد.`);
+                                } catch {
+                                  showToast('خطا در فشرده‌سازی و ذخیره تصویر مشاور', 'error');
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+
+                        {isCustomPhoto && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              resetConsultantPhoto(consultant.name);
+                              setConsultantPhotos(getConsultantPhotos());
+                              setConsultantsList(getAllConsultants());
+                              showToast(`عکس مشاور «${consultant.name}» به حالت پیش‌فرض بازنشانی شد.`);
+                            }}
+                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>بازنشانی</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add New Consultant Collapsible/Form */}
+            <div className="p-5 bg-teal-50/50 dark:bg-teal-950/20 rounded-2xl border border-teal-100 dark:border-teal-900/40 space-y-4">
+              <h4 className="text-sm font-bold text-teal-900 dark:text-teal-200 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-teal-600" />
+                <span>افزودن مشاور یا کارشناس جدید به سیستم</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    نام و نام خانوادگی
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="مثلاً خانم دکتر سارا محمدی"
+                    value={newConsultantName}
+                    onChange={(e) => setNewConsultantName(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    عنوان و سمت
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="مثلاً مشاور خانواده و مدرس زبان اشاره"
+                    value={newConsultantRole}
+                    onChange={(e) => setNewConsultantRole(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    تخصص‌ها
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="مثلاً مشاوره فردی، پذیرش کم‌شنوایی"
+                    value={newConsultantSpecialty}
+                    onChange={(e) => setNewConsultantSpecialty(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newConsultantName.trim()) {
+                      showToast('لطفاً نام مشاور را وارد فرمایید.', 'error');
+                      return;
+                    }
+                    addConsultant({
+                      name: newConsultantName.trim(),
+                      title: newConsultantRole.trim() || 'مشاور مؤسسه محاش',
+                      role: newConsultantRole.trim() || 'مشاور مؤسسه محاش',
+                      avatar: '👨‍⚕️',
+                      image: '',
+                      specialty: newConsultantSpecialty.trim() || 'مشاوره عمومی و روانشناسی',
+                      bio: newConsultantBio.trim() || 'عضو هیئت مشاوران مؤسسه محاش',
+                      availableDays: ['شنبه تا چهارشنبه']
+                    });
+                    setNewConsultantName('');
+                    setNewConsultantRole('');
+                    setNewConsultantSpecialty('');
+                    setNewConsultantBio('');
+                    setConsultantsList(getAllConsultants());
+                    showToast(`مشاور «${newConsultantName}» با موفقیت اضافه شد.`);
+                  }}
+                  className="px-4 py-2 bg-[#0f766e] hover:bg-[#0d645e] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>ثبت و ذخیره مشاور جدید</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -3876,16 +4480,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 }
 
                 const evId = editingEventId || `ev-${Date.now()}`;
+                
+                // Parse date digits to extract year, month, day
+                const engDate = (eventDateJalali || '۱۴۰۵/۰۶/۱۵').replace(/[۰-۹]/g, (d) => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]);
+                const dateParts = engDate.split(/[\/\-\.]/).map((p) => parseInt(p, 10)).filter((n) => !isNaN(n));
+                const evYear = dateParts[0] || 1405;
+                const evMonth = dateParts[1] || 6;
+                const evDay = dateParts[2] || 15;
+                const computedDayOfWeek = getJalaliDayOfWeek(evYear, evMonth, evDay);
+
                 const newEvent: EventItem = {
                   id: evId,
                   title: eventTitle.trim(),
                   category: eventCategory,
                   categoryLabel: eventCategoryLabel,
                   dateJalali: eventDateJalali || '۱۴۰۵/۰۶/۱۵',
-                  jalaliYear: 1405,
-                  jalaliMonth: 6,
-                  jalaliDay: 15,
-                  dayOfWeek: 'پنج‌شنبه',
+                  jalaliYear: evYear,
+                  jalaliMonth: evMonth,
+                  jalaliDay: evDay,
+                  dayOfWeek: computedDayOfWeek,
                   time: eventTime || '۱۶:۰۰ الی ۱۸:۳۰',
                   locationType: 'in-person',
                   location: eventLocation || 'سالن همایش‌های موسسه محاش',

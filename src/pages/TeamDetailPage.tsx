@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PageId, TeamData, ActivityReport } from '../types';
-import { getTeam, subscribeToStoreUpdates, isAdminAuthenticated } from '../utils/reportsStore';
+import { getTeam, subscribeToStoreUpdates, isAdminAuthenticated, getMemberAvatar } from '../utils/reportsStore';
 import { getTeamLogoPlaceholder } from '../utils/assets';
+import { ResponsiveImage } from '../components/ResponsiveImage';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { formatSmartUpdateDate, toPersianDigits, formatReportNumberDisplay } from '../utils/persianDate';
 import { ReportVideoPlayer } from '../components/ReportVideoPlayer';
@@ -96,10 +97,13 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
   }, [teamSlug]);
 
   // Subscribe to live updates from store without resetting user's open report
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => isAdminAuthenticated());
+
   useEffect(() => {
     const refresh = () => {
       const updated = getTeam(teamSlug);
       setTeam(updated);
+      setIsAdmin(isAdminAuthenticated());
       setOpenReportId((prevOpen) => {
         if (prevOpen && updated?.reports?.some((r) => r.id === prevOpen)) {
           return prevOpen;
@@ -110,8 +114,6 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
     const unsub = subscribeToStoreUpdates(refresh);
     return () => unsub();
   }, [teamSlug]);
-
-  const isAdmin = isAdminAuthenticated();
 
   // Structured transformation from raw report arrays to defined video resource objects with team metadata
   const teamVideoResources = useMemo<TeamVideoResourceItem[]>(() => {
@@ -400,16 +402,13 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
         <div className="lg:col-span-4 space-y-6">
           {/* Visual Logo Card */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 text-center shadow-xs space-y-4">
-            <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-md p-1 bg-white dark:bg-slate-800">
-              <img
+            <div className="team-logo-responsive mx-auto rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-md p-1 bg-white dark:bg-slate-800">
+              <ResponsiveImage
                 src={team.logo || getTeamLogoPlaceholder(team.id, team.name)}
+                fallbackSrc={getTeamLogoPlaceholder(team.id, team.name)}
                 alt={team.name}
-                loading="lazy"
-                decoding="async"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(team.id, team.name);
-                }}
-                className="w-full h-full object-contain rounded-full"
+                className="w-full h-full object-contain rounded-full img-sharp"
+                priority={true}
               />
             </div>
 
@@ -467,15 +466,27 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
               <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">{toPersianDigits(team.members.length)} نفر</span>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {team.members.map((member, i) => (
-                <span
-                  key={i}
-                  className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 px-3 py-1 rounded-full font-medium"
-                >
-                  {member}
-                </span>
-              ))}
+            <div className="flex flex-wrap gap-2">
+              {team.members.map((member, i) => {
+                const avatarSrc = getMemberAvatar(teamSlug, member);
+                const isCustomImg = avatarSrc && (avatarSrc.startsWith('data:image') || avatarSrc.startsWith('http') || avatarSrc.startsWith('/'));
+
+                return (
+                  <div
+                    key={i}
+                    className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 pl-3 pr-1.5 py-1 rounded-full font-medium"
+                  >
+                    <div className="w-5 h-5 rounded-full overflow-hidden bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0">
+                      {isCustomImg ? (
+                        <img src={avatarSrc} alt={member} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px]">{avatarSrc || '👤'}</span>
+                      )}
+                    </div>
+                    <span>{member}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

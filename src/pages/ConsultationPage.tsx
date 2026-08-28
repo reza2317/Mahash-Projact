@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { PageId } from '../types';
-import { CONSULTANTS } from '../data/mahashData';
+import React, { useState, useEffect } from 'react';
+import { PageId, Consultant } from '../types';
+import { 
+  getAllConsultants, 
+  getConsultantPhotos,
+  getConsultantPhoto,
+  subscribeToStoreUpdates 
+} from '../utils/reportsStore';
 import { NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from '../utils/assets';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useAutoSaveForm } from '../hooks/useAutoSaveForm';
 import { useNotification } from '../context/NotificationContext';
+import { ResponsiveImage } from '../components/ResponsiveImage';
 import {
   MessageSquare,
   CheckCircle2,
@@ -14,9 +20,7 @@ import {
   Phone,
   Send,
   Sparkles,
-  Camera,
-  Upload,
-  RotateCcw
+  Award
 } from 'lucide-react';
 
 interface ConsultationPageProps {
@@ -24,7 +28,7 @@ interface ConsultationPageProps {
 }
 
 const INITIAL_CONSULTATION_DATA = {
-  selectedConsultant: CONSULTANTS[0].name,
+  selectedConsultant: 'خانم دکتر نازی عباسیان',
   consultationType: 'text' as 'text' | 'online' | 'in-person',
   name: '',
   phone: '',
@@ -32,68 +36,28 @@ const INITIAL_CONSULTATION_DATA = {
   preferredTime: '',
 };
 
-const PHOTOS_STORAGE_KEY = 'mahash_consultant_custom_photos_v1';
-
 export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }) => {
   const [isBooked, setIsBooked] = useState(false);
   const { success: showToastSuccess, error: showToastError } = useNotification();
 
-  // Custom consultant photos state stored in localStorage
-  const [customPhotos, setCustomPhotos] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem(PHOTOS_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  // Consultants list and photos state
+  const [consultants, setConsultants] = useState<Consultant[]>(() => getAllConsultants());
+  const [customPhotos, setCustomPhotos] = useState<Record<string, string>>(() => getConsultantPhotos());
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [activeUploadTarget, setActiveUploadTarget] = useState<string | null>(null);
+  useEffect(() => {
+    const syncData = () => {
+      setConsultants(getAllConsultants());
+      setCustomPhotos(getConsultantPhotos());
+    };
+    syncData();
+    const unsub = subscribeToStoreUpdates(syncData);
+    return () => unsub();
+  }, []);
 
   const [formData, setFormData, handleInputChange, clearSavedData, hasRestoredData] = useAutoSaveForm(
     'consultation_v1',
     INITIAL_CONSULTATION_DATA
   );
-
-  const handlePhotoUpload = (consultantName: string, file: File) => {
-    if (!file.type.startsWith('image/')) {
-      showToastError('خطای فرمت', 'لطفاً یک فایل تصویری (JPG یا PNG) انتخاب نمایید.');
-      return;
-    }
-
-    if (file.size > 3 * 1024 * 1024) {
-      showToastError('حجم زیاد تصویر', 'حجم عکس نباید بیشتر از ۳ مگابایت باشد.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        const nextPhotos = { ...customPhotos, [consultantName]: result };
-        setCustomPhotos(nextPhotos);
-        try {
-          localStorage.setItem(PHOTOS_STORAGE_KEY, JSON.stringify(nextPhotos));
-        } catch (err) {
-          console.error(err);
-        }
-        showToastSuccess('عکس بروزرسانی شد', `تصویر مشاور «${consultantName}» با موفقیت ذخیره گردید.`);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleResetPhoto = (consultantName: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const nextPhotos = { ...customPhotos };
-    delete nextPhotos[consultantName];
-    setCustomPhotos(nextPhotos);
-    try {
-      localStorage.setItem(PHOTOS_STORAGE_KEY, JSON.stringify(nextPhotos));
-    } catch (err) {}
-    showToastSuccess('بازنشانی تصویر', `عکس مشاور «${consultantName}» به حالت پیش‌فرض برگشت.`);
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,20 +73,6 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-8">
-      {/* Hidden file input for consultant photo upload */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files && e.target.files[0] && activeUploadTarget) {
-            handlePhotoUpload(activeUploadTarget, e.target.files[0]);
-          }
-          if (fileInputRef.current) fileInputRef.current.value = '';
-        }}
-      />
-
       {/* Auto-save restored banner */}
       {hasRestoredData && !isBooked && (
         <div className="bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 rounded-2xl p-3 flex items-center justify-between text-xs text-teal-800 dark:text-teal-200">
@@ -162,11 +112,10 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
 
       {/* Consultants Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {CONSULTANTS.map((c, idx) => {
+        {consultants.map((c, idx) => {
           const isSelected = formData.selectedConsultant === c.name;
           const defaultAvatar = idx === 0 ? NAZI_AVATAR_SVG : RADIN_AVATAR_SVG;
-          const currentPhoto = customPhotos[c.name] || defaultAvatar;
-          const hasCustomPhoto = Boolean(customPhotos[c.name]);
+          const currentPhoto = getConsultantPhoto(c.name, c.image || defaultAvatar);
 
           return (
             <div
@@ -178,42 +127,18 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
                   : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
-              {/* Photo Box with Upload Button Overlay */}
-              <div className="relative group/avatar w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center justify-center">
-                <img
+              {/* Photo Box */}
+              <div className="w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border-2 border-teal-500/20 shadow-xs flex items-center justify-center p-0.5">
+                <ResponsiveImage
                   src={currentPhoto}
+                  fallbackSrc={defaultAvatar}
                   alt={c.name}
-                  className="w-full h-full object-cover"
+                  sizes="96px"
+                  className="w-full h-full object-cover rounded-xl"
+                  containerClassName="w-full h-full rounded-xl"
+                  priority={false}
+                  showSkeleton={true}
                 />
-
-                {/* Upload action button */}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveUploadTarget(c.name);
-                      fileInputRef.current?.click();
-                    }}
-                    className="p-1.5 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow cursor-pointer"
-                    title="تغییر یا آپلود عکس مشاور"
-                  >
-                    <Camera className="w-3 h-3" />
-                    <span>آپلود عکس</span>
-                  </button>
-
-                  {hasCustomPhoto && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleResetPhoto(c.name, e)}
-                      className="p-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-md text-[9px] font-bold flex items-center gap-0.5 shadow cursor-pointer"
-                      title="بازنشانی به آواتار اولیه"
-                    >
-                      <RotateCcw className="w-2.5 h-2.5" />
-                      <span>حذف</span>
-                    </button>
-                  )}
-                </div>
               </div>
 
               <div className="space-y-1.5 flex-1 w-full">
@@ -229,22 +154,6 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed pt-1">
                   {c.specialty}
                 </p>
-
-                {/* Small Upload Trigger for Mobile */}
-                <div className="pt-2 flex items-center gap-2 sm:hidden">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveUploadTarget(c.name);
-                      fileInputRef.current?.click();
-                    }}
-                    className="text-[11px] text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1"
-                  >
-                    <Upload className="w-3 h-3" />
-                    <span>انتخاب/آپلود عکس مشاور</span>
-                  </button>
-                </div>
               </div>
             </div>
           );
@@ -320,7 +229,7 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
                   onChange={handleInputChange}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-hidden focus:ring-2 focus:ring-[#0f766e]/30"
                 >
-                  {CONSULTANTS.map((c) => (
+                  {consultants.map((c) => (
                     <option key={c.name} value={c.name}>
                       {c.name}
                     </option>

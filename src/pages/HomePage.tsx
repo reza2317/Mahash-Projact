@@ -197,13 +197,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           {/* Pathway: تیم‌ها */}
           <button
             onClick={() => onNavigate('teams-hub')}
-            className="flex flex-col text-right bg-gradient-to-b from-white to-blue-50/40 dark:from-slate-850 dark:to-blue-950/30 p-6 rounded-3xl border border-blue-100 dark:border-blue-900/60 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
+            className="flex flex-col text-right bg-gradient-to-b from-white to-blue-50/50 dark:from-slate-800 dark:to-slate-800/95 p-6 rounded-3xl border border-blue-100 dark:border-slate-700 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
           >
-            <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-900/60 text-[#173b82] dark:text-blue-300 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+            <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-950/80 text-[#173b82] dark:text-blue-300 border border-blue-200/50 dark:border-blue-800 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <Users className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-black text-[#173b82] dark:text-blue-400 mb-2">تیم‌های باشگاه</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300 flex-1 leading-relaxed">
+            <h2 className="text-xl font-black text-[#173b82] dark:text-blue-300 mb-2">تیم‌های باشگاه</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-200 flex-1 leading-relaxed font-medium">
               با ۵ تیم فعال، مدیران، اعضا، شعارها و فعالیت‌های مستند باشگاه آشنا شوید.
             </p>
             <span className="text-sm font-bold text-[#173b82] dark:text-blue-400 mt-4 flex items-center gap-1 group-hover:gap-2 transition-all">
@@ -215,13 +215,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           {/* Pathway: عضویت */}
           <button
             onClick={() => onNavigate('membership')}
-            className="flex flex-col text-right bg-gradient-to-b from-white to-teal-50/40 dark:from-slate-850 dark:to-teal-950/30 p-6 rounded-3xl border border-teal-100 dark:border-teal-900/60 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
+            className="flex flex-col text-right bg-gradient-to-b from-white to-teal-50/50 dark:from-slate-800 dark:to-slate-800/95 p-6 rounded-3xl border border-teal-100 dark:border-slate-700 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
           >
-            <div className="w-14 h-14 rounded-2xl bg-teal-100 dark:bg-teal-900/60 text-[#0f766e] dark:text-teal-300 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+            <div className="w-14 h-14 rounded-2xl bg-teal-100 dark:bg-teal-950/80 text-[#0f766e] dark:text-teal-300 border border-teal-200/50 dark:border-teal-800 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <UserPlus className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-black text-[#0f766e] dark:text-teal-400 mb-2">عضویت در محاش</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300 flex-1 leading-relaxed">
+            <h2 className="text-xl font-black text-[#0f766e] dark:text-teal-300 mb-2">عضویت در محاش</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-200 flex-1 leading-relaxed font-medium">
               ثبت‌نام آنلاین و پیوستن به خانواده بزرگ اعضای موسسه و تیم‌های جوانان.
             </p>
             <span className="text-sm font-bold text-[#0f766e] dark:text-teal-400 mt-4 flex items-center gap-1 group-hover:gap-2 transition-all">
@@ -233,13 +233,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           {/* Pathway: مشاوره */}
           <button
             onClick={() => onNavigate('consultation')}
-            className="flex flex-col text-right bg-gradient-to-b from-white to-indigo-50/40 dark:from-slate-850 dark:to-indigo-950/30 p-6 rounded-3xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
+            className="flex flex-col text-right bg-gradient-to-b from-white to-indigo-50/50 dark:from-slate-800 dark:to-slate-800/95 p-6 rounded-3xl border border-indigo-100 dark:border-slate-700 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group cursor-pointer"
           >
-            <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-900/60 text-[#4338ca] dark:text-indigo-300 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-950/80 text-[#4338ca] dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-800 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <MessageSquare className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-black text-[#4338ca] dark:text-indigo-400 mb-2">رزرو مشاوره</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300 flex-1 leading-relaxed">
+            <h2 className="text-xl font-black text-[#4338ca] dark:text-indigo-300 mb-2">رزرو مشاوره</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-200 flex-1 leading-relaxed font-medium">
               رزرو نوبت مشاوره متنی و روانشناسی با مشاوران رسمی موسسه محاش.
             </p>
             <span className="text-sm font-bold text-[#4338ca] dark:text-indigo-400 mt-4 flex items-center gap-1 group-hover:gap-2 transition-all">
@@ -250,7 +250,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         {/* Accessibility Notice */}
-        <div className="mt-6 bg-[#eef6f8] dark:bg-teal-950/50 border border-[#cfe3ea] dark:border-teal-800 rounded-2xl p-4 flex items-center gap-3 text-slate-800 dark:text-slate-200 text-sm">
+        <div className="mt-6 bg-[#eef6f8] dark:bg-slate-800 border border-[#cfe3ea] dark:border-teal-800/80 rounded-2xl p-4 flex items-center gap-3 text-slate-800 dark:text-slate-200 text-sm">
           <div className="w-9 h-9 rounded-xl bg-[#147d70] dark:bg-teal-600 text-white flex items-center justify-center shrink-0 font-bold">
             ♿
           </div>
@@ -262,7 +262,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
       {/* 3. Five-Team Interactive Poster Carousel - LIGHT, HIGH CONTRAST THEME */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-b from-sky-50/80 via-white to-blue-50/60 dark:from-slate-900 dark:via-slate-850 dark:to-slate-900 rounded-3xl p-6 sm:p-10 text-slate-900 dark:text-slate-100 shadow-md border border-blue-100 dark:border-slate-800 overflow-hidden relative">
+        <div className="bg-gradient-to-b from-sky-50/80 via-white to-blue-50/60 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 rounded-3xl p-6 sm:p-10 text-slate-900 dark:text-slate-100 shadow-md border border-blue-100 dark:border-slate-800 overflow-hidden relative">
           <div className="text-center max-w-2xl mx-auto mb-8">
             <span className="inline-block px-3 py-1 bg-blue-100 dark:bg-blue-950/80 text-[#173b82] dark:text-blue-300 text-xs font-bold rounded-full mb-2 border border-blue-200 dark:border-blue-800">
               باشگاه جوانان محاش
@@ -296,6 +296,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   src={currentTeam.logo || getTeamLogoPlaceholder(currentTeam.id, currentTeam.name)}
                   alt={currentTeam.name}
                   className="w-full h-full object-contain rounded-full"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(currentTeam.id, currentTeam.name);
+                  }}
                 />
               </div>
             </div>
@@ -418,7 +421,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 return (
                   <div
                     key={video.id || idx}
-                    className="bg-white dark:bg-slate-850 hover:bg-blue-50/30 dark:hover:bg-slate-800 border-2 border-slate-200/90 dark:border-slate-700 rounded-2xl p-5 sm:p-6 transition flex flex-col justify-between group shadow-sm hover:shadow-md"
+                    className="bg-white dark:bg-slate-800 hover:bg-blue-50/30 dark:hover:bg-slate-700/60 border-2 border-slate-200/90 dark:border-slate-700 rounded-2xl p-5 sm:p-6 transition flex flex-col justify-between group shadow-sm hover:shadow-md"
                   >
                     <div className="space-y-3.5">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -541,6 +544,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                           src={team.logo || getTeamLogoPlaceholder(team.id, team.name)}
                           alt={team.name}
                           className="w-full h-full object-contain rounded-lg"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(team.id, team.name);
+                          }}
                         />
                       </div>
                       <div>
@@ -580,7 +586,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   </button>
 
                   {isOpen && (
-                    <div className="p-4 sm:p-5 bg-white dark:bg-slate-850 border-t border-slate-100 dark:border-slate-700 space-y-4">
+                    <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-700 space-y-4">
                       {hasReports ? (
                         <div className="space-y-3">
                           {team.reports.map((rep, rIdx) => {

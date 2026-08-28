@@ -1,5 +1,6 @@
 // Audit Logger utility for Mahash Admin Operations
 import { getSmartCurrentDate, toPersianDigits } from './persianDate';
+import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from './storage';
 
 export type AuditActionType =
   | 'CREATE_REPORT'
@@ -32,12 +33,12 @@ export interface AuditLogEntry {
 }
 
 const AUDIT_LOGS_KEY = 'mahash_audit_logs_v1';
-const MAX_LOGS = 200;
+const MAX_LOGS = 60;
 
 export function getAuditLogs(): AuditLogEntry[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(AUDIT_LOGS_KEY);
+    const raw = safeGetLocalStorage(AUDIT_LOGS_KEY);
     if (!raw) return getDefaultAuditLogs();
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -82,7 +83,7 @@ export function logAuditEvent(
       if (logs.length > MAX_LOGS) {
         logs.splice(MAX_LOGS);
       }
-      localStorage.setItem(AUDIT_LOGS_KEY, JSON.stringify(logs));
+      safeSetLocalStorage(AUDIT_LOGS_KEY, JSON.stringify(logs));
       window.dispatchEvent(new CustomEvent('mahash_audit_logged', { detail: entry }));
     } catch (err) {
       console.error('Error saving audit log:', err);
@@ -94,7 +95,7 @@ export function logAuditEvent(
 
 export function clearAuditLogs(): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(AUDIT_LOGS_KEY);
+  safeRemoveLocalStorage(AUDIT_LOGS_KEY);
   window.dispatchEvent(new CustomEvent('mahash_audit_logged'));
 }
 

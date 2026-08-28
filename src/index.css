@@ -244,105 +244,186 @@ html.high-contrast:not(.dark) * {
   border-color: #000000 !important;
 }
 
-.font-vazir {
-  font-family: 'Vazirmatn', 'Vazir', Tahoma, sans-serif !important;
+@layer components {
+  .font-vazir {
+    font-family: 'Vazirmatn', 'Vazir', Tahoma, sans-serif !important;
+  }
+
+  .animate-marquee {
+    display: inline-flex;
+    white-space: nowrap;
+    animation: marquee 110s linear infinite;
+    will-change: transform;
+  }
+
+  .animate-marquee:hover,
+  .animate-marquee:focus-within {
+    animation-play-state: paused !important;
+  }
+
+  .animate-float {
+    animation: float-slow 4s ease-in-out infinite;
+  }
+
+  /* Keyframe animations for continuous ticker movement */
+  @keyframes marquee {
+    0% {
+      transform: translateX(0%);
+    }
+    100% {
+      transform: translateX(50%);
+    }
+  }
+
+  @keyframes marquee-rtl {
+    0% {
+      transform: translateX(0%);
+    }
+    100% {
+      transform: translateX(50%);
+    }
+  }
+
+  @keyframes float-slow {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+
+  /* Hover color for text links and menus */
+  .hover-brand-glow:hover {
+    color: #1d4ed8 !important;
+    text-shadow: 0 0 12px rgba(29, 78, 216, 0.25);
+  }
+
+  html.dark .hover-brand-glow:hover {
+    color: #38bdf8 !important;
+    text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+  }
+
+  /* Dropdown menu items active hover state */
+  .dropdown-menu-item {
+    position: relative;
+    transition: all 0.18s ease-in-out;
+  }
+
+  /* Sharp, crystal-clear logo rendering */
+  .img-sharp {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
+  /* Responsive Team & Brand Logos Container */
+  .team-logo-responsive {
+    width: 5rem;
+    height: 5rem;
+    aspect-ratio: 1 / 1;
+    border-radius: 9999px;
+    object-fit: contain;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+  }
+
+  @media (min-width: 640px) {
+    .team-logo-responsive {
+      width: 6.5rem;
+      height: 6.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .team-logo-responsive {
+      width: 7.25rem;
+      height: 7.25rem;
+    }
+  }
+
+  /* Header & Navbar Brand Logo Responsive */
+  .brand-logo-responsive {
+    width: 2.75rem;
+    height: 2.75rem;
+    aspect-ratio: 1 / 1;
+    border-radius: 9999px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  @media (min-width: 640px) {
+    .brand-logo-responsive {
+      width: 3.25rem;
+      height: 3.25rem;
+    }
+  }
+
+  /* Team Card Surface & Interaction Normalization */
+  .team-card-surface {
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
+    will-change: transform, box-shadow;
+  }
+
+  .team-card-surface:hover {
+    transform: translateY(-4px);
+  }
+
+  /* Profile and Member Avatar Responsive */
+  .member-avatar-responsive {
+    width: 3.5rem;
+    height: 3.5rem;
+    aspect-ratio: 1 / 1;
+    border-radius: 9999px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  @media (min-width: 640px) {
+    .member-avatar-responsive {
+      width: 4.25rem;
+      height: 4.25rem;
+    }
+  }
+
+  /* Circular Badge and Preset Styles */
+  .circular-badge-container {
+    aspect-ratio: 1 / 1;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .team-card-border {
+    border-width: 1px;
+    border-style: solid;
+  }
+
+  .team-card-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    font-weight: 700;
+  }
+
+  .team-logo-glow {
+    box-shadow: 0 0 20px -3px rgba(23, 59, 130, 0.25);
+  }
+
+  html.dark .team-logo-glow {
+    box-shadow: 0 0 20px -3px rgba(56, 189, 248, 0.3);
+  }
 }
 
-@keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(50%); }
-}
 
-.animate-marquee {
-  display: inline-flex;
-  white-space: nowrap;
-  animation: marquee 85s linear infinite;
-  will-change: transform;
-}
-
-.animate-marquee:hover,
-.animate-marquee:focus-within {
-  animation-play-state: paused;
-}
-
-@keyframes float-slow {
-  0%, 100% { transform: translateY(0px) scale(1); }
-  50% { transform: translateY(-8px) scale(1.02); }
-}
-
-.animate-float {
-  animation: float-slow 4s ease-in-out infinite;
-}
-
-/* =========================================================
-   ATTRACTIVE HOVER & INTERACTION SYSTEM FOR MENUS & BUTTONS
-   ========================================================= */
-
-/* Smooth global transition for buttons, links, and interactive elements */
-button, a, [role="button"], input[type="submit"], input[type="button"] {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Base button hover enhancements */
-button:not(:disabled):hover, a:not(:disabled):hover {
-  cursor: pointer;
-}
-
-/* Subtle pulse & glow for active/hovered primary buttons */
-button.bg-\[\#173b82\]:hover,
-button.bg-blue-600:hover,
-button.bg-blue-700:hover,
-a.bg-\[\#173b82\]:hover {
-  filter: brightness(1.08);
-  box-shadow: 0 10px 25px -5px rgba(23, 59, 130, 0.35), 0 8px 10px -6px rgba(23, 59, 130, 0.2);
-}
-
-html.dark button.bg-\[\#173b82\]:hover,
-html.dark button.bg-blue-600:hover,
-html.dark button.bg-blue-700:hover,
-html.dark a.bg-\[\#173b82\]:hover {
-  box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.35), 0 8px 10px -6px rgba(56, 189, 248, 0.2);
-}
-
-/* Consultation teal button hover */
-button.bg-\[\#0f766e\]:hover,
-button.bg-teal-600:hover,
-button.bg-teal-700:hover {
-  filter: brightness(1.08);
-  box-shadow: 0 10px 25px -5px rgba(15, 118, 110, 0.35), 0 8px 10px -6px rgba(15, 118, 110, 0.2);
-}
-
-html.dark button.bg-\[\#0f766e\]:hover,
-html.dark button.bg-teal-600:hover,
-html.dark button.bg-teal-700:hover {
-  box-shadow: 0 10px 25px -5px rgba(45, 212, 191, 0.35), 0 8px 10px -6px rgba(45, 212, 191, 0.2);
-}
-
-/* Hover color for text links and menus */
-.hover-brand-glow:hover {
-  color: #1d4ed8 !important;
-  text-shadow: 0 0 12px rgba(29, 78, 216, 0.25);
-}
-
-html.dark .hover-brand-glow:hover {
-  color: #38bdf8 !important;
-  text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
-}
-
-/* Interactive Navigation Menu Link Hover Effects */
-nav button:hover span,
-nav a:hover span {
-  transition: color 0.18s ease, transform 0.18s ease;
-}
-
-/* Dropdown menu items active hover state */
-.dropdown-menu-item {
-  position: relative;
-  transition: all 0.18s ease-in-out;
-}
-
-.dropdown-menu-item:hover {
-  transform: translateX(-4px);
-}
 
 

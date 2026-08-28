@@ -3,6 +3,7 @@ import { PageId } from './types';
 import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { StatusNotification } from './components/StatusNotification';
+import { ProgressTracker } from './components/ProgressTracker';
 import { useKeyboardNav } from './hooks/useKeyboardNav';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';

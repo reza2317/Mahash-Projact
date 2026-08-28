@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
@@ -14,6 +15,19 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Ensure public uploads directory exists
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, UPLOADS_DIR)
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+    const ext = path.extname(file.originalname) || '.mp4';
+    cb(null, file.fieldname + '-' + uniqueSuffix + ext)
+  }
+});
+const upload = multer({ storage: storage, limits: { fileSize: 500 * 1024 * 1024 } });
+
 if (!fs.existsSync(UPLOADS_DIR)) {
   try {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -41,6 +55,9 @@ interface ServerStoreData {
   events: any[];
   customBadges: any[];
   reportViews: Record<string, number>;
+  consultantPhotos: Record<string, string>;
+  consultantsList: any[];
+  memberAvatars: Record<string, string>;
   updatedAt?: string;
 }
 
@@ -55,6 +72,9 @@ let inMemoryStore: ServerStoreData = {
   events: [],
   customBadges: [],
   reportViews: {},
+  consultantPhotos: {},
+  consultantsList: [],
+  memberAvatars: {},
   updatedAt: new Date().toISOString()
 };
 
@@ -74,7 +94,10 @@ try {
         scores: Array.isArray(parsed.scores) ? parsed.scores : [],
         events: Array.isArray(parsed.events) ? parsed.events : [],
         customBadges: Array.isArray(parsed.customBadges) ? parsed.customBadges : [],
-        reportViews: parsed.reportViews || {}
+        reportViews: parsed.reportViews || {},
+        consultantPhotos: parsed.consultantPhotos || {},
+        consultantsList: Array.isArray(parsed.consultantsList) ? parsed.consultantsList : [],
+        memberAvatars: parsed.memberAvatars || {}
       };
       console.log('✅ Loaded persistent server store from disk.');
     }
@@ -155,6 +178,17 @@ app.post('/api/store', (req, res) => {
       inMemoryStore.customBadges = payload.customBadges;
     }
 
+    // Update consultant and member info
+    if (payload.consultantPhotos && typeof payload.consultantPhotos === 'object') {
+      inMemoryStore.consultantPhotos = payload.consultantPhotos;
+    }
+    if (Array.isArray(payload.consultantsList)) {
+      inMemoryStore.consultantsList = payload.consultantsList;
+    }
+    if (payload.memberAvatars && typeof payload.memberAvatars === 'object') {
+      inMemoryStore.memberAvatars = payload.memberAvatars;
+    }
+
     // Update report views
     if (payload.reportViews && typeof payload.reportViews === 'object') {
       inMemoryStore.reportViews = {
@@ -186,10 +220,28 @@ app.post('/api/store/reset', (req, res) => {
     events: [],
     customBadges: [],
     reportViews: {},
+    consultantPhotos: {},
+    consultantsList: [],
+    memberAvatars: {},
     updatedAt: new Date().toISOString()
   };
   saveStoreToDisk();
   res.json({ success: true, message: 'Server store reset to defaults.' });
+});
+
+// Upload video or large file via multipart
+app.post('/api/upload-file', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded.' });
+      return;
+    }
+    const publicUrl = `/uploads/${req.file.filename}`;
+    res.json({ success: true, url: publicUrl, filename: req.file.filename });
+  } catch (err: any) {
+    console.error('File Upload Error:', err);
+    res.status(500).json({ error: 'Failed to save file', details: err?.message });
+  }
 });
 
 // Upload image/logo/asset endpoint

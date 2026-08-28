@@ -26,6 +26,13 @@ export type PageId =
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type TextSizeScale = 'normal' | 'large' | 'xlarge';
 
+export interface UserPreferences {
+  theme: ThemeMode;
+  textSize: TextSizeScale;
+  highContrast: boolean;
+  reducedMotion?: boolean;
+}
+
 export interface ReportAttachment {
   id: string;
   name: string;
@@ -98,6 +105,9 @@ export interface Consultant {
   avatar: string;
   image: string;
   specialty: string;
+  role?: string;
+  bio?: string;
+  availableDays?: string[];
 }
 
 export type EventCategory = 'workshop' | 'conference' | 'youth-club' | 'webinar' | 'cultural-sports';

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageId, ScoreItem } from '../types';
 import { 
   getAllScores, 
@@ -10,6 +10,7 @@ import {
 } from '../utils/reportsStore';
 import { useTeamLogos } from '../hooks/useTeamLogos';
 import { getTeamLogoPlaceholder, MAHESH_LOGO_SVG } from '../utils/assets';
+import { ResponsiveImage } from '../components/ResponsiveImage';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { formatSmartUpdateDate, toPersianDigits } from '../utils/persianDate';
 import { logAuditEvent } from '../utils/auditLogger';
@@ -20,13 +21,7 @@ import {
   Info, 
   Edit3, 
   Check, 
-  Trophy, 
-  Upload, 
-  Image as ImageIcon, 
-  RotateCcw, 
-  X, 
-  Camera,
-  Layers
+  Trophy
 } from 'lucide-react';
 
 interface ScoresPageProps {
@@ -35,27 +30,16 @@ interface ScoresPageProps {
 
 export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
   const { 
-    logos, 
     teamsList, 
     mahashLogo, 
-    getLogo, 
-    updateTeamLogo, 
-    resetTeamLogo, 
-    updateMahashLogo, 
-    resetMahashLogo 
+    getLogo
   } = useTeamLogos();
 
   const [scores, setScores] = useState<ScoreItem[]>(() => getAllScores());
   const [editingScoreId, setEditingScoreId] = useState<string | null>(null);
   const [newScoreVal, setNewScoreVal] = useState<number>(0);
-  
-  // Logo Manager Modal State
-  const [showLogoModal, setShowLogoModal] = useState<boolean>(false);
-  const [logoModalTarget, setLogoModalTarget] = useState<'teams' | 'mahash'>('teams');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isProcessingUpload, setIsProcessingUpload] = useState<boolean>(false);
 
-  const fileInputMahashRef = useRef<HTMLInputElement>(null);
   const isAdmin = isAdminAuthenticated();
 
   const showToast = (msg: string) => {
@@ -84,64 +68,6 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
     showToast('امتیاز با موفقیت در سیستم ذخیره و اعمال شد.');
   };
 
-  // Upload Mahash Institution Logo directly to LocalStorage
-  const handleMahashLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      showToast('لطفاً یک فایل تصویری معتبر انتخاب فرمایید.');
-      return;
-    }
-
-    setIsProcessingUpload(true);
-    try {
-      await updateMahashLogo(file);
-      logAuditEvent('UPDATE_LOGO', 'بارگذاری لوگوی جدید مؤسسه محاش', `فایل (${file.name}) در حافظه پایدار سیستم ذخیره شد.`);
-      showToast('لوگوی مؤسسه محاش با موفقیت در LocalStorage ذخیره و اعمال گردید.');
-    } catch (err) {
-      console.error('Error uploading Mahash logo:', err);
-      showToast('خطا در پردازش و ذخیره‌سازی تصویر لوگو.');
-    } finally {
-      setIsProcessingUpload(false);
-      if (fileInputMahashRef.current) fileInputMahashRef.current.value = '';
-    }
-  };
-
-  // Upload specific team logo directly to LocalStorage
-  const handleTeamLogoUpload = async (teamId: string, teamName: string, file: File) => {
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      showToast('لطفاً یک فایل تصویری معتبر انتخاب فرمایید.');
-      return;
-    }
-
-    setIsProcessingUpload(true);
-    try {
-      await updateTeamLogo(teamId, file);
-      logAuditEvent('UPDATE_LOGO', `تغییر عکس/لوگوی تیم ${teamName}`, `لوگوی جدید تیم ${teamName} در LocalStorage ذخیره شد.`);
-      showToast(`لوگوی تیم «${teamName}» با موفقیت ذخیره و در سراسر اپلیکیشن اعمال شد.`);
-    } catch (err) {
-      console.error('Error uploading team logo:', err);
-      showToast('خطا در ذخیره‌سازی لوگوی تیم.');
-    } finally {
-      setIsProcessingUpload(false);
-    }
-  };
-
-  const handleResetMahash = () => {
-    resetMahashLogo();
-    logAuditEvent('UPDATE_LOGO', 'بازنشانی لوگوی محاش به حالت پیش‌فرض', 'لوگوی رسمی مؤسسه به حالت اولیه وکتور بازگردانده شد.');
-    showToast('لوگوی مؤسسه محاش به نشان استاندارد بازنشانی شد.');
-  };
-
-  const handleResetTeam = (teamId: string, teamName: string) => {
-    resetTeamLogo(teamId);
-    logAuditEvent('UPDATE_LOGO', `حذف و بازنشانی لوگوی تیم ${teamName}`, `لوگوی تیم ${teamName} به حالت پیش‌فرض بازگردانده شد.`);
-    showToast(`لوگوی تیم «${teamName}» به نشان پیش‌فرض بازنشانی گردید.`);
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8" dir="rtl">
       {/* Toast Notification */}
@@ -151,15 +77,6 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
           <span>{toastMessage}</span>
         </div>
       )}
-
-      {/* Hidden File Input for quick Mahash logo upload */}
-      <input
-        type="file"
-        ref={fileInputMahashRef}
-        onChange={handleMahashLogoUpload}
-        accept="image/*"
-        className="hidden"
-      />
 
       {/* Breadcrumb */}
       <Breadcrumb
@@ -178,32 +95,18 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
         <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-6">
           {/* Right/Top: Single Prominent Official Mahash Logo & Title */}
           <div className="flex flex-col sm:flex-row items-center gap-5 shrink-0 text-center sm:text-right">
-            {/* Mahash Institution Official Logo (Editable) */}
-            <div className="relative group/logo shrink-0">
-              <div 
-                onClick={() => onNavigate('home')}
-                className="w-18 h-18 sm:w-22 sm:h-22 rounded-2xl bg-white p-2 shadow-lg border-2 border-white/50 flex items-center justify-center cursor-pointer hover:scale-105 transition transform overflow-hidden"
-                title="موسسه توانبخشی و پیشگیری محاش (برای رفتن به صفحه اصلی کلیک کنید)"
-              >
-                <img
-                  src={effectiveMahashLogo}
-                  alt="لوگوی رسمی موسسه محاش"
-                  className="w-full h-full object-contain rounded-xl"
-                />
-              </div>
-              {/* Quick change overlay */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  fileInputMahashRef.current?.click();
-                }}
-                className="absolute inset-0 bg-black/65 text-white rounded-2xl opacity-0 group-hover/logo:opacity-100 transition-opacity flex flex-col items-center justify-center text-[10px] font-bold p-1 cursor-pointer"
-                title="تغییر / بارگذاری عکس جدید لوگوی محاش"
-              >
-                <Camera className="w-4 h-4 mb-0.5" />
-                <span>تغییر لوگو</span>
-              </button>
+            <div 
+              onClick={() => onNavigate('home')}
+              className="w-18 h-18 sm:w-22 sm:h-22 rounded-2xl bg-white p-2 shadow-lg border-2 border-white/50 flex items-center justify-center cursor-pointer hover:scale-105 transition transform overflow-hidden"
+              title="موسسه توانبخشی و پیشگیری محاش (برای رفتن به صفحه اصلی کلیک کنید)"
+            >
+              <ResponsiveImage
+                src={effectiveMahashLogo}
+                fallbackSrc={MAHESH_LOGO_SVG}
+                alt="لوگوی رسمی موسسه محاش"
+                className="w-full h-full object-contain rounded-xl img-sharp"
+                priority={true}
+              />
             </div>
 
             <div className="text-right">
@@ -220,25 +123,12 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          {/* Left: Update Date Badge & Quick Action Buttons */}
+          {/* Left: Update Date Badge & Admin Actions */}
           <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
             <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-black/30 backdrop-blur-md border border-white/20 text-xs font-bold text-emerald-300 shadow-sm">
               <Calendar className="w-4 h-4 text-emerald-400" />
               <span>{smartUpdateDate}</span>
             </div>
-
-            {/* Quick Logo Management Modal Trigger */}
-            <button
-              onClick={() => {
-                setLogoModalTarget('teams');
-                setShowLogoModal(true);
-              }}
-              className="px-4 py-2 bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 hover:text-white border border-amber-400/40 rounded-2xl text-xs font-bold backdrop-blur-md transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="بارگذاری، تغییر و ذخیره عکس و لوگوهای تیم‌ها"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>ویرایش و بارگذاری لوگوها</span>
-            </button>
 
             {isAdmin && (
               <button
@@ -252,57 +142,36 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        {/* Team Badges Quick Strip with Direct Edit on Hover - EXACTLY 5 TEAMS */}
+        {/* Team Badges Quick Strip - EXACTLY 5 TEAMS */}
         <div className="mt-6 pt-5 border-t border-white/15 grid grid-cols-2 sm:grid-cols-5 gap-3">
           {scores.map((s) => {
             const teamLogo = getLogo(s.id);
             return (
-              <div
+              <button
                 key={s.id}
-                className="relative flex items-center gap-2.5 p-2 bg-white/10 hover:bg-white/20 rounded-2xl border border-white/10 text-right transition group"
+                type="button"
+                onClick={() => onNavigate(`team-${s.id}` as PageId)}
+                className="relative flex items-center gap-2.5 p-2 bg-white/10 hover:bg-white/20 rounded-2xl border border-white/10 text-right transition group cursor-pointer"
               >
-                <button
-                  type="button"
-                  onClick={() => onNavigate(`team-${s.id}` as PageId)}
-                  className="flex items-center gap-2.5 min-w-0 flex-1 text-right cursor-pointer"
-                >
-                  <div className="relative w-10 h-10 rounded-full bg-white p-0.5 shrink-0 overflow-hidden shadow-xs group-hover:scale-105 transition border border-white/40">
-                    <img
-                      src={teamLogo}
-                      alt={s.name}
-                      className="w-full h-full object-contain rounded-full"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(s.id, s.name);
-                      }}
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <span className="text-[11px] font-bold text-white truncate block group-hover:text-amber-300 transition">
-                      {s.name}
-                    </span>
-                    <span className="text-[10px] font-black text-amber-300">
-                      {toPersianDigits(s.score)} امتیاز
-                    </span>
-                  </div>
-                </button>
-
-                {/* Direct quick upload button on strip */}
-                <label
-                  title={`تغییر عکس یا لوگوی ${s.name}`}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 bg-black/60 hover:bg-black/90 text-amber-300 rounded-xl transition cursor-pointer shrink-0"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleTeamLogoUpload(s.id, s.name, file);
+                <div className="relative w-10 h-10 rounded-full bg-white p-0.5 shrink-0 overflow-hidden shadow-xs group-hover:scale-105 transition border border-white/40">
+                  <img
+                    src={teamLogo}
+                    alt={s.name}
+                    className="w-full h-full object-contain rounded-full"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(s.id, s.name);
                     }}
                   />
-                </label>
-              </div>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[11px] font-bold text-white truncate block group-hover:text-amber-300 transition">
+                    {s.name}
+                  </span>
+                  <span className="text-[10px] font-black text-amber-300">
+                    {toPersianDigits(s.score)} امتیاز
+                  </span>
+                </div>
+              </button>
             );
           })}
         </div>
@@ -317,16 +186,6 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
               جدول رتبه‌بندی و نشان تیم‌ها
             </h2>
           </div>
-          <button
-            onClick={() => {
-              setLogoModalTarget('teams');
-              setShowLogoModal(true);
-            }}
-            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 transition cursor-pointer"
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>ویرایش عکس همه تیم‌ها</span>
-          </button>
         </div>
 
         <div className="overflow-x-auto">
@@ -364,43 +223,20 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
                       </span>
                     </td>
 
-                    {/* Team Name and Editable Logo */}
+                    {/* Team Name and Logo */}
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3 text-right">
-                        {/* Logo with interactive change button */}
-                        <div className="relative group/teamlogo shrink-0">
-                          <div 
-                            onClick={() => onNavigate(`team-${item.id}` as PageId)}
-                            className="w-12 h-12 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 shadow-sm group-hover/teamlogo:scale-105 group-hover/teamlogo:border-blue-500 transition cursor-pointer"
-                            title={`مشاهده صفحه تیم ${item.name}`}
-                          >
-                            <img
-                              src={teamLogoSrc}
-                              alt={item.name}
-                              loading="lazy"
-                              decoding="async"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(item.id, item.name);
-                              }}
-                              className="w-full h-full object-contain rounded-full"
-                            />
-                          </div>
-                          {/* Quick upload overlay on table row */}
-                          <label
-                            title={`تغییر عکس یا لوگوی ${item.name}`}
-                            className="absolute inset-0 bg-black/60 text-white rounded-full opacity-0 group-hover/teamlogo:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                          >
-                            <Camera className="w-4 h-4 text-amber-300" />
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleTeamLogoUpload(item.id, item.name, file);
-                              }}
-                            />
-                          </label>
+                        <div 
+                          onClick={() => onNavigate(`team-${item.id}` as PageId)}
+                          className="w-12 h-12 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 shadow-sm hover:scale-105 hover:border-blue-500 transition cursor-pointer shrink-0"
+                          title={`مشاهده صفحه تیم ${item.name}`}
+                        >
+                          <ResponsiveImage
+                            src={teamLogoSrc}
+                            fallbackSrc={getTeamLogoPlaceholder(item.id, item.name)}
+                            alt={item.name}
+                            className="w-full h-full object-contain rounded-full img-sharp"
+                          />
                         </div>
 
                         <button
@@ -495,152 +331,6 @@ export const ScoresPage: React.FC<ScoresPageProps> = ({ onNavigate }) => {
           </span>
         </div>
       </div>
-
-      {/* Logo Management Modal */}
-      {showLogoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                  <ImageIcon className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-white">
-                    بارگذاری، ویرایش و حذف لوگوها (LocalStorage)
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    تغییر و ذخیره‌سازی دائمی لوگوی مؤسسه محاش و تیم‌های پنج‌گانه
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowLogoModal(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Target Selector Tabs */}
-            <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setLogoModalTarget('teams')}
-                className={`flex-1 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                  logoModalTarget === 'teams'
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                <span>لوگوی تیم‌های پنج‌گانه</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setLogoModalTarget('mahash')}
-                className={`flex-1 py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                  logoModalTarget === 'mahash'
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                <ImageIcon className="w-4 h-4" />
-                <span>لوگوی مؤسسه محاش</span>
-              </button>
-            </div>
-
-            {/* Content for EXACTLY the 5 Teams Logos */}
-            {logoModalTarget === 'teams' && (
-              <div className="space-y-3 max-h-80 overflow-y-auto p-1">
-                {teamsList.map((t) => {
-                  const currentLogo = getLogo(t.id);
-                  return (
-                    <div key={t.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-12 h-12 rounded-full bg-white p-0.5 border-2 border-blue-500/30 shadow-xs flex items-center justify-center shrink-0 overflow-hidden">
-                          <img 
-                            src={currentLogo} 
-                            alt={t.name} 
-                            className="w-full h-full object-contain rounded-full" 
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = getTeamLogoPlaceholder(t.id, t.name);
-                            }}
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block truncate">{t.name}</span>
-                          {t.manager && (
-                            <span className="text-[10px] text-slate-500 block truncate">مدیر: {t.manager}</span>
-                          )}
-                          <span className="text-[9px] text-slate-400 block font-mono">
-                            {t.isCustom ? '✓ تصویر سفارشی ذخیره‌شده' : 'نشان وکتور پیش‌فرض'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <label className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-xs">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>آپلود تصویر</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleTeamLogoUpload(t.id, t.name, file);
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => handleResetTeam(t.id, t.name)}
-                          title="حذف لوگوی سفارشی و بازنشانی به پیش‌فرض"
-                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition cursor-pointer"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Content for Mahash Logo */}
-            {logoModalTarget === 'mahash' && (
-              <div className="space-y-4 text-center py-2">
-                <div className="w-28 h-28 mx-auto bg-slate-50 dark:bg-slate-800 rounded-3xl p-3 border-2 border-blue-500 shadow-md flex items-center justify-center">
-                  <img src={effectiveMahashLogo} alt="لوگوی فعلی محاش" className="w-full h-full object-contain" />
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300">
-                  لوگوی رسمی و سازمانی مؤسسه توانبخشی و پیشگیری محاش (ذخیره‌شده در LocalStorage)
-                </p>
-                <div className="flex justify-center gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputMahashRef.current?.click()}
-                    disabled={isProcessingUpload}
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <span>{isProcessingUpload ? 'در حال پردازش...' : 'انتخاب و آپلود فایل لوگو'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetMahash}
-                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>بازنشانی به پیش‌فرض</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

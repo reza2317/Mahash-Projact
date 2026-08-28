@@ -9,6 +9,7 @@ import {
   incrementReportViews, 
   subscribeToStoreUpdates 
 } from '../utils/reportsStore';
+import { safeGetLocalStorage, safeSetLocalStorage } from '../utils/storage';
 
 export interface UseIsolatedTeamVideoOptions {
   teamSlug: string;
@@ -81,7 +82,7 @@ export function useIsolatedTeamVideo({
   const [showSubtitles, setShowSubtitlesState] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
-      const saved = localStorage.getItem(SUBTITLE_PREF_KEY);
+      const saved = safeGetLocalStorage(SUBTITLE_PREF_KEY);
       if (saved !== null) {
         return saved === 'true';
       }
@@ -93,7 +94,7 @@ export function useIsolatedTeamVideo({
     setShowSubtitlesState((prev) => {
       const next = typeof valueOrUpdater === 'function' ? valueOrUpdater(prev) : valueOrUpdater;
       try {
-        localStorage.setItem(SUBTITLE_PREF_KEY, String(next));
+        safeSetLocalStorage(SUBTITLE_PREF_KEY, String(next));
       } catch {}
       return next;
     });

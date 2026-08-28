@@ -4,9 +4,9 @@ export const TEAM_THINKER_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompone
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
     <defs>
       <radialGradient id="thinkerBg" cx="50%" cy="45%" r="60%">
-        <stop offset="0%" stop-color="#1f1d1a"/>
-        <stop offset="80%" stop-color="#0a0a0a"/>
-        <stop offset="100%" stop-color="#000000"/>
+        <stop offset="0%" stop-color="#1e293b"/>
+        <stop offset="70%" stop-color="#0f172a"/>
+        <stop offset="100%" stop-color="#020617"/>
       </radialGradient>
       <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#fef08a"/>
@@ -15,7 +15,7 @@ export const TEAM_THINKER_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompone
         <stop offset="100%" stop-color="#b45309"/>
       </linearGradient>
       <linearGradient id="bulbGlow" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="#fffbeb"/>
+        <stop offset="0%" stop-color="#ffffff"/>
         <stop offset="100%" stop-color="#fef08a"/>
       </linearGradient>
     </defs>
@@ -25,16 +25,16 @@ export const TEAM_THINKER_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompone
     <circle cx="120" cy="120" r="105" fill="none" stroke="url(#goldGrad)" stroke-width="1.5" stroke-dasharray="6 3"/>
     
     <!-- Brain-Lightbulb Icon Motif -->
-    <g transform="translate(120, 102)">
+    <g transform="translate(120, 100)">
       <!-- Glowing bulb background -->
       <path d="M0 -48 C-30 -48 -48 -26 -48 2 C-48 18 -38 32 -26 42 L-26 56 C-26 62 -20 66 -14 66 L14 66 C20 66 26 62 26 56 L26 42 C38 32 48 18 48 2 C48 -26 30 -48 0 -48 Z" fill="url(#goldGrad)" opacity="0.95"/>
       
       <!-- Inner brain folds -->
-      <path d="M-15 -32 C-26 -32 -34 -20 -32 -8 C-30 4 -22 10 -15 12" fill="none" stroke="#1f1d1a" stroke-width="3.5" stroke-linecap="round"/>
-      <path d="M15 -32 C26 -32 34 -20 32 -8 C30 4 22 10 15 12" fill="none" stroke="#1f1d1a" stroke-width="3.5" stroke-linecap="round"/>
-      <path d="M0 -36 L0 20" stroke="#1f1d1a" stroke-width="3.5" stroke-linecap="round"/>
-      <path d="M-12 -12 Q0 2 12 -12" stroke="#1f1d1a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-      <path d="M-14 20 Q0 30 14 20" stroke="#1f1d1a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <path d="M-15 -32 C-26 -32 -34 -20 -32 -8 C-30 4 -22 10 -15 12" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M15 -32 C26 -32 34 -20 32 -8 C30 4 22 10 15 12" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M0 -36 L0 20" stroke="#0f172a" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M-12 -12 Q0 2 12 -12" stroke="#0f172a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <path d="M-14 20 Q0 30 14 20" stroke="#0f172a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
       
       <!-- Screw base -->
       <line x1="-16" y1="72" x2="16" y2="72" stroke="url(#goldGrad)" stroke-width="4" stroke-linecap="round"/>
@@ -47,7 +47,7 @@ export const TEAM_THINKER_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompone
     </g>
     
     <!-- Typography -->
-    <text x="120" y="208" fill="url(#goldGrad)" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="18" font-weight="900" text-anchor="middle" letter-spacing="0.5">تیم مغز متفکر</text>
+    <text x="120" y="206" fill="url(#goldGrad)" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="17" font-weight="900" text-anchor="middle" letter-spacing="0.5">تیم مغز متفکر</text>
   </svg>
 `)}`;
 
@@ -71,7 +71,7 @@ export const TEAM_TOMORROW_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompon
     <circle cx="120" cy="120" r="106" fill="none" stroke="#dcfce7" stroke-width="2"/>
     
     <!-- Soaring Leaf Motif -->
-    <g transform="translate(120, 108)">
+    <g transform="translate(120, 106)">
       <path d="M-60 40 C-50 -20 20 -45 60 -65 C40 -20 -10 30 -60 40 Z" fill="url(#leafGrad)"/>
       <path d="M-45 32 C-20 0 15 -25 50 -55" stroke="#ffffff" stroke-width="2.5" fill="none" opacity="0.6" stroke-linecap="round"/>
       
@@ -85,7 +85,7 @@ export const TEAM_TOMORROW_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompon
     </g>
     
     <!-- Typography -->
-    <text x="120" y="210" fill="#15803d" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="19" font-weight="900" text-anchor="middle">باشگاه فردا</text>
+    <text x="120" y="208" fill="#15803d" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="18" font-weight="900" text-anchor="middle">باشگاه فردا</text>
   </svg>
 `)}`;
 
@@ -93,42 +93,50 @@ export const TEAM_ANGELS_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURIComponen
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
     <defs>
       <linearGradient id="purpleRim" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#a855f7"/>
+        <stop offset="0%" stop-color="#c084fc"/>
         <stop offset="50%" stop-color="#9333ea"/>
-        <stop offset="100%" stop-color="#7e22ce"/>
+        <stop offset="100%" stop-color="#6b21a8"/>
       </linearGradient>
-      <linearGradient id="blueWing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <linearGradient id="purpleCore" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#faf5ff"/>
+        <stop offset="100%" stop-color="#f3e8ff"/>
+      </linearGradient>
+      <linearGradient id="wingGold" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#fde047"/>
+        <stop offset="100%" stop-color="#eab308"/>
+      </linearGradient>
+      <linearGradient id="wingBlue" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#60a5fa"/>
         <stop offset="100%" stop-color="#2563eb"/>
-      </linearGradient>
-      <linearGradient id="redWing" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#f87171"/>
-        <stop offset="100%" stop-color="#dc2626"/>
       </linearGradient>
     </defs>
     
     <!-- Circular Shield -->
-    <circle cx="120" cy="120" r="114" fill="#ffffff" stroke="url(#purpleRim)" stroke-width="6"/>
-    <circle cx="120" cy="120" r="106" fill="none" stroke="#f3e8ff" stroke-width="2"/>
+    <circle cx="120" cy="120" r="114" fill="url(#purpleCore)" stroke="url(#purpleRim)" stroke-width="6"/>
+    <circle cx="120" cy="120" r="106" fill="none" stroke="#e9d5ff" stroke-width="2"/>
     
     <!-- Angel Wings Motif -->
-    <g transform="translate(120, 106)">
-      <!-- Head / Center Core -->
-      <circle cx="0" cy="-45" r="15" fill="#9333ea"/>
-      <path d="M0 -25 C-14 -25 -24 -12 -24 8 C-24 24 -12 36 0 42 C12 36 24 24 24 8 C24 -12 14 -25 0 -25 Z" fill="url(#blueWing)"/>
-      
-      <!-- Left Wing (Red) -->
-      <path d="M-15 0 C-50 -30 -80 -5 -75 48 C-45 42 -25 24 -15 0 Z" fill="url(#redWing)"/>
-      
-      <!-- Right Wing (Dark Slate/Navy) -->
-      <path d="M15 0 C50 -30 80 -5 75 48 C45 42 25 24 15 0 Z" fill="#1e293b"/>
-      
+    <g transform="translate(120, 102)">
       <!-- Halo Crown -->
-      <ellipse cx="0" cy="-62" rx="20" ry="6" fill="none" stroke="#eab308" stroke-width="3"/>
+      <ellipse cx="0" cy="-56" rx="24" ry="7" fill="none" stroke="url(#wingGold)" stroke-width="4"/>
+      
+      <!-- Head / Center Core -->
+      <circle cx="0" cy="-38" r="16" fill="#7e22ce"/>
+      <circle cx="0" cy="-38" r="12" fill="#9333ea"/>
+      
+      <!-- Left Wing (Golden/Rose) -->
+      <path d="M-12 -12 C-55 -40 -85 -10 -78 46 C-48 40 -26 20 -12 -12 Z" fill="url(#wingGold)"/>
+      
+      <!-- Right Wing (Blue) -->
+      <path d="M12 -12 C55 -40 85 -10 78 46 C48 40 26 20 12 -12 Z" fill="url(#wingBlue)"/>
+      
+      <!-- Heart & Body in Center -->
+      <path d="M0 -18 C-16 -18 -24 0 -18 18 C-12 36 0 46 0 46 C0 46 12 36 18 18 C24 0 16 -18 0 -18 Z" fill="#7e22ce"/>
+      <circle cx="0" cy="8" r="6" fill="#ffffff"/>
     </g>
     
     <!-- Typography -->
-    <text x="120" y="210" fill="#7e22ce" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="17" font-weight="900" text-anchor="middle">فرشتگان ناشنوایان</text>
+    <text x="120" y="208" fill="#6b21a8" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="16" font-weight="900" text-anchor="middle">فرشتگان ناشنوایان</text>
   </svg>
 `)}`;
 
@@ -140,33 +148,32 @@ export const TEAM_GHORBANI_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompon
         <stop offset="50%" stop-color="#0284c7"/>
         <stop offset="100%" stop-color="#0369a1"/>
       </linearGradient>
+      <linearGradient id="shieldGold" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#fef08a"/>
+        <stop offset="100%" stop-color="#f59e0b"/>
+      </linearGradient>
     </defs>
     
     <!-- Outer Blue Shield -->
-    <circle cx="120" cy="120" r="114" fill="url(#skyGrad)" stroke="#0284c7" stroke-width="6"/>
+    <circle cx="120" cy="120" r="114" fill="url(#skyGrad)" stroke="#ffffff" stroke-width="4"/>
+    <circle cx="120" cy="120" r="106" fill="none" stroke="url(#shieldGold)" stroke-width="2" stroke-dasharray="6 3"/>
     
-    <!-- White Character Face Disk -->
-    <circle cx="120" cy="112" r="62" fill="#ffffff" stroke="#e0f2fe" stroke-width="2"/>
-    
-    <!-- Horns / Fun Amber Hair -->
-    <path d="M72 65 C60 46 48 58 60 76" stroke="#f59e0b" stroke-width="7" fill="none" stroke-linecap="round"/>
-    <path d="M168 65 C180 46 192 58 180 76" stroke="#f59e0b" stroke-width="7" fill="none" stroke-linecap="round"/>
-    
-    <!-- Eyes & Smile -->
-    <circle cx="92" cy="98" r="7" fill="#0f172a"/>
-    <circle cx="148" cy="98" r="7" fill="#0f172a"/>
-    <circle cx="90" cy="95" r="2.5" fill="#ffffff"/>
-    <circle cx="146" cy="95" r="2.5" fill="#ffffff"/>
-    
-    <!-- Cheeks -->
-    <circle cx="78" cy="115" r="7" fill="#fecdd3" opacity="0.8"/>
-    <circle cx="162" cy="115" r="7" fill="#fecdd3" opacity="0.8"/>
-    
-    <!-- Smile Curve -->
-    <path d="M102 120 Q120 144 138 120" stroke="#0f172a" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <!-- Central Energetic Team Symbol (Emblem & Starburst) -->
+    <g transform="translate(120, 102)">
+      <!-- White Badge Base -->
+      <circle cx="0" cy="0" r="54" fill="#ffffff" stroke="#e0f2fe" stroke-width="3"/>
+      
+      <!-- Energy Flame & Collaborative Torch -->
+      <path d="M0 -42 C-22 -15 -18 10 0 34 C18 10 22 -15 0 -42 Z" fill="url(#skyGrad)"/>
+      <circle cx="0" cy="0" r="12" fill="url(#shieldGold)"/>
+      <polygon points="0,-32 4,-20 16,-20 7,-12 10,0 0,-6 -10,0 -7,-12 -16,-20 -4,-20" fill="#ffffff"/>
+      
+      <!-- Dynamic Smile / Harmony Arc -->
+      <path d="M-30 20 Q0 38 30 20" stroke="#0284c7" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    </g>
     
     <!-- Typography -->
-    <text x="120" y="210" fill="#ffffff" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="20" font-weight="900" text-anchor="middle">تیم قربونی</text>
+    <text x="120" y="208" fill="#ffffff" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="18" font-weight="900" text-anchor="middle">تیم قربونی</text>
   </svg>
 `)}`;
 
@@ -182,30 +189,168 @@ export const TEAM_SILENCE_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompone
         <stop offset="0%" stop-color="#5eead4"/>
         <stop offset="100%" stop-color="#0d9488"/>
       </linearGradient>
+      <linearGradient id="tealBg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#f0fdfa"/>
+        <stop offset="100%" stop-color="#ccfbf1"/>
+      </linearGradient>
     </defs>
     
     <!-- Outer Teal Shield -->
-    <circle cx="120" cy="120" r="114" fill="#ffffff" stroke="url(#tealRim)" stroke-width="6"/>
-    <circle cx="120" cy="120" r="106" fill="none" stroke="#ccfbf1" stroke-width="2"/>
+    <circle cx="120" cy="120" r="114" fill="url(#tealBg)" stroke="url(#tealRim)" stroke-width="6"/>
+    <circle cx="120" cy="120" r="106" fill="none" stroke="#99f6e4" stroke-width="2"/>
     
-    <!-- Sound Wave & Hand Arc Contour -->
-    <g transform="translate(120, 108)">
-      <!-- Silhouette Curve of Head/Ear Listening -->
-      <path d="M0 -65 C-42 -65 -65 -30 -65 12 C-65 65 -25 88 0 88 C25 88 65 65 65 12 C65 -30 42 -65 0 -65 Z" fill="none" stroke="url(#tealRim)" stroke-width="5" stroke-linecap="round"/>
+    <!-- Sound Wave & Hearing Harmony Arc Contour -->
+    <g transform="translate(120, 102)">
+      <!-- Silhouette Listening Orbit -->
+      <path d="M0 -56 C-38 -56 -58 -25 -58 10 C-58 52 -20 74 0 74 C20 74 58 52 58 10 C58 -25 38 -56 0 -56 Z" fill="#ffffff" stroke="url(#tealRim)" stroke-width="4.5"/>
       
-      <!-- Resonating sound gesture lines -->
-      <path d="M-30 40 L-10 15 L10 -5 L35 -30" stroke="url(#waveGrad)" stroke-width="6" stroke-linecap="round"/>
-      <path d="M-20 50 L0 25 L20 5 L45 -20" stroke="url(#waveGrad)" stroke-width="4.5" stroke-linecap="round" opacity="0.7"/>
-      <circle cx="35" cy="-32" r="8" fill="#0d9488"/>
+      <!-- Resonating sound gesture waves -->
+      <path d="M-26 32 L-8 12 L8 -5 L28 -25" stroke="url(#waveGrad)" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M-16 42 L2 22 L18 5 L38 -15" stroke="url(#waveGrad)" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+      
+      <!-- Acoustic Node Core -->
+      <circle cx="0" cy="8" r="12" fill="#0f766e"/>
+      <circle cx="0" cy="8" r="6" fill="#ffffff"/>
     </g>
     
     <!-- Typography -->
-    <text x="120" y="210" fill="#0f766e" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="19" font-weight="900" text-anchor="middle">تیم آوای سکوت</text>
+    <text x="120" y="208" fill="#0f766e" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="17" font-weight="900" text-anchor="middle">تیم آوای سکوت</text>
   </svg>
 `)}`;
 
 /**
+ * Official Mahash Youth Club Fallback Logo SVG (نشان گرافیکی پیش‌فرض باشگاه جوانان محاش)
+ * Used as a stylish, high-contrast vector fallback for any team with unuploaded or pending logos.
+ */
+export const MAHASH_YOUTH_CLUB_FALLBACK_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+    <defs>
+      <linearGradient id="fallbackNavyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#1e3a8a"/>
+        <stop offset="50%" stop-color="#172554"/>
+        <stop offset="100%" stop-color="#0f172a"/>
+      </linearGradient>
+      <linearGradient id="fallbackGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#fef08a"/>
+        <stop offset="50%" stop-color="#f59e0b"/>
+        <stop offset="100%" stop-color="#b45309"/>
+      </linearGradient>
+      <linearGradient id="fallbackCyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#38bdf8"/>
+        <stop offset="100%" stop-color="#0284c7"/>
+      </linearGradient>
+      <linearGradient id="fallbackInnerDisk" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="#f0f9ff"/>
+      </linearGradient>
+      <filter id="fallbackDropShadow" x="-10%" y="-10%" width="120%" height="120%">
+        <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.2"/>
+      </filter>
+    </defs>
+
+    <!-- Outer Navy & Gold Circular Shield -->
+    <circle cx="120" cy="120" r="114" fill="url(#fallbackNavyGrad)" stroke="url(#fallbackGoldGrad)" stroke-width="4.5" filter="url(#fallbackDropShadow)"/>
+    <circle cx="120" cy="120" r="106" fill="none" stroke="url(#fallbackGoldGrad)" stroke-width="1.5" stroke-dasharray="5 3"/>
+
+    <!-- Central Clean White Disk -->
+    <circle cx="120" cy="110" r="68" fill="url(#fallbackInnerDisk)" stroke="#bae6fd" stroke-width="2"/>
+
+    <!-- Mahash Listening Contour & Youth Energy Torch Motif -->
+    <g transform="translate(120, 106)">
+      <!-- Listening Arc Orbit Contour -->
+      <path d="M-36 -32 C-20 -54 20 -54 36 -32 C48 -14 44 18 24 34 C8 46 -12 46 -24 36" fill="none" stroke="#1e3a8a" stroke-width="5.5" stroke-linecap="round"/>
+      
+      <!-- Youth Soaring Wings of Growth -->
+      <path d="M-32 6 C-25 -16 -5 -28 0 -38 C5 -28 25 -16 32 6 C16 12 0 14 -32 6 Z" fill="url(#fallbackCyanGrad)" opacity="0.95"/>
+
+      <!-- Golden Flame of Ambition -->
+      <path d="M0 -44 C-10 -26 -8 -10 0 6 C8 -10 10 -26 0 -44 Z" fill="url(#fallbackGoldGrad)"/>
+      <circle cx="0" cy="-14" r="4" fill="#ffffff"/>
+
+      <!-- 5 Team Unity Stars/Dots -->
+      <circle cx="-16" cy="22" r="3" fill="#f59e0b"/>
+      <circle cx="-8" cy="25" r="3" fill="#0284c7"/>
+      <circle cx="0" cy="26" r="3.5" fill="#10b981"/>
+      <circle cx="8" cy="25" r="3" fill="#8b5cf6"/>
+      <circle cx="16" cy="22" r="3" fill="#f43f5e"/>
+    </g>
+
+    <!-- Top Badge Header -->
+    <text x="120" y="32" fill="url(#fallbackGoldGrad)" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="11" font-weight="900" text-anchor="middle" letter-spacing="0.5">★ باشگاه جوانان محاش ★</text>
+
+    <!-- Bottom Emblem Ribbon -->
+    <rect x="34" y="192" width="172" height="26" rx="13" fill="url(#fallbackGoldGrad)" filter="url(#fallbackDropShadow)"/>
+    <text x="120" y="210" fill="#0f172a" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="11.5" font-weight="900" text-anchor="middle" letter-spacing="0.2">نشان رسمی تیم‌های جوانان</text>
+  </svg>
+`)}`;
+
+/**
+ * Returns dynamic Mahash Youth Club fallback SVG customized with team name if provided
+ */
+export function getMahashYouthClubFallbackBadge(teamId: string = '', teamName: string = ''): string {
+  const safeName = (teamName || teamId || 'تیم جوانان محاش')
+    .replace(/[<>&"]/g, '')
+    .trim();
+    
+  return `data:image/svg+xml;utf8,${encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+      <defs>
+        <linearGradient id="dynNavyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#1e3a8a"/>
+          <stop offset="50%" stop-color="#172554"/>
+          <stop offset="100%" stop-color="#0f172a"/>
+        </linearGradient>
+        <linearGradient id="dynGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#fef08a"/>
+          <stop offset="50%" stop-color="#f59e0b"/>
+          <stop offset="100%" stop-color="#b45309"/>
+        </linearGradient>
+        <linearGradient id="dynCyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#38bdf8"/>
+          <stop offset="100%" stop-color="#0284c7"/>
+        </linearGradient>
+        <linearGradient id="dynDiskGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="100%" stop-color="#f0fdfa"/>
+        </linearGradient>
+        <filter id="dynShadow" x="-10%" y="-10%" width="120%" height="120%">
+          <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.22"/>
+        </filter>
+      </defs>
+
+      <!-- Outer Shield -->
+      <circle cx="120" cy="120" r="114" fill="url(#dynNavyGrad)" stroke="url(#dynGoldGrad)" stroke-width="4.5" filter="url(#dynShadow)"/>
+      <circle cx="120" cy="120" r="106" fill="none" stroke="url(#dynGoldGrad)" stroke-width="1.5" stroke-dasharray="5 3"/>
+
+      <!-- Inner Disk -->
+      <circle cx="120" cy="110" r="68" fill="url(#dynDiskGrad)" stroke="#99f6e4" stroke-width="2"/>
+
+      <!-- Mahash Listening Ear Arc & Youth Torch -->
+      <g transform="translate(120, 105)">
+        <path d="M-36 -32 C-20 -54 20 -54 36 -32 C48 -14 44 18 24 34 C8 46 -12 46 -24 36" fill="none" stroke="#1e3a8a" stroke-width="5.5" stroke-linecap="round"/>
+        <path d="M-32 6 C-25 -16 -5 -28 0 -38 C5 -28 25 -16 32 6 C16 12 0 14 -32 6 Z" fill="url(#dynCyanGrad)" opacity="0.95"/>
+        <path d="M0 -44 C-10 -26 -8 -10 0 6 C8 -10 10 -26 0 -44 Z" fill="url(#dynGoldGrad)"/>
+        <circle cx="0" cy="-14" r="4" fill="#ffffff"/>
+        <circle cx="-16" cy="22" r="3" fill="#f59e0b"/>
+        <circle cx="-8" cy="25" r="3" fill="#0284c7"/>
+        <circle cx="0" cy="26" r="3.5" fill="#10b981"/>
+        <circle cx="8" cy="25" r="3" fill="#8b5cf6"/>
+        <circle cx="16" cy="22" r="3" fill="#f43f5e"/>
+      </g>
+
+      <!-- Top Header -->
+      <text x="120" y="32" fill="url(#dynGoldGrad)" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="11" font-weight="900" text-anchor="middle" letter-spacing="0.5">★ باشگاه جوانان محاش ★</text>
+
+      <!-- Bottom Badge with Safe Team Name -->
+      <rect x="28" y="192" width="184" height="26" rx="13" fill="url(#dynGoldGrad)" filter="url(#dynShadow)"/>
+      <text x="120" y="210" fill="#0f172a" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="${safeName.length > 16 ? 10 : 11.5}" font-weight="900" text-anchor="middle" letter-spacing="0.2">${safeName}</text>
+    </svg>
+  `)}`;
+}
+
+/**
  * Returns the official vector SVG for each team, guaranteed to load instantly.
+ * If team has no custom logo or is unrecognized, seamlessly falls back to Mahash Youth Club graphical emblem.
  */
 export function getTeamLogoPlaceholder(teamId: string, teamName: string = ''): string {
   const normalized = (teamId || '').toLowerCase() + ' ' + (teamName || '');
@@ -222,7 +367,10 @@ export function getTeamLogoPlaceholder(teamId: string, teamName: string = ''): s
   if (normalized.includes('ghorbani') || normalized.includes('قربونی')) {
     return TEAM_GHORBANI_LOGO_SVG;
   }
-  return TEAM_SILENCE_LOGO_SVG;
+  if (normalized.includes('silence') || normalized.includes('سکوت')) {
+    return TEAM_SILENCE_LOGO_SVG;
+  }
+  return getMahashYouthClubFallbackBadge(teamId, teamName) || MAHASH_YOUTH_CLUB_FALLBACK_LOGO_SVG;
 }
 
 /**
@@ -459,3 +607,20 @@ export const RADIN_AVATAR_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
     <text x="100" y="94" font-size="38" text-anchor="middle">👨‍💼</text>
   </svg>
 `)}`;
+
+/**
+ * Normalizes an image source string so raw SVG strings (<svg ...)
+ * are correctly transformed into data URIs that <img> tags and Image() preloader can render cleanly.
+ */
+export function normalizeImageSrc(src: unknown, fallback: string = ''): string {
+  if (!src || typeof src !== 'string') return fallback;
+  const s = src.trim();
+  if (!s) return fallback;
+
+  if (s.startsWith('<svg') && s.includes('</svg>')) {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(s)}`;
+  }
+
+  return s;
+}
+

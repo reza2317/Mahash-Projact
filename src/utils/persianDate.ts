@@ -65,35 +65,64 @@ export function getJalaliMonthDays(jy: number, jm: number): number {
 }
 
 /**
+ * Exact Jalali to Gregorian conversion (Borkowski algorithm)
+ */
+export function jalaliToGregorianObj(jy: number, jm: number, jd: number): { gy: number; gm: number; gd: number } {
+  const jyCalculated = jy + 1595;
+  let days = -355668 + (365 * jyCalculated) + (Math.floor(jyCalculated / 33) * 8) + Math.floor(((jyCalculated % 33) + 3) / 4) + jd + ((jm < 7) ? (jm - 1) * 31 : ((jm - 7) * 30) + 186);
+  let gy = 400 * Math.floor(days / 146097);
+  days %= 146097;
+  if (days > 36524) {
+    gy += 100 * Math.floor(--days / 36524);
+    days %= 36524;
+    if (days >= 365) days++;
+  }
+  gy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    gy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let gd = days + 1;
+  const sal_a = [0, 31, ((gy % 4 === 0 && gy % 100 !== 0) || (gy % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let gm = 0;
+  for (gm = 0; gm < 13 && gd > sal_a[gm]; gm++) {
+    gd -= sal_a[gm];
+  }
+  return { gy, gm, gd };
+}
+
+/**
  * Converts Jalali date (year, month 1-12, day) to Gregorian Date object
  */
 export function jalaliToGregorian(jy: number, jm: number, jd: number): Date {
-  const g_days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  const j_days_in_month = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29];
+  const { gy, gm, gd } = jalaliToGregorianObj(jy, jm, jd);
+  return new Date(gy, gm - 1, gd);
+}
 
-  let j_day_no = 0;
-  for (let i = 0; i < jm - 1; ++i) {
-    j_day_no += j_days_in_month[i];
-  }
-  j_day_no += jd - 1;
+/**
+ * Returns Iranian day index of week (0 = Saturday ... 6 = Friday)
+ */
+export function getJalaliDayOfWeekIndex(jy: number, jm: number, jd: number): number {
+  const gDate = jalaliToGregorian(jy, jm, jd);
+  const jsDay = gDate.getDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+  // Map to Iran week: Saturday = 0, Sunday = 1, Monday = 2, Tuesday = 3, Wednesday = 4, Thursday = 5, Friday = 6
+  return (jsDay + 1) % 7;
+}
 
-  let gy = jy + 621;
-  // Approximate conversion for day of week resolution
-  const gDate = new Date(Date.UTC(gy, jm + 1, jd));
-  // Refined Gregorian approximation:
-  const marchEquinox = new Date(Date.UTC(gy, 2, 21)); // ~March 21
-  const msOffset = j_day_no * 86400000;
-  return new Date(marchEquinox.getTime() + msOffset);
+/**
+ * Returns full Persian day name ('شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه')
+ */
+export function getJalaliDayOfWeek(jy: number, jm: number, jd: number): string {
+  const idx = getJalaliDayOfWeekIndex(jy, jm, jd);
+  return PERSIAN_WEEKDAYS[idx]?.full || 'شنبه';
 }
 
 /**
  * Gets starting day index in Iranian week (0 = Saturday ... 6 = Friday)
  */
 export function getJalaliFirstDayOfWeek(jy: number, jm: number): number {
-  const gDate = jalaliToGregorian(jy, jm, 1);
-  const jsDay = gDate.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
-  // Map to Iran week: Saturday = 0, Sunday = 1, Monday = 2, Tuesday = 3, Wednesday = 4, Thursday = 5, Friday = 6
-  return (jsDay + 1) % 7;
+  return getJalaliDayOfWeekIndex(jy, jm, 1);
 }
 
 /**

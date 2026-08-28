@@ -1,4 +1,5 @@
 import { EventItem } from '../types';
+import { getJalaliDayOfWeek } from '../utils/persianDate';
 
 export const EVENTS_DATA: EventItem[] = [
   {
@@ -10,7 +11,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 6,
     jalaliDay: 6,
-    dayOfWeek: 'پنج‌شنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 6, 6), // جمعه
     time: '۰۹:۰۰ الی ۱۳:۰۰',
     locationType: 'hybrid',
     location: 'سالن همایش‌های مرکزی موسسه محاش + پخش زنده با مترجم زبان اشاره',
@@ -46,7 +47,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 6,
     jalaliDay: 10,
-    dayOfWeek: 'دوشنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 6, 10), // سه‌شنبه
     time: '۱۶:۰۰ الی ۱۹:۰۰',
     locationType: 'in-person',
     location: 'کارگاه آموزشی شماره ۲ موسسه محاش',
@@ -81,7 +82,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 6,
     jalaliDay: 12,
-    dayOfWeek: 'چهارشنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 6, 12), // پنج‌شنبه
     time: '۱۷:۳۰ الی ۱۹:۳۰',
     locationType: 'online',
     location: 'تالار آنلاین محاش (با لینک اختصاصی ورود)',
@@ -116,7 +117,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 6,
     jalaliDay: 20,
-    dayOfWeek: 'پنج‌شنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 6, 20), // جمعه
     time: '۱۵:۰۰ الی ۱۸:۰۰',
     locationType: 'in-person',
     location: 'فضای اشتراکی باشگاه جوانان محاش',
@@ -150,7 +151,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 6,
     jalaliDay: 25,
-    dayOfWeek: 'سه‌شنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 6, 25), // چهارشنبه
     time: '۱۶:۰۰ الی ۱۸:۳۰',
     locationType: 'hybrid',
     location: 'سایت رایانه محاش + اسکای‌روم با مترجم اشاره',
@@ -184,7 +185,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 7,
     jalaliDay: 2,
-    dayOfWeek: 'پنج‌شنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 7, 2), // پنج‌شنبه
     time: '۱۰:۰۰ الی ۱۷:۰۰',
     locationType: 'in-person',
     location: 'مرکز آفرینش‌های فرهنگی و هنری موسسه محاش',
@@ -220,7 +221,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 7,
     jalaliDay: 12,
-    dayOfWeek: 'یکشنبه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 7, 12), // یکشنبه
     time: '۱۵:۳۰ الی ۱۸:۳۰',
     locationType: 'in-person',
     location: 'سالن کنفرانس توانبخشی محاش',
@@ -254,7 +255,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 7,
     jalaliDay: 17,
-    dayOfWeek: 'جمعه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 7, 17), // جمعه
     time: '۰۹:۰۰ الی ۱۵:۰۰',
     locationType: 'in-person',
     location: 'سالن ورزشی و کلوپ تفریحی محاش',
@@ -289,7 +290,7 @@ export const EVENTS_DATA: EventItem[] = [
     jalaliYear: 1405,
     jalaliMonth: 7,
     jalaliDay: 24,
-    dayOfWeek: 'جمعه',
+    dayOfWeek: getJalaliDayOfWeek(1405, 7, 24), // جمعه
     time: '۱۸:۰۰ الی ۲۰:۰۰',
     locationType: 'online',
     location: 'پلتفرم پخش آنلاین محاش',

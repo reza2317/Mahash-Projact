@@ -10,6 +10,11 @@ import {
   IntegrityStatus,
   ResourceType
 } from '../../utils/integrityAuditor';
+import {
+  runAutomatedSiteAudit,
+  SiteAuditReport,
+  printAuditReportToConsole
+} from '../../utils/routeAndAssetTester';
 import { getAllReports, getAllTeams } from '../../utils/reportsStore';
 import { toPersianDigits } from '../../utils/persianDate';
 import {
@@ -39,7 +44,9 @@ import {
   Sparkles,
   Info,
   Clock,
-  HardDrive
+  HardDrive,
+  Terminal,
+  Code2
 } from 'lucide-react';
 
 interface IntegrityAuditorTabProps {
@@ -54,7 +61,9 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
   showToast
 }) => {
   const [auditReport, setAuditReport] = useState<AuditSummaryReport | null>(null);
+  const [siteAutoTestReport, setSiteAutoTestReport] = useState<SiteAuditReport | null>(null);
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
+  const [isAutoTesting, setIsAutoTesting] = useState<boolean>(false);
   const [auditProgress, setAuditProgress] = useState<number>(0);
   const [currentCheckingItem, setCurrentCheckingItem] = useState<string>('');
   
@@ -71,7 +80,27 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
   // Run initial scan when mounted
   useEffect(() => {
     handleRunAudit();
+    handleRunAutoSiteTest(false);
   }, []);
+
+  const handleRunAutoSiteTest = async (notify: boolean = true) => {
+    setIsAutoTesting(true);
+    try {
+      const res = await runAutomatedSiteAudit();
+      setSiteAutoTestReport(res);
+      if (notify) {
+        if (res.notFound404Count > 0) {
+          showToast(`تست خودکار اجرا شد: ${toPersianDigits(res.notFound404Count)} خطای ۴۰۴ در کنسول مرورگر چاپ شد.`, 'error');
+        } else {
+          showToast('تست خودکار مسیرها و منابع استاتیک با موفقیت اجرا و در کنسول چاپ شد.');
+        }
+      }
+    } catch (e) {
+      console.warn('Auto test notice:', e);
+    } finally {
+      setIsAutoTesting(false);
+    }
+  };
 
   const handleRunAudit = async () => {
     setIsAuditing(true);
@@ -276,6 +305,16 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
           {/* Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
             <button
+              onClick={() => handleRunAutoSiteTest(true)}
+              disabled={isAutoTesting}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50"
+              title="بررسی تمام مسیرهای داخلی و منابع استاتیک و چاپ جدول ۴۰۴ در کنسول"
+            >
+              <Terminal className={`w-3.5 h-3.5 ${isAutoTesting ? 'animate-spin' : ''}`} />
+              <span>{isAutoTesting ? 'در حال اجرای تست خودکار...' : 'تست مسیرها و منابع استاتیک (چاپ در کنسول ۴۰۴)'}</span>
+            </button>
+
+            <button
               onClick={handleRunAudit}
               disabled={isAuditing}
               className="px-4 py-2.5 bg-[#173b82] hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50"
@@ -412,6 +451,81 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
               </div>
               <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80">عدم دسترسی به سرور</span>
             </div>
+          </div>
+        )}
+
+        {/* Automated Route & Static Asset 404 Terminal Card */}
+        {siteAutoTestReport && (
+          <div className="bg-slate-900 text-slate-100 p-5 rounded-2xl border border-slate-800 shadow-md space-y-3 font-sans">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-800 text-xs">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <span className="font-bold text-emerald-400">
+                  خروجی تست خودکار مسیرهای داخلی و منابع استاتیک (کنسول مرورگر)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {siteAutoTestReport.timestamp}
+                </span>
+                <button
+                  onClick={() => printAuditReportToConsole(siteAutoTestReport)}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px] font-mono rounded-lg transition cursor-pointer flex items-center gap-1"
+                  title="چاپ مجدد داده‌ها در Console DevTools"
+                >
+                  <Code2 className="w-3 h-3" />
+                  <span>چاپ مجدد در Console</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                <span className="text-slate-400 text-[10px] block">مسیرهای داخلی تست‌شده</span>
+                <span className="font-bold font-mono text-white text-sm">
+                  {toPersianDigits(siteAutoTestReport.routesChecked)} مسیر
+                </span>
+              </div>
+              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                <span className="text-slate-400 text-[10px] block">لوگوها و تصاویر استاتیک</span>
+                <span className="font-bold font-mono text-white text-sm">
+                  {toPersianDigits(siteAutoTestReport.assetsChecked)} منبع
+                </span>
+              </div>
+              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                <span className="text-slate-400 text-[10px] block">خطاهای ۴۰۴ یا گمشده</span>
+                <span className={`font-bold font-mono text-sm ${siteAutoTestReport.notFound404Count > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {toPersianDigits(siteAutoTestReport.notFound404Count)} مورد
+                </span>
+              </div>
+              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+                <span className="text-slate-400 text-[10px] block">پایداری کل ساختار سایت</span>
+                <span className="font-bold font-mono text-emerald-400 text-sm">
+                  {toPersianDigits(siteAutoTestReport.healthPercentage)}٪
+                </span>
+              </div>
+            </div>
+
+            {siteAutoTestReport.notFound404Count > 0 ? (
+              <div className="bg-rose-950/40 border border-rose-800/60 p-3 rounded-xl space-y-1.5 text-xs text-rose-200">
+                <div className="flex items-center gap-1.5 font-bold text-rose-300">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>منابع با خطای ۴۰۴ شناسایی شدند (جزئیات در کنسول ثبت شد):</span>
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 text-[11px] text-rose-300/90 font-mono">
+                  {siteAutoTestReport.brokenResources.map((b, i) => (
+                    <li key={i}>
+                      {b.name} ({b.urlOrPath}) - کد {b.httpStatus || 404}: {b.errorReason || b.details}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 pt-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>تمامی مسیرهای داخلی، لوگوهای ذخیره شده و منابع استاتیک کاملاً سالم، پاسخ‌گو و پایدار هستند (هیچ خطای ۴۰۴ ثبت نشد).</span>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -3,6 +3,8 @@ import { PageId } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { isAdminAuthenticated, subscribeToStoreUpdates, getMahashLogo } from '../utils/reportsStore';
+import { ResponsiveImage } from './ResponsiveImage';
+import { MAHESH_LOGO_SVG } from '../utils/assets';
 import { ChevronDown, Menu, X, Users, MessageSquare, Phone, BookOpen, UserPlus, ShieldCheck, Search } from 'lucide-react';
 
 interface HeaderProps {
@@ -60,13 +62,13 @@ export const Header: React.FC<HeaderProps> = ({ currentPage, onNavigate }) => {
             className="flex items-center gap-3 text-right group cursor-pointer focus:outline-none"
             aria-label="صفحه اصلی موسسه محاش"
           >
-            <div className="w-12 h-12 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 shadow-xs group-hover:shadow transition flex-shrink-0">
-              <img
+            <div className="brand-logo-responsive rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 shadow-xs group-hover:shadow transition flex-shrink-0">
+              <ResponsiveImage
                 src={logoSrc}
+                fallbackSrc={MAHESH_LOGO_SVG}
                 alt="لوگوی مؤسسه محاش"
-                className="w-full h-full object-contain"
-                loading="eager"
-                decoding="async"
+                className="w-full h-full object-contain img-sharp"
+                priority={true}
               />
             </div>
             <div className="flex flex-col">
