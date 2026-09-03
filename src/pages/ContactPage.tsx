@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PageId } from '../types';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { MapPin, Phone, Mail, Clock, Send, CheckCircle2, MessageSquare } from 'lucide-react';
+import { logReportToMySQL } from '../utils/mysqlLogger';
 
 interface ContactPageProps {
   onNavigate: (page: PageId) => void;
@@ -20,6 +21,20 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
       alert('لطفاً نام و متن پیام را وارد فرمایید.');
       return;
     }
+
+    logReportToMySQL({
+      actionType: 'contact_message',
+      title: `پیام تماس و پشتیبانی: ${supportSubject || 'پیام عمومی'}`,
+      details: supportMessage,
+      userName: supportName,
+      userContact: supportPhone,
+      metadata: {
+        subject: supportSubject,
+        message: supportMessage
+      },
+      status: 'success'
+    });
+
     setIsSubmitted(true);
   };
 

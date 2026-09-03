@@ -3,6 +3,7 @@ import { PageId } from '../types';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useAutoSaveForm } from '../hooks/useAutoSaveForm';
 import { useNotification } from '../context/NotificationContext';
+import { logReportToMySQL } from '../utils/mysqlLogger';
 import { 
   UserPlus, 
   CheckCircle2, 
@@ -100,10 +101,40 @@ export const MembershipPage: React.FC<MembershipPageProps> = ({ onNavigate }) =>
   };
 
   const handleFinalSubmit = () => {
+    // Persist registration/membership to MySQL database in real-time
+    logReportToMySQL({
+      actionType: 'team_join',
+      title: `ثبت فرم عضویت و درخواست حضور در تیم‌ها: ${formData.fullName}`,
+      details: `رشته: ${formData.fieldOfStudy || '-'} | تحصیلات: ${formData.education || '-'} | تیم مورد علاقه: ${formData.favoriteTeam || '-'} | خدمات: ${
+        (formData.requestedServices && formData.requestedServices.length > 0)
+          ? formData.requestedServices.join('، ')
+          : 'عمومی'
+      }`,
+      userName: formData.fullName,
+      userContact: formData.phone,
+      metadata: {
+        nationalId: formData.nationalId,
+        birthDate: formData.birthDate,
+        education: formData.education,
+        fieldOfStudy: formData.fieldOfStudy,
+        job: formData.job,
+        maritalStatus: formData.maritalStatus,
+        homeAddress: formData.homeAddress,
+        workAddress: formData.workAddress,
+        requestedServices: formData.requestedServices,
+        favoriteTeam: formData.favoriteTeam,
+        communicationMethods: formData.communicationMethods,
+        fatherPhone: formData.fatherPhone,
+        motherPhone: formData.motherPhone,
+        message: formData.message
+      },
+      status: 'success'
+    });
+
     setShowConfirmModal(false);
     setIsSubmitted(true);
     clearSavedData();
-    showToastSuccess('ثبت‌نام موفق', 'فرم عضویت شما با موفقیت در سامانه محاش ثبت شد.');
+    showToastSuccess('ثبت‌نام موفق', 'فرم عضویت شما با موفقیت در سامانه محاش و دیتابیس MySQL ثبت شد.');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

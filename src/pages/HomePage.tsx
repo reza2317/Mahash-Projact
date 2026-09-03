@@ -91,7 +91,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const videoReports = useMemo(() => {
     const seen = new Set<string>();
     return deduplicatedReports
-      .filter((r) => Boolean(r.videoSrc && r.videoSrc !== '#'))
+      .filter((r) => Boolean(r.videoSrc && r.videoSrc !== '#' && r.videoSrc.trim() !== '' && r.reportType !== 'text'))
       .filter((r) => {
         const key = `${r.teamSlug}_${r.id}`;
         if (seen.has(key)) return false;
@@ -628,10 +628,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
                                 {/* Attachments & Video Badges */}
                                 <div className="flex flex-wrap items-center gap-2 pr-6 pt-1">
-                                  {rep.videoSrc && (
+                                  {rep.videoSrc && rep.videoSrc !== '#' && rep.videoSrc.trim() !== '' && rep.reportType !== 'text' ? (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800">
                                       <Video className="w-3 h-3" />
                                       <span>ویدیو رسمی</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                                      <FileText className="w-3 h-3" />
+                                      <span>گزارش متنی</span>
                                     </span>
                                   )}
                                   {rep.pdfUrl && (

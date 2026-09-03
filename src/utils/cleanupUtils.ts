@@ -1,4 +1,4 @@
-import { yieldToMain } from './firebaseSync';
+export const yieldToMain = () => new Promise(r => setTimeout(r, 10));
 import { appProfiler } from './profiler';
 import { globalEventBus } from './eventBus';
 

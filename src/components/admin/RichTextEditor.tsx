@@ -26,7 +26,7 @@ interface RichTextEditorProps {
   label?: string;
 }
 
-export const RichTextEditor: React.FC<RichTextEditorProps> = ({
+export const RichTextEditor: React.FC<RichTextEditorProps> = React.memo(({
   value,
   onChange,
   placeholder = 'متن گزارش را اینجا وارد نمایید...',
@@ -361,4 +361,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       </div>
     </div>
   );
-};
+});
+
+RichTextEditor.displayName = 'RichTextEditor';

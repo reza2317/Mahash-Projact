@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNotification, NotificationItem } from '../context/NotificationContext';
-import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Info, X, Wrench } from 'lucide-react';
 
 export const StatusNotification: React.FC = () => {
   const { notifications, removeNotification } = useNotification();
@@ -30,6 +30,15 @@ const ToastItem: React.FC<{ item: NotificationItem; onDismiss: () => void }> = (
         return <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />;
       case 'warning':
         return <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />;
+      case 'maintenance-success':
+        return (
+          <div className="relative flex items-center justify-center shrink-0 mt-0.5">
+            <div className="absolute w-8 h-8 rounded-full bg-emerald-500/20 animate-ping" />
+            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-md">
+              <Wrench className="w-3.5 h-3.5 text-white animate-bounce" />
+            </div>
+          </div>
+        );
       case 'info':
       default:
         return <Info className="w-5 h-5 text-[#173b82] dark:text-blue-400 shrink-0 mt-0.5" />;
@@ -44,6 +53,8 @@ const ToastItem: React.FC<{ item: NotificationItem; onDismiss: () => void }> = (
         return 'border-rose-300 dark:border-rose-800 bg-white/95 dark:bg-slate-900/95 shadow-rose-500/10';
       case 'warning':
         return 'border-amber-300 dark:border-amber-800 bg-white/95 dark:bg-slate-900/95 shadow-amber-500/10';
+      case 'maintenance-success':
+        return 'border-emerald-500/50 dark:border-emerald-500/40 bg-gradient-to-r from-emerald-50/95 via-teal-50/95 to-white/95 dark:from-slate-900/95 dark:via-emerald-950/40 dark:to-slate-900/95 shadow-2xl shadow-emerald-500/20 ring-2 ring-emerald-500/20 animate-pulse';
       case 'info':
       default:
         return 'border-blue-300 dark:border-blue-800 bg-white/95 dark:bg-slate-900/95 shadow-blue-500/10';

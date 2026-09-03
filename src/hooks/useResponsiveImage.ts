@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { normalizeImageSrc, MAHASH_YOUTH_CLUB_FALLBACK_LOGO_SVG, getTeamLogoPlaceholder } from '../utils/assets';
 import { getTeamLogo } from '../utils/reportsStore';
+import { getOrLoadMediaResource } from '../utils/mediaAbstractLoader';
 
 // In-memory cache to guarantee instant resolution across component re-renders & page navigation
 const globalImageMemoryCache = new Set<string>();
@@ -152,7 +153,7 @@ export function useResponsiveImage({
     return `${currentSrc} 1x, ${currentSrc} 2x`;
   }, [currentSrc, srcSet]);
 
-  // Preload and verify image when in view
+  // Preload and verify image when in view via CacheStorage / abstract layer
   useEffect(() => {
     if (!isInView || !currentSrc) return;
 
@@ -167,31 +168,38 @@ export function useResponsiveImage({
     }
 
     let active = true;
-    const img = new Image();
-    if (currentSrc.startsWith('http://') || currentSrc.startsWith('https://')) {
-      img.crossOrigin = 'anonymous';
-    }
-    img.decoding = 'async';
-    img.src = currentSrc;
-
-    img.onload = () => {
+    const processImageLoading = async () => {
+      const resolvedUrl = await getOrLoadMediaResource(currentSrc);
       if (!active || !isMountedRef.current) return;
-      globalImageMemoryCache.add(currentSrc);
-      setIsLoaded(true);
-      setHasError(false);
-      onLoaded?.();
-    };
 
-    img.onerror = () => {
-      if (!active || !isMountedRef.current) return;
-      setHasError(true);
-      const fb = normalizeImageSrc(fallbackSrc || '') || (teamSlugOrId ? getTeamLogoPlaceholder(teamSlugOrId) : MAHASH_YOUTH_CLUB_FALLBACK_LOGO_SVG);
-      if (fb && fb !== currentSrc) {
-        setCurrentSrc(fb);
-        setIsLoaded(true);
+      const img = new Image();
+      if (resolvedUrl.startsWith('http://') || resolvedUrl.startsWith('https://')) {
+        img.crossOrigin = 'anonymous';
       }
-      onError?.();
+      img.decoding = 'async';
+      img.src = resolvedUrl;
+
+      img.onload = () => {
+        if (!active || !isMountedRef.current) return;
+        globalImageMemoryCache.add(currentSrc);
+        setIsLoaded(true);
+        setHasError(false);
+        onLoaded?.();
+      };
+
+      img.onerror = () => {
+        if (!active || !isMountedRef.current) return;
+        setHasError(true);
+        const fb = normalizeImageSrc(fallbackSrc || '') || (teamSlugOrId ? getTeamLogoPlaceholder(teamSlugOrId) : MAHASH_YOUTH_CLUB_FALLBACK_LOGO_SVG);
+        if (fb && fb !== currentSrc) {
+          setCurrentSrc(fb);
+          setIsLoaded(true);
+        }
+        onError?.();
+      };
     };
+
+    processImageLoading();
 
     return () => {
       active = false;

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { ThemeMode, TextSizeScale, UserPreferences } from '../types';
 import { safeSetLocalStorage, safeGetLocalStorage } from '../utils/storage';
+import { savePreferencesToFirestore, getPreferencesFromFirestore } from '../utils/firestorePersistence';
 
 interface ThemeContextType {
   theme: ThemeMode;
@@ -97,6 +98,9 @@ function syncPreferencesToStorage(theme: ThemeMode, highContrast: boolean, textS
       updatedAt: Date.now(),
     };
     safeSetLocalStorage(STORAGE_USER_PREFS_KEY, JSON.stringify(prefs));
+
+    // Save directly to Firestore in background
+    savePreferencesToFirestore({ theme, highContrast, textSize }).catch(() => {});
   } catch (err) {
     console.warn('Error writing user preferences to storage:', err);
   }
@@ -107,6 +111,28 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [highContrast, setHighContrastState] = useState<boolean>(() => getStoredContrast());
   const [textSize, setTextSizeState] = useState<TextSizeScale>(() => getStoredTextSize());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
+
+  // Load preferences from Firestore on initial mount to restore cross-browser / cross-session preferences
+  useEffect(() => {
+    let isMounted = true;
+    getPreferencesFromFirestore().then((cloudPrefs) => {
+      if (!isMounted || !cloudPrefs) return;
+      if (cloudPrefs.theme && ['light', 'dark', 'system'].includes(cloudPrefs.theme)) {
+        setThemeState(cloudPrefs.theme as ThemeMode);
+      }
+      if (typeof cloudPrefs.highContrast === 'boolean') {
+        setHighContrastState(cloudPrefs.highContrast);
+      }
+      if (cloudPrefs.textSize && ['normal', 'large', 'xlarge'].includes(cloudPrefs.textSize)) {
+        setTextSizeState(cloudPrefs.textSize as TextSizeScale);
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
 
   // Apply DOM attributes & classes synchronously
   const applyDOMStyles = useCallback((activeTheme: 'light' | 'dark', contrast: boolean, size: TextSizeScale) => {

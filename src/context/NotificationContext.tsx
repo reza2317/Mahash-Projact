@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
-export type NotificationType = 'success' | 'error' | 'info' | 'warning';
+export type NotificationType = 'success' | 'error' | 'info' | 'warning' | 'maintenance-success';
 
 export interface NotificationItem {
   id: string;
@@ -18,6 +18,7 @@ interface NotificationContextType {
   error: (title: string, message?: string, duration?: number) => string;
   info: (title: string, message?: string, duration?: number) => string;
   warning: (title: string, message?: string, duration?: number) => string;
+  maintenanceSuccess: (title: string, message?: string, duration?: number) => string;
   removeNotification: (id: string) => void;
   clearAll: () => void;
 }
@@ -76,6 +77,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     [showNotification]
   );
 
+  const maintenanceSuccess = useCallback(
+    (title: string, message?: string, duration = 6000) => showNotification('maintenance-success', title, message, duration),
+    [showNotification]
+  );
+
   const clearAll = useCallback(() => {
     setNotifications([]);
   }, []);
@@ -89,6 +95,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         error,
         info,
         warning,
+        maintenanceSuccess,
         removeNotification,
         clearAll,
       }}

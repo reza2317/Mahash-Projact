@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="48" fill="#173b82" stroke="#38bdf8" stroke-width="2"/>
+  <text y=".72em" font-size="50" x="50" text-anchor="middle" fill="#f8fafc">💎</text>
+</svg>

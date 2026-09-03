@@ -5,12 +5,13 @@ setLogLevel('silent');
 import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 export const auth = getAuth(app);
 
 let lastSyncedData: Record<string, string> = {};
-let quotaExceeded = false;
+let writeQuotaExceeded = false;
+let readQuotaExceeded = false;
 
 export const yieldToMain = () => new Promise(r => setTimeout(r, 10));
 
@@ -42,7 +43,7 @@ if (typeof window !== 'undefined') {
 }
 
 const processChunkInWorker = (payload: any): Promise<{dataHash: string, chunks: string[]}> => {
-  if (!syncWorker) {
+  const fallback = () => {
     const dataStr = JSON.stringify(payload);
     let hash = 0;
     for (let i = 0, len = dataStr.length; i < len; i++) {
@@ -57,88 +58,108 @@ const processChunkInWorker = (payload: any): Promise<{dataHash: string, chunks: 
     for (let i = 0; i < numChunks; i++) {
       chunks.push(dataStr.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
     }
-    return Promise.resolve({ dataHash, chunks });
+    return { dataHash, chunks };
+  };
+
+  if (!syncWorker) {
+    return Promise.resolve(fallback());
   }
   
   return new Promise((resolve, reject) => {
     const id = ++workerMsgId;
-    workerPromises.set(id, { resolve, reject });
-    syncWorker!.postMessage({ id, type: 'PROCESS_CHUNK', payload });
+    let timer: any = null;
+    
+    workerPromises.set(id, { 
+      resolve: (val) => { clearTimeout(timer); resolve(val); }, 
+      reject: (reason) => { clearTimeout(timer); reject(reason); } 
+    });
+    
+    timer = setTimeout(() => {
+       if (workerPromises.has(id)) {
+          workerPromises.delete(id);
+          console.warn('Worker timed out processing chunk, falling back to main thread');
+          resolve(fallback());
+       }
+    }, 4000); // 4 sec timeout
+
+    try {
+      syncWorker!.postMessage({ id, type: 'PROCESS_CHUNK', payload });
+    } catch(e) {
+      clearTimeout(timer);
+      workerPromises.delete(id);
+      resolve(fallback());
+    }
   });
 };
-export async function saveToFirebaseStore(chunkId: string, dataObj: any) {
-  if (quotaExceeded) {
-    console.warn('Firebase write quota exceeded. Skipping sync for this session.');
-    return false;
+// Direct MySQL Persistence Mode: All data is saved exclusively and permanently in MySQL database
+export const DIRECT_MYSQL_PERSISTENCE = true;
+
+export async function saveToFirebaseStore(chunkId: string, dataObj: any, force = false) {
+  // If DIRECT_MYSQL_PERSISTENCE is active, skip Firebase cloud writes completely
+  if (DIRECT_MYSQL_PERSISTENCE) {
+    return true;
   }
-  
   try {
     await yieldToMain();
     const { dataHash, chunks } = await processChunkInWorker(dataObj);
     
-    // Optimization: Skip write if data hasn't changed
+    // Optimization: Skip write if data hasn't changed, unless forced
     const localHashKey = `firebase_sync_hash_${chunkId}`;
     let previousHash = lastSyncedData[chunkId] || null;
     if (!previousHash && typeof window !== 'undefined') {
         try { previousHash = localStorage.getItem(localHashKey); } catch(e){}
     }
     
-    if (previousHash === dataHash) {
+    if (!force && previousHash === dataHash) {
       return true;
     }
 
     const numChunks = chunks.length;
 
-    // Process chunks using a queue-like structure to prevent overwhelming the connection
-    const chunkPromises = [];
+    // Process chunks sequentially or in small concurrency batches
     for (let i = 0; i < numChunks; i++) {
       const docId = i === 0 ? chunkId : `${chunkId}_part${i}`;
       const partStr = chunks[i];
       
-      // We push a thunk to the queue
-      const task = async () => {
-          await yieldToMain();
-          await setDoc(doc(db, 'store', docId), {
-            data: partStr,
-            numChunks: i === 0 ? numChunks : undefined,
-            updatedAt: new Date().toISOString()
-          });
+      await yieldToMain();
+      const docData: any = {
+        data: partStr,
+        updatedAt: new Date().toISOString()
       };
-      chunkPromises.push(task());
+      if (i === 0) {
+        docData.numChunks = numChunks;
+      }
       
-      // Simple concurrency limit (e.g. await every 3 chunks)
-      if (i % 3 === 0) await yieldToMain();
+      const setDocPromise = setDoc(doc(db, 'store', docId), docData);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout: setDoc took too long")), 15000));
+      await Promise.race([setDocPromise, timeoutPromise]);
     }
-    await Promise.all(chunkPromises);
 
     // Cleanup old extra parts
-    const cleanupPromises = [];
-    for (let i = numChunks; i < numChunks + 2; i++) {
-      cleanupPromises.push(
-        deleteDoc(doc(db, 'store', `${chunkId}_part${i}`)).catch(() => {})
-      );
+    for (let i = numChunks; i < numChunks + 3; i++) {
+      try {
+        await deleteDoc(doc(db, 'store', `${chunkId}_part${i}`));
+      } catch {}
     }
-    await Promise.all(cleanupPromises);
 
     // Update cache after successful write
     lastSyncedData[chunkId] = dataHash;
     if (typeof window !== 'undefined') {
-        try { localStorage.setItem(`firebase_sync_hash_${chunkId}`, dataHash); } catch(e) {}
+      try { localStorage.setItem(`firebase_sync_hash_${chunkId}`, dataHash); } catch(e) {}
     }
     return true;
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-      quotaExceeded = true;
-      console.error('Firebase Daily Write Quota Exceeded! Syncing will be paused for this session.', err);
-    } else {
-      console.error(`Error saving chunk ${chunkId} to Firebase`, err);
-    }
+    console.warn(`[FirebaseSync] Error saving chunk ${chunkId}:`, err?.message || err);
     return false;
   }
 }
 
 export async function loadFromFirebaseStore(chunkId: string) {
-  if (quotaExceeded) {
+  // Direct MySQL persistence active: skip Firebase reads completely
+  if (DIRECT_MYSQL_PERSISTENCE) {
+    return null;
+  }
+  if (readQuotaExceeded) {
     console.warn('Firebase read quota exceeded earlier. Skipping load for this session.');
     return null;
   }
@@ -202,12 +223,12 @@ export async function loadFromFirebaseStore(chunkId: string) {
     return null;
   } catch (err: any) {
     if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-      quotaExceeded = true;
+      readQuotaExceeded = true;
       console.warn(`[Offline] Firebase Read Quota Exceeded. Disabling sync pull for this session.`);
     } else if (err?.code === 'unavailable' || err?.message?.includes('offline')) {
       console.warn(`[Offline] Could not load chunk ${chunkId} from Firebase (using local data instead).`);
     } else {
-      console.error(`Error loading chunk ${chunkId} from Firebase`, err);
+      console.warn(`Error loading chunk ${chunkId} from Firebase`, err?.message || err);
     }
     return null;
   }

@@ -4,6 +4,7 @@ import { getTeamLogoPlaceholder } from '../utils/assets';
 import { toPersianDigits } from '../utils/persianDate';
 import { FileText, ArrowLeft, Users } from 'lucide-react';
 import { ResponsiveImage } from './ResponsiveImage';
+import { ImageLoader } from './ImageLoader';
 
 interface TeamCardProps {
   team: TeamData;
@@ -30,13 +31,15 @@ export const TeamCard: React.FC<TeamCardProps> = ({
         className={`flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition-all cursor-pointer group ${className}`}
       >
         <div className="w-12 h-12 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 flex-shrink-0 relative">
-          <ResponsiveImage
+          <ImageLoader
             src={rawSrc}
             fallbackSrc={fallbackLogo}
-            teamSlugOrId={team.slug || team.id}
             alt={team.name}
-            sizes="48px"
+            type="team"
+            rounded="full"
+            aspectRatio="square"
             className="w-full h-full object-contain rounded-full img-sharp"
+            containerClassName="w-full h-full rounded-full"
           />
         </div>
         <div className="flex-1 min-w-0 text-right">
@@ -67,16 +70,18 @@ export const TeamCard: React.FC<TeamCardProps> = ({
         </span>
       </div>
 
-      {/* Team Logo with Responsive Scaling & srcset */}
+      {/* Team Logo with Responsive Scaling & WebP Lazy Loading */}
       <div className="flex justify-center mb-4 sm:mb-5 relative">
         <div className="team-logo-responsive rounded-full overflow-hidden border-3 border-slate-100 dark:border-slate-700 shadow-md p-1 bg-white dark:bg-slate-700 group-hover:scale-105 group-hover:shadow-lg transition-all duration-300 relative">
-          <ResponsiveImage
+          <ImageLoader
             src={rawSrc}
             fallbackSrc={fallbackLogo}
-            teamSlugOrId={team.slug || team.id}
             alt={team.name}
-            sizes="(max-width: 640px) 80px, (max-width: 1024px) 110px, 120px"
+            type="team"
+            rounded="full"
+            aspectRatio="square"
             className="w-full h-full object-contain rounded-full img-sharp"
+            containerClassName="w-full h-full rounded-full"
           />
         </div>
       </div>

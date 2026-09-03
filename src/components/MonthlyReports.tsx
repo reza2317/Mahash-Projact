@@ -1,17 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { ActivityReport } from '../types';
 import { Calendar, Filter, FileText, PlayCircle } from 'lucide-react';
-import { toPersianDigits } from '../utils/persianDigitsHandler';
+import { toPersianDigits, formatReportNumberDisplay } from '../utils/persianDate';
 
 interface MonthlyReportsProps {
   allReports: (ActivityReport & { teamName: string; teamSlug: string })[];
 }
 
-export const MonthlyReports: React.FC<MonthlyReportsProps> = ({ allReports }) => {
+export const MonthlyReports: React.FC<MonthlyReportsProps> = ({ allReports = [] }) => {
   // Extract unique months from reports
   const months = useMemo(() => {
     const monthSet = new Set<string>();
-    allReports.forEach(r => {
+    (allReports || []).forEach(r => {
       if (r.date) {
         // Assuming date is in format "YYYY/MM/DD"
         const parts = r.date.split('/');
@@ -123,15 +123,19 @@ export const MonthlyReports: React.FC<MonthlyReportsProps> = ({ allReports }) =>
                       <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 px-2 py-0.5 rounded flex items-center gap-1">
                         {report.teamName}
                       </span>
-                      <span>گزارش شماره {toPersianDigits(report.reportNum)}</span>
+                      <span>{formatReportNumberDisplay(report.reportNum)}</span>
                       <span>تاریخ: {toPersianDigits(report.date || '')}</span>
                     </div>
                   </div>
                 </div>
-                {report.videoSrc && report.videoSrc !== '#' && (
+                {report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '' && report.reportType !== 'text' ? (
                   <div className="shrink-0 flex items-center gap-2 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1.5 rounded-lg text-sm font-bold self-start sm:self-auto">
                     <PlayCircle className="w-4 h-4" />
                     <span>دارای ویدیو</span>
+                  </div>
+                ) : (
+                  <div className="shrink-0 flex items-center gap-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-400 px-3 py-1.5 rounded-lg text-sm font-bold self-start sm:self-auto">
+                    <span>گزارش متنی</span>
                   </div>
                 )}
               </div>

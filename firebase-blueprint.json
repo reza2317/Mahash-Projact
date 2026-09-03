@@ -9,12 +9,79 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["data", "updatedAt"]
+    },
+    "TeamLogo": {
+      "title": "Team Logo",
+      "description": "Custom logo or badge for a team or organization.",
+      "type": "object",
+      "properties": {
+        "teamId": { "type": "string", "maxLength": 128 },
+        "logoData": { "type": "string", "maxLength": 1048576 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["teamId", "logoData", "updatedAt"]
+    },
+    "UserPreference": {
+      "title": "User Preference",
+      "description": "User UI preferences such as theme, contrast, and font size.",
+      "type": "object",
+      "properties": {
+        "prefId": { "type": "string", "maxLength": 128 },
+        "theme": { "type": "string", "maxLength": 32 },
+        "highContrast": { "type": "boolean" },
+        "textSize": { "type": "string", "maxLength": 32 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["prefId", "theme", "updatedAt"]
+    },
+    "ConsultantPhoto": {
+      "title": "Consultant Photo",
+      "description": "Custom photo for a consultant or psychologist.",
+      "type": "object",
+      "properties": {
+        "consultantId": { "type": "string", "maxLength": 128 },
+        "consultantName": { "type": "string", "maxLength": 256 },
+        "photoData": { "type": "string", "maxLength": 1048576 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["consultantId", "photoData", "updatedAt"]
+    },
+    "AssetItem": {
+      "title": "Asset Item",
+      "description": "Dedicated media asset including official logos, circular badges, and consultant photos stored as explicit documents.",
+      "type": "object",
+      "properties": {
+        "assetId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "enum": ["logo", "badge", "consultant_photo", "graphic", "icon"] },
+        "name": { "type": "string", "maxLength": 256 },
+        "data": { "type": "string", "maxLength": 1048576 },
+        "mimeType": { "type": "string", "maxLength": 64 },
+        "sizeBytes": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["assetId", "category", "data", "updatedAt"]
     }
   },
   "firestore": {
+    "assets/{assetId}": {
+      "schema": { "$ref": "#/entities/AssetItem" },
+      "description": "Stores individual logos, badges, and consultant photos in a dedicated structured assets collection."
+    },
     "store/{chunkId}": {
       "schema": { "$ref": "#/entities/StoreChunk" },
       "description": "Stores chunks of the global application state (JSON strings) to bypass 1MB limit slightly and organize."
+    },
+    "team_logos/{teamId}": {
+      "schema": { "$ref": "#/entities/TeamLogo" },
+      "description": "Stores individual team and organization logos in Firestore for persistent multi-session access."
+    },
+    "consultant_photos/{consultantId}": {
+      "schema": { "$ref": "#/entities/ConsultantPhoto" },
+      "description": "Stores consultant profile photos in Firestore for persistent multi-session access."
+    },
+    "preferences/{prefId}": {
+      "schema": { "$ref": "#/entities/UserPreference" },
+      "description": "Stores user settings and preferences in Firestore."
     }
   }
 }

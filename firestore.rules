@@ -9,26 +9,70 @@ service cloud.firestore {
     // Primitives
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-    function isAnon() { return request.auth != null; }
 
     function isValidStoreChunk(data) {
-      return data.keys().hasAll(['data', 'updatedAt']) &&
-             data.keys().size() == 2 &&
-             data.data is string && data.data.size() <= 1048576 &&
-             data.updatedAt is string;
+      return data.data is string && data.data.size() <= 1048576;
+    }
+
+    function isValidTeamLogo(data) {
+      return data.logoData is string && data.logoData.size() <= 1048576;
+    }
+
+    function isValidConsultantPhoto(data) {
+      return data.photoData is string && data.photoData.size() <= 1048576;
+    }
+
+    function isValidPreference(data) {
+      return data.theme is string && data.theme.size() <= 32;
+    }
+
+    function isValidAsset(data) {
+      return data.data is string && data.data.size() <= 1048576;
+    }
+
+    match /assets/{assetId} {
+      allow get: if isValidId(assetId);
+      allow list: if false;
+      allow create: if isValidId(assetId) && isValidAsset(incoming());
+      allow update: if isValidId(assetId) && isValidAsset(incoming());
+      allow delete: if isValidId(assetId);
     }
 
     match /store/{chunkId} {
-      // Allow get for everyone since this is public app data
+      // Allow get for public state synchronization
       allow get: if isValidId(chunkId);
-      // No list queries allowed to prevent scraping
+      // No list queries to prevent scraping
       allow list: if false;
       
-      allow create: if true && isValidId(chunkId) && isValidStoreChunk(incoming());
-      allow update: if true && isValidId(chunkId) && isValidStoreChunk(incoming()) && 
-                    (incoming().diff(existing()).affectedKeys().hasOnly(['data', 'updatedAt']));
-      allow delete: if false;
+      allow create: if isValidId(chunkId) && isValidStoreChunk(incoming());
+      allow update: if isValidId(chunkId) && isValidStoreChunk(incoming());
+      allow delete: if isValidId(chunkId);
+    }
+
+    match /team_logos/{teamId} {
+      allow get: if isValidId(teamId);
+      allow list: if false;
+      allow create: if isValidId(teamId) && isValidTeamLogo(incoming());
+      allow update: if isValidId(teamId) && isValidTeamLogo(incoming());
+      allow delete: if isValidId(teamId);
+    }
+
+    match /consultant_photos/{consultantId} {
+      allow get: if isValidId(consultantId);
+      allow list: if false;
+      allow create: if isValidId(consultantId) && isValidConsultantPhoto(incoming());
+      allow update: if isValidId(consultantId) && isValidConsultantPhoto(incoming());
+      allow delete: if isValidId(consultantId);
+    }
+
+    match /preferences/{prefId} {
+      allow get: if isValidId(prefId);
+      allow list: if false;
+      allow create: if isValidId(prefId) && isValidPreference(incoming());
+      allow update: if isValidId(prefId) && isValidPreference(incoming());
+      allow delete: if isValidId(prefId);
     }
   }
 }
+
+

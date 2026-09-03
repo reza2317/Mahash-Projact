@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Play,
   Pause,
@@ -19,13 +20,33 @@ import {
   Eye,
   Lock,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  AlertTriangle,
+  RefreshCw,
+  Loader2,
+  FileText,
+  Share2,
+  Copy,
+  Check,
+  Wand2,
+  Bot,
+  Ear,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
+  Download
 } from 'lucide-react';
-import { ActivityReport } from '../types';
+import { ActivityReport, TranscriptScene } from '../types';
 import { useIsolatedTeamVideo } from '../hooks/useIsolatedTeamVideo';
 import { TeamVideoStatusIndicator } from './TeamVideoStatusIndicator';
 import { toPersianDigits } from '../utils/persianDate';
-import { isAdminAuthenticated } from '../utils/reportsStore';
+import { isAdminAuthenticated, saveReport } from '../utils/reportsStore';
+import {
+  generateGeminiSubtitles,
+  generateWebVttFromScenes,
+  downloadVttFile,
+  createVttBlobUrl
+} from '../services/geminiSubtitleService';
 
 interface ReportVideoPlayerProps {
   report: ActivityReport;
@@ -44,6 +65,30 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
   // Removed hardcoded restriction so Report 2 in Team Thinker is open and playable for all public users
   const isRestrictedToAdmin = false;
+
+  // Local state for transcript / subtitles to allow real-time AI updates
+  const [currentTranscript, setCurrentTranscript] = useState(report.transcript || []);
+  const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState<boolean>(false);
+  const [aiSubtitleSuccessMessage, setAiSubtitleSuccessMessage] = useState<string | null>(null);
+  const [copiedShareLink, setCopiedShareLink] = useState<boolean>(false);
+  const [showTranscriptDrawer, setShowTranscriptDrawer] = useState<boolean>(false);
+  const [vttBlobUrl, setVttBlobUrl] = useState<string>(() => {
+    if (report.vttContent) return createVttBlobUrl(report.vttContent);
+    if (report.transcript && report.transcript.length > 0) {
+      return createVttBlobUrl(generateWebVttFromScenes(report.transcript, report.title));
+    }
+    return '';
+  });
+
+  // Sync with report props
+  useEffect(() => {
+    setCurrentTranscript(report.transcript || []);
+    if (report.vttContent) {
+      setVttBlobUrl(createVttBlobUrl(report.vttContent));
+    } else if (report.transcript && report.transcript.length > 0) {
+      setVttBlobUrl(createVttBlobUrl(generateWebVttFromScenes(report.transcript, report.title)));
+    }
+  }, [report.transcript, report.vttContent, report.title]);
 
   // Use our dedicated isolated video hook per team and report
   const {
@@ -80,7 +125,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
   } = useIsolatedTeamVideo({
     teamSlug,
     teamName,
-    report
+    report: { ...report, transcript: currentTranscript }
   });
 
   const [quality, setQuality] = useState<'1080p' | '720p' | '480p'>('1080p');
@@ -146,16 +191,128 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
     return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  // Mouse hover control visibility timeout
-  const handleMouseMove = () => {
+  // Mouse & Touch control visibility timeout
+  const resetControlsTimeout = (durationMs = 4000) => {
     setIsHovered(true);
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       if (isPlaying) setIsHovered(false);
-    }, 3500);
+    }, durationMs);
   };
 
-  const scenes = report.transcript || [];
+  const handleMouseMove = () => {
+    resetControlsTimeout(3500);
+  };
+
+  const handleTouchInteraction = () => {
+    resetControlsTimeout(4500);
+  };
+
+  const handleScreenClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // If controls are hidden (especially on mobile), tap reveals controls first
+    if (isPlaying && !isHovered) {
+      resetControlsTimeout(4000);
+      return;
+    }
+    togglePlay();
+  };
+
+  // Direct video report share handler (Native OS share or Clipboard copy)
+  useEffect(() => {
+    if (isFullscreen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isFullscreen]);
+
+  const handleDirectShare = async () => {
+    const reportUrl = `${window.location.origin}${window.location.pathname}#report-${report.id}`;
+    const shareTitle = `ویدیوی گزارش ${report.reportNum || ''}: ${report.title} (${teamName})`;
+    const shareText = `مشاهده ویدیوی گزارش رسمی تیم «${teamName}» در باشگاه جوانان محاش:\n«${report.title}»`;
+
+    if (navigator.share && /mobile|android|iphone|ipad/i.test(navigator.userAgent)) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: reportUrl
+        });
+        return;
+      } catch (err) {
+        // User cancelled or share unsupported, proceed to copy
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(reportUrl);
+      setCopiedShareLink(true);
+      setTimeout(() => setCopiedShareLink(false), 3000);
+    } catch {
+      // Fallback
+      const textArea = document.createElement('textarea');
+      textArea.value = reportUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedShareLink(true);
+      setTimeout(() => setCopiedShareLink(false), 3000);
+    }
+  };
+
+  // AI-Powered Persian Speech Recognition, Audio Analysis & WebVTT Subtitle Generator (Admin-only feature)
+  const handleGenerateAiSubtitles = async () => {
+    if (!isAdmin) {
+      console.warn('AI Subtitle generation is disabled for public users and restricted to administrators.');
+      return;
+    }
+
+    setIsGeneratingSubtitles(true);
+    setAiSubtitleSuccessMessage(null);
+
+    try {
+      const result = await generateGeminiSubtitles(
+        report,
+        teamName,
+        Math.round(duration || 25)
+      );
+
+      if (result.success && result.scenes.length > 0) {
+        setCurrentTranscript(result.scenes);
+        setShowSubtitles(true);
+        setShowTranscriptDrawer(true);
+        if (result.blobUrl) {
+          setVttBlobUrl(result.blobUrl);
+        }
+
+        // Persist generated subtitles & VTT metadata into report store
+        const updatedReport: ActivityReport = {
+          ...report,
+          transcript: result.scenes,
+          vttUrl: result.vttUrl || report.vttUrl,
+          vttContent: result.vttContent
+        };
+        saveReport(updatedReport, teamSlug);
+
+        setAiSubtitleSuccessMessage(
+          result.isFallback
+            ? 'زیرنویس همگام و توصیفی با موفقیت تدوین و بر روی ویدیو فعال گردید.'
+            : 'زیرنویس هوشمند با هوش مصنوعی (Gemini) با دقت بالا استخراج، همگام و فایل VTT ساخته شد.'
+        );
+        setTimeout(() => setAiSubtitleSuccessMessage(null), 5000);
+      }
+    } catch (err) {
+      console.error('Error generating subtitles:', err);
+    } finally {
+      setIsGeneratingSubtitles(false);
+    }
+  };
+
+  const scenes = currentTranscript;
 
   // If this is Team Thinker Report 2 and user is NOT an admin, display the admin restriction box
   if (isRestrictedToAdmin) {
@@ -213,21 +370,38 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
       <div
         ref={containerRef}
         onMouseMove={handleMouseMove}
+        onTouchStart={handleTouchInteraction}
         onMouseLeave={() => isPlaying && setIsHovered(false)}
         className={`relative bg-slate-950 overflow-hidden shadow-2xl border border-slate-800 group select-none transition-all ${
           isFullscreen
-            ? 'fixed inset-0 z-[99999] w-screen h-[100dvh] rounded-none flex flex-col items-center justify-center bg-black'
-            : 'rounded-3xl'
+            ? 'fixed inset-0 z-[99999999] w-screen h-[100dvh] max-h-[100dvh] rounded-none flex flex-col items-center justify-between bg-black'
+            : 'rounded-2xl sm:rounded-3xl aspect-video max-h-[540px] w-full'
         }`}
       >
         {/* Top Floating Info Bar */}
         <div
-          className={`absolute top-0 inset-x-0 z-30 p-2.5 sm:p-3.5 bg-gradient-to-b from-black/95 via-black/50 to-transparent flex items-center justify-between transition-opacity duration-300 ${
+          className={`absolute top-0 inset-x-0 z-30 p-2 sm:p-3.5 ${
+            isFullscreen ? 'pt-[max(0.75rem,env(safe-area-inset-top))]' : ''
+          } bg-gradient-to-b from-black/95 via-black/60 to-transparent flex items-center justify-between transition-opacity duration-300 ${
             isHovered || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+            {isFullscreen ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFullscreen();
+                }}
+                className="px-2.5 py-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-lg cursor-pointer"
+                title="خروج از حالت تمام‌صفحه"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>خروج از تمام‌صفحه</span>
+              </button>
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+            )}
             <span className="text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 drop-shadow truncate">
               <Film className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden xs:inline" />
               <span className="truncate">{report.title}</span>
@@ -235,12 +409,29 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             {isAdmin && (
               <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3 text-amber-400" />
-                <span>دسترسی ادمین</span>
+                <span className="hidden sm:inline">دسترسی ادمین</span>
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Direct Share Button in Top Bar */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDirectShare();
+              }}
+              className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1 transition shadow-lg cursor-pointer border ${
+                copiedShareLink
+                  ? 'bg-emerald-600 border-emerald-400 text-white'
+                  : 'bg-black/60 border-white/20 text-slate-300 hover:text-white hover:bg-black/80'
+              }`}
+              title="اشتراک‌گذاری مستقیم لینک ویدیو"
+            >
+              {copiedShareLink ? <Check className="w-3 h-3 text-white" /> : <Share2 className="w-3 h-3" />}
+              <span>{copiedShareLink ? 'لینک کپی شد' : 'اشتراک'}</span>
+            </button>
+
             {/* Aspect / Full Screen Zoom Toggle Button */}
             <button
               onClick={(e) => {
@@ -254,8 +445,8 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               }`}
               title="تغییر نحوه نمایش و کادربندی ویدیو"
             >
-              <Scaling className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline">{videoFit === 'cover' ? 'تمام‌صفحه' : 'تناسب ۱۶:۹'}</span>
+              <Scaling className="w-3 h-3" />
+              <span className="hidden sm:inline">{videoFit === 'cover' ? 'پوشش ۱۰۰٪' : 'تناسب استاندارد'}</span>
             </button>
 
             {/* Direct Fullscreen Button */}
@@ -270,27 +461,14 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
             </button>
 
-            {isFullscreen && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFullscreen();
-                }}
-                className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-lg cursor-pointer"
-              >
-                <Minimize2 className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline">خروج</span>
-              </button>
-            )}
-
-            <span className="text-[9px] sm:text-[10px] text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-bold flex items-center gap-1">
+            <span className="text-[9px] sm:text-[10px] text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-bold hidden xs:flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
               <span>{quality}</span>
             </span>
 
             {/* View Count Badge */}
             <span
-              className="text-[9px] sm:text-[10px] text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30 font-bold flex items-center gap-1 shadow-sm"
+              className="text-[9px] sm:text-[10px] text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30 font-bold hidden sm:flex items-center gap-1 shadow-sm"
               title="تعداد بازدیدهای این گزارش و ویدیو"
             >
               <Eye className="w-3 h-3 text-sky-400" />
@@ -301,13 +479,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
         {/* Pure HTML5 Video Player Screen with Unique ID per team & report */}
         <div
-          onClick={togglePlay}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            setVideoFit((prev) => (prev === 'contain' ? 'cover' : 'contain'));
-          }}
+          onClick={handleScreenClick}
           className={`relative w-full bg-black flex flex-col items-center justify-center cursor-pointer overflow-hidden ${
-            isFullscreen ? 'absolute inset-0 w-full h-full' : 'aspect-video max-h-[540px]'
+            isFullscreen ? 'flex-1 h-full w-full min-h-0' : 'aspect-video max-h-[540px]'
           }`}
         >
           {effectiveVideoSrc ? (
@@ -317,53 +491,98 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               key={effectiveVideoSrc}
               src={effectiveVideoSrc}
               poster={report.posterSrc}
-              className={`w-full h-full min-w-full min-h-full block select-none ${
-                videoFit === 'cover' ? 'object-cover' : 'object-contain'
+              className={`block select-none pointer-events-none transition-all ${
+                isFullscreen
+                  ? videoFit === 'cover'
+                    ? 'w-full h-full object-cover'
+                    : 'max-w-full max-h-full w-auto h-auto object-contain'
+                  : videoFit === 'cover'
+                    ? 'w-full h-full object-cover'
+                    : 'w-full h-full object-contain'
               }`}
               playsInline
               preload="metadata"
-            />
+              crossOrigin="anonymous"
+            >
+              {(vttBlobUrl || report.vttUrl) && (
+                <track
+                  kind="subtitles"
+                  src={vttBlobUrl || report.vttUrl}
+                  srcLang="fa"
+                  label="زیرنویس فارسی (هوش مصنوعی)"
+                  default={showSubtitles}
+                />
+              )}
+            </video>
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-2 p-6 text-center">
+            <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-3 p-6 text-center">
               {isLoadingResource ? (
-                <>
-                  <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-xs font-bold text-slate-300">در حال فراخوانی ویدیو...</span>
-                </>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-full border-3 border-blue-500/20 border-t-blue-500 animate-spin" />
+                    <Film className="w-5 h-5 text-blue-400 absolute" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold text-slate-200 block">در حال آماده‌سازی و واکشی فایل ویدیویی...</span>
+                    <span className="text-[10px] text-slate-400 font-medium block">بررسی منابع سرور مرکزی و حافظه محلی</span>
+                  </div>
+                </div>
               ) : (
-                <>
-                  <Film className="w-12 h-12 text-slate-600 mb-1" />
-                  <span className="text-xs font-bold text-slate-400">فایل ویدیویی برای پخش یافت نشد</span>
-                </>
+                <div className="flex flex-col items-center gap-2 max-w-sm">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400">
+                    <FileText className="w-6 h-6 text-amber-400" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">گزارش مستند و متنی</span>
+                  <span className="text-[11px] text-slate-400 leading-relaxed">
+                    این گزارش فاقد پیوست ویدیویی است یا به صورت مستند و فایل‌های پیوست ارائه شده است.
+                  </span>
+                </div>
               )}
             </div>
           )}
 
-          {/* Loading Cache Overlay */}
-          {isLoadingResource && effectiveVideoSrc && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs text-white z-20 gap-2">
-              <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs font-bold text-slate-200">در حال بارگذاری ویدیو...</span>
+          {/* Skeleton Loader Overlay during initial load */}
+          {isLoadingResource && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xs text-white z-20 gap-3">
+              <div className="relative flex items-center justify-center">
+                <div className="w-14 h-14 rounded-full border-3 border-blue-500/30 border-t-blue-400 animate-spin" />
+                <Loader2 className="w-6 h-6 text-blue-400 animate-spin absolute" />
+              </div>
+              <div className="text-center space-y-1">
+                <span className="text-xs font-bold text-slate-100 block">در حال بارگذاری و استریم ویدیو...</span>
+                <span className="text-[10px] text-slate-400 font-mono block">Buffering Video Stream & Audio Tracks</span>
+              </div>
             </div>
           )}
 
-          {/* Playback Error Overlay */}
+          {/* Playback Error Overlay with clear diagnostic UI */}
           {status === 'error' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 text-white z-25 p-4 text-center gap-3">
-              <Film className="w-10 h-10 text-rose-500 animate-pulse" />
-              <div className="text-xs font-bold text-rose-300">
-                {errorMessage || 'خطا در بارگذاری یا پخش فایل ویدیو'}
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 text-white z-25 p-5 text-center gap-3.5 backdrop-blur-sm">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500">
+                <AlertTriangle className="w-6 h-6 animate-pulse" />
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  retryLoad();
-                }}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>تلاش مجدد</span>
-              </button>
+              <div className="space-y-1 max-w-md">
+                <h4 className="text-xs sm:text-sm font-black text-rose-400">
+                  عدم امکان پخش فایل ویدیویی
+                </h4>
+                <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
+                  {errorMessage || 'فایل ویدیویی در دسترس نیست، مخدوش شده یا فرمت آن توسط مرورگر پشتیبانی نمی‌شود.'}
+                </p>
+              </div>
+              
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    retryLoad();
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>تلاش مجدد خودکار</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -394,7 +613,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
         {/* Custom Dedicated Controls Bar */}
         <div
-          className={`absolute bottom-0 inset-x-0 z-30 p-2 sm:p-3 bg-gradient-to-t from-black/95 via-black/80 to-transparent space-y-1.5 sm:space-y-2 transition-opacity duration-300 ${
+          className={`absolute bottom-0 inset-x-0 z-30 p-2 sm:p-3 ${
+            isFullscreen ? 'pb-[max(0.75rem,env(safe-area-inset-bottom))]' : ''
+          } bg-gradient-to-t from-black/95 via-black/80 to-transparent space-y-1.5 sm:space-y-2 transition-opacity duration-300 ${
             isHovered || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >
@@ -618,9 +839,22 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
         </div>
       </div>
 
-      {/* Official Video Publication Status Bar */}
-      <div className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      {/* AI Subtitle Success Banner */}
+      {aiSubtitleSuccessMessage && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 p-3 sm:p-4 rounded-2xl flex items-center justify-between gap-3 text-xs text-emerald-900 dark:text-emerald-200 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-600 animate-bounce" />
+            <span className="font-bold">{aiSubtitleSuccessMessage}</span>
+          </div>
+          <span className="text-[11px] font-mono bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded-md font-bold">
+            Gemini AI Speech-to-Text
+          </span>
+        </div>
+      )}
+
+      {/* Official Video Publication Status & Accessibility Actions Bar */}
+      <div className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-xs space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
           {/* Publication Status Info */}
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="relative flex h-2.5 w-2.5">
@@ -637,18 +871,180 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             </span>
           </div>
 
-          {/* Broadcast Metadata Badges */}
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-            <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg font-medium flex items-center gap-1">
+          {/* Action Buttons: Direct Share, AI Subtitle Generator, Transcript Toggle */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Direct Share Button */}
+            <button
+              onClick={handleDirectShare}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shadow-sm ${
+                copiedShareLink
+                  ? 'bg-emerald-600 border-emerald-500 text-white'
+                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+              title="اشتراک‌گذاری مستقیم گزارش ویدیویی یا کپی لینک"
+            >
+              {copiedShareLink ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-white" />
+                  <span>لینک ویدیوی گزارش کپی شد</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>اشتراک‌گذاری ویدیو</span>
+                </>
+              )}
+            </button>
+
+            {/* AI Speech-to-Text Subtitle Generator Button (Admin Only) */}
+            {isAdmin && (
+              <button
+                onClick={handleGenerateAiSubtitles}
+                disabled={isGeneratingSubtitles}
+                className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                title="تولید خودکار و همگام‌سازی زیرنویس با هوش مصنوعی برای کاربران دارای افت شنوایی (ویژه مدیران)"
+              >
+                {isGeneratingSubtitles ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>در حال استخراج گفتار با AI...</span>
+                  </>
+                ) : (
+                  <>
+                    <Ear className="w-3.5 h-3.5 text-purple-200" />
+                    <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                    <span>تولید زیرنویس هوش مصنوعی</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Transcript Drawer Toggle */}
+            {scenes.length > 0 && (
+              <button
+                onClick={() => setShowTranscriptDrawer(!showTranscriptDrawer)}
+                className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="نمایش فهرست کامل متن گفتار و سکانس‌های زمانی"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                <span>متن گفتار ({toPersianDigits(scenes.length)} فراز)</span>
+                {showTranscriptDrawer ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Broadcast Quality Badges */}
+        <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-0.5 rounded-lg font-medium flex items-center gap-1">
               <Radio className="w-3 h-3 text-sky-500" />
-              <span>پخش با کیفیت 1080p Full HD</span>
+              <span>پخش پایدار 1080p Full HD</span>
             </span>
-            <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg font-medium">
-              زیرنویس همگام فارسی
+            <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-0.5 rounded-lg font-medium flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <Ear className="w-3 h-3" />
+              <span>سازگار با استانداردهای دسترس‌پذیری ناشنوایان</span>
             </span>
+          </div>
+
+          <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+            <span>کد شناسایی:</span>
+            <span>{report.id}</span>
           </div>
         </div>
       </div>
+
+      {/* Interactive Speech & Subtitles Transcript Drawer */}
+      {showTranscriptDrawer && scenes.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg space-y-3 animate-in fade-in">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-purple-50 dark:bg-purple-950/80 text-purple-600 flex items-center justify-center">
+                <Ear className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                  متن کامل گفتار و زیرنویس‌های همگام (دسترس‌پذیری ویژه ناشنوایان)
+                </h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  برای پرش مستقیم به هر لحظه از ویدیو، روی زمان‌بندی مربوطه کلیک کنید.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const vtt = report.vttContent || generateWebVttFromScenes(scenes, report.title);
+                  downloadVttFile(`subtitles-${report.reportNum || report.id}`, vtt);
+                }}
+                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-blue-200 dark:border-blue-800"
+                title="دانلود فایل زیرنویس استاندارد VTT برای استفاده در سایر پلیرها"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>دانلود VTT</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const fullText = scenes.map((s) => `[${s.time || formatTime(s.seconds)}] ${s.speaker ? s.speaker + ': ' : ''}${s.text}`).join('\n\n');
+                  navigator.clipboard.writeText(fullText);
+                  setCopiedShareLink(true);
+                  setTimeout(() => setCopiedShareLink(false), 2500);
+                }}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-700"
+                title="کپی متن کامل گفتار در کلیپ‌بورد"
+              >
+                <Copy className="w-3.5 h-3.5 text-blue-600" />
+                <span>کپی متن</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {scenes.map((scene, idx) => {
+              const isCurrent = currentTime >= scene.seconds && (!scene.endSeconds || currentTime <= scene.endSeconds);
+              return (
+                <div
+                  key={idx}
+                  onClick={() => seek(scene.seconds)}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                    isCurrent
+                      ? 'bg-blue-50/90 dark:bg-blue-950/50 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500/20'
+                      : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-700/60 hover:bg-slate-100/80 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      seek(scene.seconds);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold shrink-0 transition flex items-center gap-1 ${
+                      isCurrent
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
+                    }`}
+                  >
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>{scene.time || formatTime(scene.seconds)}</span>
+                  </button>
+
+                  <div className="space-y-1 min-w-0 flex-1">
+                    {scene.speaker && (
+                      <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 px-2 py-0.5 rounded-md inline-block">
+                        {scene.speaker} {scene.role ? `(${scene.role})` : ''}
+                      </span>
+                    )}
+                    <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed">
+                      {scene.text}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

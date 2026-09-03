@@ -40,7 +40,8 @@ export interface ReportAttachment {
   extension: string;
   sizeFormatted: string;
   sizeBytes?: number;
-  dataUrl?: string; // base64 or blob URL
+  dataUrl?: string; // base64, blob URL, or Google Drive URL
+  file?: File; // For pending uploads
   caption?: string;
   uploadDate?: string;
 }
@@ -50,28 +51,91 @@ export interface TranscriptScene {
   role?: string;
   text: string;
   avatar?: string;
+  seconds?: number;
+  endSeconds?: number;
+  time?: string;
 }
 
-export interface ActivityReport {
+export type ReportType = 'video' | 'text' | 'hybrid';
+
+export interface BaseReportSchema {
   id: string;
   reportNum: string;
   title: string;
   date: string;
   datetimeIso: string;
   summary: string;
+  reportType?: ReportType;
   teamSlug?: string;
   status?: 'published' | 'draft';
   isCustom?: boolean;
-  videoSrc?: string;
-  posterSrc?: string;
-  videoHint?: string;
   subhead?: string;
   keyPoints?: string[];
   pdfUrl?: string;
   pdfLabel?: string;
+  videoSrc?: string;
+  posterSrc?: string;
+  videoHint?: string;
+  transcript?: TranscriptScene[];
+  vttUrl?: string;
+  vttContent?: string;
   images?: { src: string; caption: string }[];
   attachments?: ReportAttachment[];
+  updatedAt?: number | string;
+  keepVideoAttachment?: boolean;
+}
+
+export interface TextReportSchema extends BaseReportSchema {
+  reportType?: 'text';
+  videoSrc?: string;
+  videoHint?: string;
+  posterSrc?: string;
   transcript?: TranscriptScene[];
+  keepVideoAttachment?: boolean;
+}
+
+export interface VideoReportSchema extends BaseReportSchema {
+  reportType?: 'video';
+  videoSrc?: string;
+  posterSrc?: string;
+  videoHint?: string;
+  transcript?: TranscriptScene[];
+}
+
+export interface HybridReportSchema extends BaseReportSchema {
+  reportType?: 'hybrid';
+  videoSrc?: string;
+  posterSrc?: string;
+  videoHint?: string;
+  transcript?: TranscriptScene[];
+}
+
+export type ActivityReport = BaseReportSchema;
+
+export interface ReportDraft {
+  id: string;
+  reportId?: string;
+  teamSlug: string;
+  reportFormat: ReportType;
+  title: string;
+  date?: string;
+  reportNum?: string;
+  subhead?: string;
+  summary?: string;
+  keyPoints?: string[];
+  pdfUrl?: string;
+  pdfLabel?: string;
+  videoSrc?: string;
+  videoHint?: string;
+  posterSrc?: string;
+  transcript?: TranscriptScene[];
+  vttUrl?: string;
+  vttContent?: string;
+  images?: { src: string; caption: string }[];
+  attachments?: ReportAttachment[];
+  keepVideoAttachment?: boolean;
+  status: 'draft';
+  updatedAt: number;
 }
 
 export type TeamReport = ActivityReport;

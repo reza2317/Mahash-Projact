@@ -3,6 +3,8 @@ import { Upload, Check, X, RotateCcw, Camera, Eye, AlertCircle } from 'lucide-re
 import { compressImageToDataUrl } from '../utils/imageCompressor';
 import { saveTeamLogo, resetTeamLogo, triggerGlobalCacheBust } from '../utils/reportsStore';
 import { getTeamLogoPlaceholder } from '../utils/assets';
+import { saveLogoToFirestore, deleteLogoFromFirestore } from '../utils/firestorePersistence';
+import { SyncStatusBadge } from './SyncStatusBadge';
 
 interface ImageUploaderProps {
   teamIdOrSlug?: string;
@@ -29,7 +31,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -37,7 +40,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const effectiveCurrentLogo = currentLogo || getTeamLogoPlaceholder(targetId, teamName);
   const displayLogo = previewUrl || effectiveCurrentLogo;
 
-  // Cleanup object URLs on unmount
+  // Cleanup object URLs on unmount or change
   useEffect(() => {
     return () => {
       if (previewUrl && previewUrl.startsWith('blob:')) {
@@ -59,7 +62,12 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     setErrorMessage(null);
     setSelectedFile(file);
 
-    // Instant local preview
+    // Clean up previous blob URL if any
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    // Instant local-state preview using URL.createObjectURL()
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
   };
@@ -69,30 +77,61 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     if (!selectedFile) return;
 
     setIsProcessing(true);
+    setSyncStatus('syncing');
     setErrorMessage(null);
+
     try {
-      // Compress and convert to Base64
-      const compressedDataUrl = await compressImageToDataUrl(selectedFile, 512, 0.88);
-      
-      // Persist permanently in LocalStorage
-      saveTeamLogo(targetId, compressedDataUrl);
+      let finalLogoUrl = '';
+
+      // 1. Convert to compressed base64 Data URL for persistent storage
+      try {
+        finalLogoUrl = await compressImageToDataUrl(selectedFile, 512, 0.88);
+      } catch (err) {
+        console.warn('Compression failed, falling back to FileReader:', err);
+      }
+
+      if (!finalLogoUrl) {
+        finalLogoUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(selectedFile);
+        });
+      }
+
+      // 2. Persist synchronously in store and LocalStorage
+      saveTeamLogo(targetId, finalLogoUrl);
+
+      // 3. Save directly to Firestore database for multi-session persistence
+      const firestoreSaved = await saveLogoToFirestore(targetId, finalLogoUrl);
+
       triggerGlobalCacheBust();
 
-      setSaveSuccess(true);
+      // Clean up the temporary blob URL
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
       setSelectedFile(null);
       setPreviewUrl(null);
 
       if (onSaved) {
-        onSaved(compressedDataUrl);
+        onSaved(finalLogoUrl);
       }
       if (onLogoChange) {
-        onLogoChange(compressedDataUrl);
+        onLogoChange(finalLogoUrl);
       }
 
-      setTimeout(() => setSaveSuccess(false), 2500);
-    } catch (err) {
+      setTimeout(() => {
+        setSyncStatus('idle');
+      }, 3500);
+    } catch (err: any) {
       console.error('Error saving team logo:', err);
-      setErrorMessage('خطا در ذخیره‌سازی تصویر.');
+      setSyncStatus('error');
+      setErrorMessage(err?.message || 'خطا در ذخیره‌سازی تصویر در دیتابیس.');
+      setTimeout(() => setSyncStatus('idle'), 4000);
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -107,17 +146,26 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     setSelectedFile(null);
     setPreviewUrl(null);
     setErrorMessage(null);
+    setSyncStatus('idle');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleResetToDefault = (e?: React.MouseEvent) => {
+  const handleResetToDefault = async (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     handleCancelPreview();
-    resetTeamLogo(targetId);
-    triggerGlobalCacheBust();
-    if (onReset) onReset();
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
+    setSyncStatus('syncing');
+
+    try {
+      resetTeamLogo(targetId);
+      await deleteLogoFromFirestore(targetId);
+      triggerGlobalCacheBust();
+      if (onReset) onReset();
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+      setTimeout(() => setSyncStatus('idle'), 2500);
+    } catch {
+      setSyncStatus('idle');
+    }
   };
 
   return (
@@ -139,8 +187,10 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             className={`w-12 h-12 rounded-full overflow-hidden border-2 transition cursor-pointer flex items-center justify-center p-0.5 bg-slate-50 dark:bg-slate-800 ${
               previewUrl
                 ? 'border-amber-500 ring-2 ring-amber-400/50 shadow-md'
-                : saveSuccess
+                : syncStatus === 'synced'
                 ? 'border-emerald-500 ring-2 ring-emerald-400/50'
+                : syncStatus === 'syncing'
+                ? 'border-blue-500 ring-2 ring-blue-400/50 animate-pulse'
                 : 'border-slate-200 dark:border-slate-700 hover:border-blue-500'
             }`}
             title="برای انتخاب تصویر جدید کلیک کنید"
@@ -166,13 +216,16 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           </button>
         </div>
 
-        {/* Action Controls */}
+        {/* Action Controls & Sync Status */}
         <div className="flex-1 min-w-0 space-y-1">
           {previewUrl ? (
             <div className="space-y-1.5 animate-in fade-in duration-200">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                <Eye className="w-3.5 h-3.5" />
-                <span>پیش‌نمایش تصویر انتخابی</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>پیش‌نمایش تصویر انتخابی</span>
+                </div>
+                <SyncStatusBadge status={syncStatus} compact />
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
@@ -182,7 +235,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                   className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Check className="w-3 h-3" />
-                  <span>{isProcessing ? 'در حال ذخیره...' : 'ذخیره تصویر'}</span>
+                  <span>{isProcessing ? 'در حال همگام‌سازی...' : 'ذخیره در دیتابیس'}</span>
                 </button>
                 <button
                   type="button"
@@ -197,19 +250,17 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             </div>
           ) : (
             <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
-                  {teamName}
-                </span>
-                <span className="text-[10px] text-slate-400 block truncate">
-                  {saveSuccess ? (
-                    <span className="text-emerald-600 font-bold flex items-center gap-1">
-                      <Check className="w-3 h-3" /> ذخیره شد در سیستم
-                    </span>
-                  ) : (
-                    'برای تغییر تصویر کلیک کنید'
-                  )}
-                </span>
+              <div className="min-w-0 flex items-center gap-2">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
+                    {teamName}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    برای تغییر تصویر کلیک کنید
+                  </span>
+                </div>
+                {/* Visual indicator next to logo upload section */}
+                <SyncStatusBadge status={syncStatus} lastSyncedAt={lastSyncedAt} errorMessage={errorMessage} />
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
@@ -246,3 +297,4 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     </div>
   );
 };
+

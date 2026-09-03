@@ -119,13 +119,28 @@ export function useIsolatedTeamVideo({
     return () => unsub();
   }, [report.id]);
 
+  // Auto retry attempts tracking
+  const autoRetryCountRef = useRef<number>(0);
+  const maxAutoRetries = 2;
+
   // Load and resolve video resource with caching
-  const loadResource = useCallback(async () => {
+  const loadResource = useCallback(async (isManualRetry: boolean = false) => {
+    if (isManualRetry) {
+      autoRetryCountRef.current = 0;
+    }
     setIsLoadingResource(true);
     setStatus('loading');
     setErrorMessage(null);
 
     try {
+      if (!report.videoSrc || report.videoSrc === '#' || report.videoSrc.trim() === '') {
+        setResolvedVideoUrl('');
+        setIsFromCache(false);
+        setStatus('idle');
+        setErrorMessage(null);
+        return;
+      }
+
       const result = await getOrLoadCachedVideoUrl(report.id, report.videoSrc);
       if (result.url) {
         setResolvedVideoUrl(result.url);
@@ -135,13 +150,22 @@ export function useIsolatedTeamVideo({
       } else {
         setResolvedVideoUrl('');
         setIsFromCache(false);
-        setStatus('error');
-        setErrorMessage('منبع فایل ویدیویی مشخص نشده است');
+        setStatus('idle');
+        setErrorMessage(null);
       }
     } catch (err: any) {
       console.warn(`[useIsolatedTeamVideo] Resource error for ${uniqueKey}:`, err);
+      // Check auto retry
+      if (autoRetryCountRef.current < maxAutoRetries) {
+        autoRetryCountRef.current += 1;
+        console.log(`[useIsolatedTeamVideo] Auto-retrying resource load (${autoRetryCountRef.current}/${maxAutoRetries})...`);
+        setTimeout(() => {
+          loadResource();
+        }, 1200);
+        return;
+      }
       setStatus('error');
-      setErrorMessage(err?.message || 'خطا در دسترسی به فایل ویدیو');
+      setErrorMessage(err?.message || 'خطا در دسترسی یا دریافت فایل ویدیو از سرور');
     } finally {
       setIsLoadingResource(false);
     }
@@ -169,6 +193,8 @@ export function useIsolatedTeamVideo({
         }
         setCurrentTime(video.currentTime);
         setStatus('ready');
+        setErrorMessage(null);
+        autoRetryCountRef.current = 0;
       }
     };
 
@@ -195,10 +221,50 @@ export function useIsolatedTeamVideo({
       setIsPlaying(false);
     };
 
+    const onBeginFullscreen = () => {
+      setIsFullscreen(true);
+    };
+
+    const onEndFullscreen = () => {
+      setIsFullscreen(false);
+    };
+
     const onError = () => {
       if (video && video.error) {
+        const mediaErr = video.error;
+        let detailedMsg = 'خطا در بارگذاری فایل ویدیویی';
+        
+        switch (mediaErr.code) {
+          case MediaError.MEDIA_ERR_ABORTED:
+            detailedMsg = 'دریافت ویدیو توسط کاربر یا مرورگر متوقف شد.';
+            break;
+          case MediaError.MEDIA_ERR_NETWORK:
+            detailedMsg = 'خطای شبکه در حین دانلود ویدیو رخ داد. اتصال اینترنت خود را بررسی نمایید.';
+            break;
+          case MediaError.MEDIA_ERR_DECODE:
+            detailedMsg = 'فایل ویدیویی آسیب‌دیده (Corrupted) است یا کدک صوتی/تصویری آن توسط مرورگر پشتیبانی نمی‌شود.';
+            break;
+          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            detailedMsg = 'فرمت ویدیویی پشتیبانی نمی‌شود یا فایل روی سرور یافت نشد.';
+            break;
+          default:
+            detailedMsg = 'خطای نامشخص در رمزگشایی و پخش ویدیو رخ داد.';
+        }
+
+        // Automatic retry attempt once if decode/network error
+        if (autoRetryCountRef.current < maxAutoRetries && (mediaErr.code === MediaError.MEDIA_ERR_NETWORK || mediaErr.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)) {
+          autoRetryCountRef.current += 1;
+          console.log(`[useIsolatedTeamVideo] Auto-retrying video playback (${autoRetryCountRef.current}/${maxAutoRetries})...`);
+          setTimeout(() => {
+            if (videoRef.current) {
+              videoRef.current.load();
+            }
+          }, 1500);
+          return;
+        }
+
         setStatus('error');
-        setErrorMessage('خطا در پخش فایل ویدیویی');
+        setErrorMessage(detailedMsg);
       }
     };
 
@@ -209,6 +275,8 @@ export function useIsolatedTeamVideo({
     video.addEventListener('pause', onPause);
     video.addEventListener('ended', onEnded);
     video.addEventListener('error', onError);
+    video.addEventListener('webkitbeginfullscreen', onBeginFullscreen as any);
+    video.addEventListener('webkitendfullscreen', onEndFullscreen as any);
 
     // Initial check
     if (video.duration && !isNaN(video.duration) && video.duration > 0) {
@@ -223,6 +291,8 @@ export function useIsolatedTeamVideo({
       video.removeEventListener('pause', onPause);
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('error', onError);
+      video.removeEventListener('webkitbeginfullscreen', onBeginFullscreen as any);
+      video.removeEventListener('webkitendfullscreen', onEndFullscreen as any);
     };
   }, [resolvedVideoUrl, report.id]);
 
@@ -352,28 +422,44 @@ export function useIsolatedTeamVideo({
     const nextFs = !isFullscreen;
     setIsFullscreen(nextFs);
 
-    if (nextFs && window.innerWidth < 768) {
-      setVideoFit('cover');
-    }
+    const video = videoRef.current as any;
+    const container = containerRef.current as any;
 
-    if (containerRef.current) {
-      const el = containerRef.current as any;
-      if (nextFs) {
+    if (nextFs) {
+      // If iOS Safari or mobile device where video.webkitEnterFullscreen is supported
+      const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+      if (isIOS && video && typeof video.webkitEnterFullscreen === 'function') {
         try {
-          if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-          else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-        } catch {}
-      } else {
+          video.webkitEnterFullscreen();
+          return;
+        } catch (e) {
+          console.warn('iOS webkitEnterFullscreen fallback to portal overlay:', e);
+        }
+      }
+
+      if (container) {
         try {
-          if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-          else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
+          if (container.requestFullscreen) {
+            container.requestFullscreen().catch(() => {});
+          } else if (container.webkitRequestFullscreen) {
+            container.webkitRequestFullscreen();
+          }
         } catch {}
       }
+    } else {
+      try {
+        if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+          if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+          else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
+        } else if (video && typeof video.webkitExitFullscreen === 'function') {
+          video.webkitExitFullscreen();
+        }
+      } catch {}
     }
   }, [isFullscreen]);
 
   const retryLoad = useCallback(() => {
-    loadResource();
+    loadResource(true);
     if (videoRef.current) {
       try {
         videoRef.current.load();
@@ -385,6 +471,20 @@ export function useIsolatedTeamVideo({
   const scenes = report.transcript || [];
   const getActiveScene = (): TranscriptScene | null => {
     if (!scenes || scenes.length === 0) return null;
+
+    // Check if scenes have explicit start/end seconds
+    const exactScene = scenes.find((s) => {
+      if (typeof s.seconds === 'number' && typeof s.endSeconds === 'number') {
+        return currentTime >= s.seconds && currentTime <= s.endSeconds;
+      }
+      if (typeof s.seconds === 'number') {
+        return currentTime >= s.seconds && currentTime <= s.seconds + 6;
+      }
+      return false;
+    });
+
+    if (exactScene) return exactScene;
+
     const isAnimeReport = report.id === 'thinker-02' || report.id === 'angels-01';
 
     if (!isAnimeReport) {

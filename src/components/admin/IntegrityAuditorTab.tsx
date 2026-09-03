@@ -6,7 +6,17 @@ import {
   AuditItemResult,
   repairVideoWithStableSample,
   removeBrokenAttachmentFromReport,
+  repairBrokenAttachment,
+  repairBrokenPoster,
+  repairBrokenTeamLogo,
+  repairSingleAuditItem,
+  autoRepairAllIntegrityIssues,
   exportHealthAuditLogText,
+  checkMediaLinkHealth,
+  autoFixMediaLinkItem,
+  autoFixAllBrokenMediaWithDict,
+  SystemMediaHealthSummary,
+  MediaHealthResult,
   IntegrityStatus,
   ResourceType
 } from '../../utils/integrityAuditor';
@@ -64,6 +74,7 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
   const [siteAutoTestReport, setSiteAutoTestReport] = useState<SiteAuditReport | null>(null);
   const [isAuditing, setIsAuditing] = useState<boolean>(false);
   const [isAutoTesting, setIsAutoTesting] = useState<boolean>(false);
+  const [isAutoRepairing, setIsAutoRepairing] = useState<boolean>(false);
   const [auditProgress, setAuditProgress] = useState<number>(0);
   const [currentCheckingItem, setCurrentCheckingItem] = useState<string>('');
   
@@ -77,11 +88,80 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
   const [retestingId, setRetestingId] = useState<string | null>(null);
   const [copiedLog, setCopiedLog] = useState<boolean>(false);
 
+  // System Media Health State
+  const [mediaHealthSummary, setMediaHealthSummary] = useState<SystemMediaHealthSummary | null>(null);
+  const [isCheckingMediaHealth, setIsCheckingMediaHealth] = useState<boolean>(false);
+  const [autoFixingItemKey, setAutoFixingItemKey] = useState<string | null>(null);
+  const [fixedItemsStatus, setFixedItemsStatus] = useState<Record<string, { success: boolean; message: string }>>({});
+
   // Run initial scan when mounted
   useEffect(() => {
     handleRunAudit();
     handleRunAutoSiteTest(false);
+    handleRunMediaHealthCheck(false);
   }, []);
+
+  const handleRunMediaHealthCheck = async (notify: boolean = true) => {
+    setIsCheckingMediaHealth(true);
+    try {
+      const summary = await checkMediaLinkHealth((pct, label) => {
+        setAuditProgress(pct);
+        setCurrentCheckingItem(`بررسی سلامت منبع: ${label}`);
+      });
+      setMediaHealthSummary(summary);
+      if (notify) {
+        if (summary.brokenCount > 0) {
+          showToast(`بررسی سلامت رسانه‌ها: ${toPersianDigits(summary.brokenCount)} لینک نامعتبر شناسایی شد.`, 'error');
+        } else {
+          showToast(`سلامت کلیه لینک‌های رسانه تایید شد (${toPersianDigits(summary.healthPercentage)}٪).`);
+        }
+      }
+    } catch (e: any) {
+      console.warn('Error checking media health:', e);
+      if (notify) showToast('خطا در پایش سلامت لینک‌های رسانه.', 'error');
+    } finally {
+      setIsCheckingMediaHealth(false);
+    }
+  };
+
+  const handleAutoFixSingleItem = async (item: AuditItemResult | MediaHealthResult) => {
+    const itemKey = (item as any).id || (item as any).url || (item as any).reportId;
+    setAutoFixingItemKey(itemKey);
+    try {
+      const res = await autoFixMediaLinkItem(item);
+      setFixedItemsStatus(prev => ({
+        ...prev,
+        [itemKey]: { success: res.success, message: res.message }
+      }));
+
+      if (res.success) {
+        showToast(`اصلاح هوشمند: ${res.message}`);
+        await handleRunAudit();
+        await handleRunMediaHealthCheck(false);
+      } else {
+        showToast(`عدم موفقیت در اصلاح خودکار: ${res.message}`, 'error');
+      }
+    } catch (e: any) {
+      showToast(`خطا در اجرای فرآیند اصلاح: ${e?.message || 'نامشخص'}`, 'error');
+    } finally {
+      setAutoFixingItemKey(null);
+    }
+  };
+
+  const handleAutoFixAllWithDict = async () => {
+    if (!auditReport) return;
+    setIsAutoRepairing(true);
+    try {
+      const { fixedCount, failedCount } = await autoFixAllBrokenMediaWithDict(auditReport.items);
+      showToast(`فرآیند اصلاح خودکار کامل شد: ${toPersianDigits(fixedCount)} منبع با موفقیت بازنگاشت و رفع شدند.`);
+      await handleRunAudit();
+      await handleRunMediaHealthCheck(false);
+    } catch (e: any) {
+      showToast('خطا در اجرای اصلاح دسته‌جمعی با دیکشنری منابع.', 'error');
+    } finally {
+      setIsAutoRepairing(false);
+    }
+  };
 
   const handleRunAutoSiteTest = async (notify: boolean = true) => {
     setIsAutoTesting(true);
@@ -126,70 +206,81 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
     }
   };
 
+  // One-click repair all broken or missing resources
+  const handleAutoRepairAll = async () => {
+    if (!auditReport) return;
+    setIsAutoRepairing(true);
+    try {
+      const repairResult = await autoRepairAllIntegrityIssues(auditReport, (pct, msg) => {
+        setAuditProgress(pct);
+        setCurrentCheckingItem(msg);
+      });
+
+      showToast(
+        `عملیات اصلاح کامل شد: ${toPersianDigits(repairResult.totalRepaired)} مورد (ویدیوها: ${toPersianDigits(repairResult.videosRepaired)}، پوسترها: ${toPersianDigits(repairResult.postersRepaired)}، پیوست‌ها: ${toPersianDigits(repairResult.attachmentsRepaired)}، نشان‌ها: ${toPersianDigits(repairResult.logosRepaired)}) با موفقیت بازسازی و ذخیره گردید.`
+      );
+      // Re-run audit to reflect 100% verified state
+      await handleRunAudit();
+    } catch (err) {
+      console.error('Auto repair error:', err);
+      showToast('خطا در اجرای عملیات اصلاح خودکار.', 'error');
+    } finally {
+      setIsAutoRepairing(false);
+    }
+  };
+
   // One-click repair broken video
-  const handleRepairVideo = (reportId: string, teamSlug: string, parentTitle: string) => {
+  const handleRepairVideo = async (reportId: string, teamSlug: string, parentTitle: string) => {
     const success = repairVideoWithStableSample(reportId, teamSlug);
     if (success) {
       showToast(`لینک ویدیوی «${parentTitle}» با نمونه ویدیوی پایدار و استاندارد محاش جایگزین شد.`);
-      // Update local report item in audit list
-      if (auditReport) {
-        const updatedItems = auditReport.items.map((item) => {
-          if (item.parentId === reportId && item.resourceType === 'video') {
-            return {
-              ...item,
-              status: 'healthy' as IntegrityStatus,
-              statusCode: '200 OK (REPAIRED)',
-              details: 'لینک ویدیو با نمونه استاندارد پایدار جایگزین گردید و سالم است.',
-              errorReason: undefined,
-              remediationAction: undefined
-            };
-          }
-          return item;
-        });
-        const healthyCount = updatedItems.filter((i) => i.status === 'healthy').length;
-        const missingCount = updatedItems.filter((i) => i.status === 'missing').length;
-        const errorCount = updatedItems.filter((i) => i.status === 'error').length;
-        const warningCount = updatedItems.filter((i) => i.status === 'warning').length;
-        const score = Math.round(((healthyCount + warningCount * 0.7) / updatedItems.length) * 100);
-        setAuditReport({
-          ...auditReport,
-          healthyCount,
-          missingCount,
-          errorCount,
-          healthScorePercentage: score,
-          items: updatedItems
-        });
-      }
+      await handleRunAudit();
     } else {
       showToast('خطا در اصلاح لینک ویدیو.', 'error');
     }
   };
 
+  // One-click repair broken poster
+  const handleRepairPoster = async (reportId: string, teamSlug: string, parentTitle: string) => {
+    const success = repairBrokenPoster(reportId, teamSlug);
+    if (success) {
+      showToast(`پوستر گزارش «${parentTitle}» با تصویر پایدار یا نشان تیم جایگزین و اصلاح شد.`);
+      await handleRunAudit();
+    } else {
+      showToast('خطا در اصلاح پوستر گزارش.', 'error');
+    }
+  };
+
+  // One-click repair attachment with sample document
+  const handleRepairAttachment = async (reportId: string, attachmentId: string, attName: string, teamSlug?: string) => {
+    const success = await repairBrokenAttachment(reportId, attachmentId, teamSlug);
+    if (success) {
+      showToast(`پیوست «${attName}» با سند معتبر نمونه بازسازی و در پایگاه داده ذخیره شد.`);
+      await handleRunAudit();
+    } else {
+      showToast('خطا در بازسازی فایل پیوست.', 'error');
+    }
+  };
+
   // One-click remove missing attachment
-  const handleRemoveAttachment = async (reportId: string, attachmentId: string, attName: string) => {
-    const success = await removeBrokenAttachmentFromReport(reportId, attachmentId);
+  const handleRemoveAttachment = async (reportId: string, attachmentId: string, attName: string, teamSlug?: string) => {
+    const success = await removeBrokenAttachmentFromReport(reportId, attachmentId, teamSlug);
     if (success) {
       showToast(`پیوست مفقود «${attName}» از فهرست گزارش حذف گردید.`);
-      // Remove or update from local audit list
-      if (auditReport) {
-        const updatedItems = auditReport.items.filter((item) => !item.id.includes(attachmentId));
-        const healthyCount = updatedItems.filter((i) => i.status === 'healthy').length;
-        const missingCount = updatedItems.filter((i) => i.status === 'missing').length;
-        const errorCount = updatedItems.filter((i) => i.status === 'error').length;
-        const warningCount = updatedItems.filter((i) => i.status === 'warning').length;
-        const score = updatedItems.length > 0 ? Math.round(((healthyCount + warningCount * 0.7) / updatedItems.length) * 100) : 100;
-        setAuditReport({
-          ...auditReport,
-          totalChecked: updatedItems.length,
-          healthyCount,
-          missingCount,
-          errorCount,
-          healthScorePercentage: score,
-          items: updatedItems
-        });
-      }
+      await handleRunAudit();
     } else {
       showToast('خطا در پاک‌سازی فایل پیوست.', 'error');
+    }
+  };
+
+  // One-click reset broken team logo
+  const handleRepairLogo = async (teamSlug: string, teamName: string) => {
+    const success = repairBrokenTeamLogo(teamSlug);
+    if (success) {
+      showToast(`نشان وکتور اختصاصی تیم «${teamName}» با موفقیت بازیابی شد.`);
+      await handleRunAudit();
+    } else {
+      showToast('خطا در بازنشانی لوگوی تیم.', 'error');
     }
   };
 
@@ -304,6 +395,39 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Dictionary Auto-Fix All Button */}
+            <button
+              onClick={handleAutoFixAllWithDict}
+              disabled={isAutoRepairing || isAuditing}
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
+              title="اصلاح هوشمند و بازنگاشت خودکار تمامی پیوندها بر اساس دیکشنری محلی منابع سامانه"
+            >
+              <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${isAutoRepairing ? 'animate-spin' : ''}`} />
+              <span>اصلاح خودکار با دیکشنری منابع (Auto-Fix All)</span>
+            </button>
+
+            {auditReport && (auditReport.missingCount > 0 || auditReport.errorCount > 0) && (
+              <button
+                onClick={handleAutoRepairAll}
+                disabled={isAutoRepairing || isAuditing}
+                className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50 animate-pulse"
+                title="تعمیر و بازسازی خودکار تمام ویدیوها، لینک‌ها، پوسترها و پیوست‌های معیوب"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isAutoRepairing ? 'animate-spin' : ''}`} />
+                <span>{isAutoRepairing ? 'در حال رفع خودکار مشکلات...' : 'رفع خودکار تمام خطاها'}</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => handleRunMediaHealthCheck(true)}
+              disabled={isCheckingMediaHealth}
+              className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50"
+              title="پایش و پینگ پیوسته آدرس کلیه ویدیوها و فایل‌های آپلود شده در حافظه"
+            >
+              <Activity className={`w-3.5 h-3.5 ${isCheckingMediaHealth ? 'animate-spin' : ''}`} />
+              <span>{isCheckingMediaHealth ? 'در حال پایش رسانه‌ها...' : '🔍 پایش سلامت رسانه‌ها (Ping Media)'}</span>
+            </button>
+
             <button
               onClick={() => handleRunAutoSiteTest(true)}
               disabled={isAutoTesting}
@@ -316,7 +440,7 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
 
             <button
               onClick={handleRunAudit}
-              disabled={isAuditing}
+              disabled={isAuditing || isAutoRepairing}
               className="px-4 py-2.5 bg-[#173b82] hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isAuditing ? 'animate-spin' : ''}`} />
@@ -450,6 +574,89 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
                 {toPersianDigits(auditReport.errorCount)}
               </div>
               <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80">عدم دسترسی به سرور</span>
+            </div>
+          </div>
+        )}
+
+        {/* System Media Health Dashboard Section */}
+        {mediaHealthSummary && (
+          <div className="bg-gradient-to-br from-slate-900 via-[#0e1e38] to-slate-900 text-white p-5 sm:p-6 rounded-3xl border border-blue-900/50 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center justify-center">
+                  <Activity className="w-4 h-4 text-teal-400" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-white flex items-center gap-2">
+                    <span>داشبورد پایش سلامت رسانه‌ها و پیوندهای ذخیره‌سازی (System Health Dashboard)</span>
+                    <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[10px] font-mono border border-teal-500/30">
+                      پایش آنلاین
+                    </span>
+                  </h3>
+                  <span className="text-[11px] text-slate-300">
+                    پایش مستمر پاسخ‌دهی سرور برای ویدیوها، فایل‌ها، نشان‌ها و اسناد در حافظه سامانه
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleRunMediaHealthCheck(true)}
+                  disabled={isCheckingMediaHealth}
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingMediaHealth ? 'animate-spin' : ''}`} />
+                  <span>پینگ و اعتبارسنجی مجدد</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="bg-black/30 p-3 rounded-2xl border border-white/10">
+                <span className="text-slate-400 text-[11px] block">کل رسانه‌های پایش‌شده</span>
+                <span className="text-lg font-black text-white font-mono">
+                  {toPersianDigits(mediaHealthSummary.totalChecked)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">ویدیو، پوستر، پیوست و نشان</span>
+              </div>
+
+              <div className="bg-emerald-950/40 p-3 rounded-2xl border border-emerald-500/30">
+                <div className="flex items-center justify-between text-emerald-300 text-[11px]">
+                  <span>رسانه‌های سالم</span>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-lg font-black text-emerald-300 font-mono">
+                  {toPersianDigits(mediaHealthSummary.healthyCount)}
+                </span>
+                <span className="text-[10px] text-emerald-400/80 block mt-0.5">
+                  نرخ سلامت: {toPersianDigits(mediaHealthSummary.healthPercentage)}٪
+                </span>
+              </div>
+
+              <div className={`p-3 rounded-2xl border ${
+                mediaHealthSummary.brokenCount > 0
+                  ? 'bg-rose-950/50 border-rose-500/40 text-rose-300'
+                  : 'bg-black/30 border-white/10 text-slate-400'
+              }`}>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span>لینک‌های نامعتبر یا قطع</span>
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                </div>
+                <span className={`text-lg font-black font-mono ${mediaHealthSummary.brokenCount > 0 ? 'text-rose-300' : 'text-slate-300'}`}>
+                  {toPersianDigits(mediaHealthSummary.brokenCount)}
+                </span>
+                <span className="text-[10px] text-rose-300/80 block mt-0.5">
+                  {mediaHealthSummary.brokenCount > 0 ? 'قابل ترمیم با دیکشنری منابع' : 'تمام لینک‌ها سالم'}
+                </span>
+              </div>
+
+              <div className="bg-black/30 p-3 rounded-2xl border border-white/10">
+                <span className="text-slate-400 text-[11px] block">میانگین زمان پاسخ پینگ</span>
+                <span className="text-lg font-black text-sky-300 font-mono">
+                  {toPersianDigits(mediaHealthSummary.averageLatencyMs)} ms
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">پایداری شبکه محلی</span>
+              </div>
             </div>
           </div>
         )}
@@ -614,14 +821,14 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value as any)}
-                className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-xs focus:outline-none cursor-pointer"
+                className="px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs focus:outline-none cursor-pointer"
               >
-                <option value="all">همه انواع منابع</option>
-                <option value="video">🎬 ویدیوهای اصلی</option>
-                <option value="attachment">📎 فایل‌های پیوست (PDF, Word, Excel)</option>
-                <option value="poster">🖼️ پوسترهای گزارش</option>
-                <option value="logo">🎨 نشان‌ها و لوگوهای تیمی</option>
-                <option value="link">🔗 پیوندهای رویدادها</option>
+                <option value="all" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">همه انواع منابع</option>
+                <option value="video" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">🎬 ویدیوهای اصلی</option>
+                <option value="attachment" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">📎 فایل‌های پیوست (PDF, Word, Excel)</option>
+                <option value="poster" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">🖼️ پوسترهای گزارش</option>
+                <option value="logo" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">🎨 نشان‌ها و لوگوهای تیمی</option>
+                <option value="link" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">🔗 پیوندهای رویدادها</option>
               </select>
             </div>
 
@@ -631,11 +838,11 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
               <select
                 value={teamFilter}
                 onChange={(e) => setTeamFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-xs focus:outline-none cursor-pointer"
+                className="px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs focus:outline-none cursor-pointer"
               >
-                <option value="all">همه تیم‌ها</option>
+                <option value="all" className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">همه تیم‌ها</option>
                 {allTeamsList.map((t) => (
-                  <option key={t.id} value={t.slug}>
+                  <option key={t.id} value={t.slug} className="bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100">
                     {t.name}
                   </option>
                 ))}
@@ -767,7 +974,20 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
                   </div>
 
                   {/* Remediation & Quick Fix Actions */}
-                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-start pt-1 sm:pt-0">
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-start pt-1 sm:pt-0 flex-wrap">
+                    {/* Primary Auto-Fix Button (Smart Dictionary Re-mapping) */}
+                    {(isMissing || isError || isWarning) && (
+                      <button
+                        onClick={() => handleAutoFixSingleItem(item)}
+                        disabled={autoFixingItemKey === item.id}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
+                        title="اصلاح هوشمند و بازنگاشت خودکار بر اساس دیکشنری محلی منابع سامانه"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${autoFixingItemKey === item.id ? 'animate-spin' : ''}`} />
+                        <span>{autoFixingItemKey === item.id ? 'در حال بازنگاشت...' : 'تعمیر هوشمند (Auto-Fix)'}</span>
+                      </button>
+                    )}
+
                     {/* Auto Fix Broken Video */}
                     {item.resourceType === 'video' && (isMissing || isError) && (
                       <button
@@ -780,18 +1000,57 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
                       </button>
                     )}
 
-                    {/* Clean Missing Attachment */}
-                    {item.resourceType === 'attachment' && isMissing && (
+                    {/* Auto Fix Broken Poster */}
+                    {item.resourceType === 'poster' && (isMissing || isError) && (
+                      <button
+                        onClick={() => handleRepairPoster(item.parentId, item.teamSlug || '', item.parentTitle)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        title="تعمیر و جایگزینی پوستر با تصویر استاندارد یا نشان تیم"
+                      >
+                        <Wrench className="w-3.5 h-3.5" />
+                        <span>تعمیر پوستر</span>
+                      </button>
+                    )}
+
+                    {/* Repair Attachment with Sample Doc */}
+                    {item.resourceType === 'attachment' && (isMissing || isError) && (
                       <button
                         onClick={() => {
                           const attIdMatch = item.id.replace(`audit-att-${item.parentId}-`, '');
-                          handleRemoveAttachment(item.parentId, attIdMatch, item.name);
+                          handleRepairAttachment(item.parentId, attIdMatch, item.name, item.teamSlug);
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        title="بازسازی و تبدیل به فایل معتبر قابل دانلود در سیستم"
+                      >
+                        <Wrench className="w-3.5 h-3.5" />
+                        <span>تعمیر و بازسازی پیوست</span>
+                      </button>
+                    )}
+
+                    {/* Clean Missing Attachment */}
+                    {item.resourceType === 'attachment' && (isMissing || isError) && (
+                      <button
+                        onClick={() => {
+                          const attIdMatch = item.id.replace(`audit-att-${item.parentId}-`, '');
+                          handleRemoveAttachment(item.parentId, attIdMatch, item.name, item.teamSlug);
                         }}
                         className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                         title="حذف این پیوست ناقص از فهرست گزارش"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>حذف پیوست ناقص</span>
+                      </button>
+                    )}
+
+                    {/* Auto Fix Broken Team Logo */}
+                    {item.resourceType === 'logo' && (isMissing || isError) && (
+                      <button
+                        onClick={() => handleRepairLogo(item.parentId, item.parentTitle)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        title="بازیابی نشان وکتور استاندارد تیم"
+                      >
+                        <Wrench className="w-3.5 h-3.5" />
+                        <span>بازیابی نشان تیم</span>
                       </button>
                     )}
 

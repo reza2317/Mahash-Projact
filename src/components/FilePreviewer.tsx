@@ -433,7 +433,7 @@ export const FilePreviewer: React.FC<FilePreviewerProps> = ({
               title={file.name}
             >
               {file.type === 'image' && file.url ? (
-                <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                <img loading="lazy" src={file.url} alt={file.name} className="w-full h-full object-cover" />
               ) : (
                 <FileText className="w-6 h-6 text-slate-400" />
               )}

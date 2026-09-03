@@ -1,16 +1,28 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MonthlyReports } from '../components/MonthlyReports';
+import { WordPressCMSPanel } from '../components/WordPressCMSPanel';
+import { MySQLAdminDashboard } from '../components/MySQLAdminDashboard';
+import { MySQLLiveLogsMonitor } from '../components/admin/MySQLLiveLogsMonitor';
+import { SyncLogger } from '../components/admin/SyncLogger';
+import { WordPressService } from '../services/WordPressService';
+import { useNotification } from '../context/NotificationContext';
+import { logReportToMySQL, fetchMySQLLogs, archiveAndClearLogsAPI, MySQLLogItem } from '../utils/mysqlLogger';
 import DatePicker, { DateObject } from 'react-multi-date-picker';
 import persian from 'react-date-object/calendars/persian';
 import persian_fa from 'react-date-object/locales/persian_fa';
 import { ResponsiveImage } from '../components/ResponsiveImage';
-import { PageId, ActivityReport, TeamData, ScoreItem, EventItem, ReportAttachment, Consultant } from '../types';
+import { PageId, ActivityReport, ReportType, TeamData, ScoreItem, EventItem, ReportAttachment, Consultant, ReportDraft } from '../types';
 import {
   getAllTeams,
   getAllReports,
   saveReport,
   deleteReport,
+  removeVideoFromReport,
   getNextReportNumberForTeam,
+  getSavedDrafts,
+  saveDraft,
+  deleteDraft,
+  getDraftById,
   updateTeamDetails,
   saveTeamLogo,
   resetTeamLogo,
@@ -58,8 +70,22 @@ import {
   resetConsultantPhoto,
   updateConsultantInfo,
   addConsultant,
-  deleteConsultant
+  deleteConsultant,
+  isCustomImageDataUrlOrUrl
 } from '../utils/reportsStore';
+import { VideoRemovalConfirmModal } from '../components/VideoRemovalConfirmModal';
+import { OrphanMediaRepairUtility } from '../components/OrphanMediaRepairUtility';
+import { VideoGalleryView } from '../components/VideoGalleryView';
+import { SyncStatusBadge } from '../components/SyncStatusBadge';
+import { AdminLogoManager } from '../components/admin/AdminLogoManager';
+import { MediaContentManager } from '../components/admin/MediaContentManager';
+import {
+  saveMahashLogoToFirestore,
+  saveYouthClubEmblemToFirestore,
+  saveConsultantPhotoToFirestore,
+  getConsultantPhotoFromFirestore,
+  deleteConsultantPhotoFromFirestore
+} from '../utils/firestorePersistence';
 import { NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from '../utils/assets';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
 import {
@@ -82,7 +108,8 @@ import {
   validateAttachmentFile,
   validateFullReportSubmission
 } from '../utils/fileValidation';
-import { getSmartCurrentDate, toPersianDigits, formatReportNumberDisplay, getJalaliDayOfWeek, parseReportTimestamp } from '../utils/persianDate';
+import { uploadFileToServerStorage, uploadFileToGoogleDrive, deleteFileFromGoogleDrive } from '../utils/googleDriveStorage';
+import { getSmartCurrentDate, toPersianDigits, formatReportNumberDisplay, extractReportSequenceNumber, getJalaliDayOfWeek, parseReportTimestamp } from '../utils/persianDate';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from '../utils/storage';
 import {
   getTeamLogoPlaceholder,
@@ -91,6 +118,13 @@ import {
   MAHESH_LOGO_SVG,
   MAHESH_CLUB_EMBLEM_SVG
 } from '../utils/assets';
+import {
+  normalizePersianText,
+  extractKeyPoints,
+  generateExecutiveSummary,
+  generateSubtitleScenario,
+  proofreadAndPolishText
+} from '../utils/persianTextProcessor';
 import { IntegrityAuditorTab } from '../components/admin/IntegrityAuditorTab';
 import { ImageUploader } from '../components/ImageUploader';
 import { RichTextEditor } from '../components/admin/RichTextEditor';
@@ -128,8 +162,10 @@ import {
   ArrowRight,
   Sliders,
   Check,
+  X,
   AlertCircle,
   Radio,
+  Loader2,
   FileSpreadsheet,
   Award,
   Calendar,
@@ -155,7 +191,14 @@ import {
   Wrench,
   Send,
   Share2,
-  Globe
+  Globe,
+  Bell,
+  BellRing,
+  Archive,
+  Zap,
+  ShieldAlert,
+  CheckSquare,
+  Layers
 } from 'lucide-react';
 
 interface AdminPageProps {
@@ -164,6 +207,7 @@ interface AdminPageProps {
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const { isSaving, saveSuccess, syncReportData } = useReportSync();
+  const { maintenanceSuccess } = useNotification();
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(isAdminAuthenticated());
   const [usernameInput, setUsernameInput] = useState<string>('');
@@ -183,7 +227,41 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [recoverySuccess, setRecoverySuccess] = useState<boolean>(false);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'monthly' | 'teams' | 'scores' | 'events' | 'analytics' | 'logos' | 'health' | 'storage' | 'settings'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs'>('create');
+  const [mysqlHealthStatus, setMysqlHealthStatus] = useState<{ connected: boolean; host?: string; database?: string } | null>(null);
+
+  const [isSyncingServer, setIsSyncingServer] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncMessage, setSyncMessage] = useState('');
+
+  useEffect(() => {
+    const checkMysqlHealth = async () => {
+      try {
+        const res = await fetch('/api/mysql/status');
+        const data = await res.json();
+        setMysqlHealthStatus(data);
+      } catch {
+        setMysqlHealthStatus({ connected: false });
+      }
+    };
+    checkMysqlHealth();
+  }, []);
+
+  // Video preservation & removal confirmation state
+  const [keepVideoAttachment, setKeepVideoAttachment] = useState<boolean>(false);
+  const [videoRemovalModal, setVideoRemovalModal] = useState<{
+    isOpen: boolean;
+    reportId?: string;
+    teamSlug?: string;
+    reportTitle: string;
+    fileName?: string;
+  }>({
+    isOpen: false,
+    reportTitle: '',
+  });
+
+  // Saved drafts list state
+  const [savedDraftsList, setSavedDraftsList] = useState<ReportDraft[]>(() => getSavedDrafts());
 
   // Store data
   const [teams, setTeams] = useState<Record<string, TeamData>>(getAllTeams());
@@ -196,10 +274,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
   // Logos and Circular Badges Management State
   const [mahashLogoSrc, setMahashLogoSrc] = useState<string>(() => getMahashLogo());
+  const [mahashSyncStatus, setMahashSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [mahashLastSyncedAt, setMahashLastSyncedAt] = useState<Date | null>(null);
+  const [mahashPreviewUrl, setMahashPreviewUrl] = useState<string | null>(null);
+  const [mahashSelectedFile, setMahashSelectedFile] = useState<File | null>(null);
+  const [isMahashSaving, setIsMahashSaving] = useState<boolean>(false);
+
   const [youthClubBadgeSrc, setYouthClubBadgeSrc] = useState<string>(() => getYouthClubBadge());
+  const [youthClubSyncStatus, setYouthClubSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [youthClubLastSyncedAt, setYouthClubLastSyncedAt] = useState<Date | null>(null);
+  const [youthClubPreviewUrl, setYouthClubPreviewUrl] = useState<string | null>(null);
+  const [youthClubSelectedFile, setYouthClubSelectedFile] = useState<File | null>(null);
+  const [isYouthClubSaving, setIsYouthClubSaving] = useState<boolean>(false);
+
   const [memberAvatars, setMemberAvatars] = useState<Record<string, string>>(() => getMemberAvatars());
   const [consultantsList, setConsultantsList] = useState<Consultant[]>(() => getAllConsultants());
   const [consultantPhotos, setConsultantPhotos] = useState<Record<string, string>>(() => getConsultantPhotos());
+  const [consultantPreviews, setConsultantPreviews] = useState<Record<string, string>>({});
+  const [consultantSelectedFiles, setConsultantSelectedFiles] = useState<Record<string, File>>({});
+  const [consultantSavingMap, setConsultantSavingMap] = useState<Record<string, boolean>>({});
+  const [consultantSyncStatusMap, setConsultantSyncStatusMap] = useState<Record<string, 'idle' | 'syncing' | 'synced' | 'error'>>({});
+  const [consultantLastSyncedMap, setConsultantLastSyncedMap] = useState<Record<string, Date | null>>({});
   const [newConsultantName, setNewConsultantName] = useState<string>('');
   const [newConsultantRole, setNewConsultantRole] = useState<string>('');
   const [newConsultantSpecialty, setNewConsultantSpecialty] = useState<string>('');
@@ -218,19 +313,154 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   });
 
+  // MySQL Backup & Storage Summary for Top Summary Card
+  const backupSummary = useMemo(() => {
+    const saved = safeGetLocalStorage('mahash_backup_history');
+    let history: any[] = [];
+    if (saved) {
+      try { history = JSON.parse(saved); } catch (e) {}
+    }
+    const lastBackupTime = safeGetLocalStorage('mahash_last_backup_time');
+    const successful = history.filter(item => !item.status?.includes('ناموفق') && !item.status?.toLowerCase().includes('failed'));
+    const lastSuccess = successful.length > 0 ? successful[0].timestamp : lastBackupTime;
+    
+    let totalKb = 0;
+    history.forEach(item => {
+      const sizeNum = parseFloat(item.size || '0');
+      if (!isNaN(sizeNum)) totalKb += sizeNum;
+    });
+
+    return {
+      totalBackups: history.length,
+      lastSuccessDate: lastSuccess ? new Date(lastSuccess).toLocaleDateString('fa-IR') : 'ثبت نشده',
+      storageUsage: `${totalKb.toFixed(1)} KB (InnoDB)`
+    };
+  }, [activeTab]);
+
+  // Quick Stats Summary State for Today's MySQL Activity (Task 5)
+  const [todayLogsStats, setTodayLogsStats] = useState<{
+    total: number;
+    success: number;
+    failed: number;
+    rate: number;
+    lastUpdated: string;
+  }>({
+    total: 0,
+    success: 0,
+    failed: 0,
+    rate: 100,
+    lastUpdated: new Date().toLocaleTimeString('fa-IR')
+  });
+  const [isRefreshingQuickStats, setIsRefreshingQuickStats] = useState<boolean>(false);
+
+  // System Notification Badge State for High-Priority Consultation Requests (Task 4)
+  const [highPriorityConsultations, setHighPriorityConsultations] = useState<MySQLLogItem[]>([]);
+  const [unreadConsultationCount, setUnreadConsultationCount] = useState<number>(0);
+  const [showNotificationPopup, setShowNotificationPopup] = useState<boolean>(false);
+  const [hasDismissedAlertBanner, setHasDismissedAlertBanner] = useState<boolean>(false);
+
+  // MySQL Archive and Clear Modal State (Task 3)
+  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState<boolean>(false);
+  const [archiveOlderThanDays, setArchiveOlderThanDays] = useState<number>(0);
+  const [archiveConfirmInput, setArchiveConfirmInput] = useState<string>('');
+  const [isArchivingLogs, setIsArchivingLogs] = useState<boolean>(false);
+  const [archiveResult, setArchiveResult] = useState<{
+    success: boolean;
+    totalArchived: number;
+    clearedCount: number;
+    archiveFileName?: string;
+  } | null>(null);
+
+  // Poll MySQL for Today's Activity & Real-Time Consultation Requests
+  const refreshQuickStatsAndAlerts = async (showLoading: boolean = false) => {
+    if (showLoading) setIsRefreshingQuickStats(true);
+    try {
+      const res = await fetchMySQLLogs(100);
+      const logs: MySQLLogItem[] = Array.isArray(res) ? res : (res?.logs || []);
+      const todayStr = new Date().toDateString();
+      const todayItems = logs.filter(l => {
+        const d = new Date(l.created_at || (l as any).timestamp || 0);
+        return !isNaN(d.getTime()) && d.toDateString() === todayStr;
+      });
+
+      const total = todayItems.length;
+      const success = todayItems.filter(l => l.status === 'success').length;
+      const failed = todayItems.filter(l => l.status === 'error' || l.status === 'warning').length;
+      const rate = total > 0 ? Math.round((success / total) * 100) : 100;
+
+      setTodayLogsStats({
+        total,
+        success,
+        failed,
+        rate,
+        lastUpdated: new Date().toLocaleTimeString('fa-IR')
+      });
+
+      // Filter high priority consultations
+      const consultations = logs.filter(l => l.action_type === 'consultation_request');
+      setHighPriorityConsultations(consultations);
+      setUnreadConsultationCount(consultations.length);
+    } catch (err) {
+      console.warn('Could not refresh quick stats and alerts:', err);
+    } finally {
+      if (showLoading) setIsRefreshingQuickStats(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshQuickStatsAndAlerts(false);
+    const interval = setInterval(() => refreshQuickStatsAndAlerts(false), 5000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
+
+  // Execute Safe Archive and Clear
+  const handleArchiveAndClearLogs = async () => {
+    if (
+      archiveConfirmInput.trim() !== 'بایگانی' &&
+      archiveConfirmInput.trim().toUpperCase() !== 'ARCHIVE'
+    ) {
+      showToast('جهت تایید عملیات، لطفاً عبارت «بایگانی» را دقیقاً وارد کنید.', 'error');
+      return;
+    }
+
+    setIsArchivingLogs(true);
+    try {
+      const res = await archiveAndClearLogsAPI(archiveOlderThanDays, true, true);
+      if (res.success) {
+        setArchiveResult(res);
+        showToast(
+          `بایگانی ایمن با موفقیت انجام شد: ${toPersianDigits(res.totalArchived)} لاگ ذخیره و فایل JSON دانلود گردید (${toPersianDigits(res.clearedCount)} مورد پاک‌سازی شدند).`
+        );
+        setIsArchiveModalOpen(false);
+        setArchiveConfirmInput('');
+        await refreshQuickStatsAndAlerts(false);
+      } else {
+        showToast(`خطا در بایگانی لاگ‌های دیتابیس: ${res.error || 'نامشخص'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`خطا در فرآیند بایگانی: ${err?.message || 'نامشخص'}`, 'error');
+    } finally {
+      setIsArchivingLogs(false);
+    }
+  };
+
   // Search & Filters in Reports table
   const [filterTeam, setFilterTeam] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'draft'>('all');
+  const [filterMediaType, setFilterMediaType] = useState<'all' | 'video' | 'text-only'>('all');
   const [filterDatePeriod, setFilterDatePeriod] = useState<'all' | '1405' | '1404' | 'custom'>('all');
   const [customDateQuery, setCustomDateQuery] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [reportsSortBy, setReportsSortBy] = useState<'date-desc' | 'views-desc' | 'views-asc' | 'title'>('views-desc');
+  const [reportsSortBy, setReportsSortBy] = useState<'date-desc' | 'date-asc' | 'views-desc' | 'views-asc' | 'num-desc' | 'num-asc' | 'title'>('views-desc');
 
   // Quick edit views modal / state
   const [editingViewsReport, setEditingViewsReport] = useState<{ id: string; title: string; currentViews: number } | null>(null);
   const [customViewsInput, setCustomViewsInput] = useState<number>(0);
   const [editingDateReport, setEditingDateReport] = useState<{ id: string; teamSlug: string; title: string; currentDate: string } | null>(null);
   const [customDateInput, setCustomDateInput] = useState<string>('');
+  const [editingNumReport, setEditingNumReport] = useState<{ id: string; teamSlug: string; title: string; reportNum: string } | null>(null);
+  const [customNumInput, setCustomNumInput] = useState<string>('');
+  const [customTitleInput, setCustomTitleInput] = useState<string>('');
 
   // Event form state
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -248,6 +478,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Form State for creating / editing a report
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [selectedTeamSlug, setSelectedTeamSlug] = useState<string>('team-angels');
+  const [reportFormat, setReportFormat] = useState<ReportType>('hybrid');
   const [reportNum, setReportNum] = useState<string>(() => getNextReportNumberForTeam('team-angels'));
   const [reportTitle, setReportTitle] = useState<string>('');
   const [reportDate, setReportDate] = useState<string>(getSmartCurrentDate());
@@ -289,6 +520,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         const draft = JSON.parse(savedDraft);
         if (draft.reportTitle || draft.reportSummary || draft.keyPointsText) {
           if (draft.selectedTeamSlug) setSelectedTeamSlug(draft.selectedTeamSlug);
+          if (draft.reportFormat) setReportFormat(draft.reportFormat);
           if (draft.reportNum) setReportNum(draft.reportNum);
           if (draft.reportTitle) setReportTitle(draft.reportTitle);
           if (draft.reportDate) setReportDate(draft.reportDate);
@@ -301,16 +533,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     } catch {}
   }, []);
 
-  // Auto-save draft changes to storage when creating a new report
+  // Auto-save draft changes to storage with debounce to ensure fluid typing
   useEffect(() => {
     if (editingReportId) return; // do not overwrite draft when editing existing report
     const hasData = reportTitle.trim() || reportSummary.trim() || keyPointsText.trim();
-    if (hasData) {
+    if (!hasData) return;
+
+    const timer = setTimeout(() => {
       try {
         safeSetLocalStorage(
           DRAFT_KEY,
           JSON.stringify({
             selectedTeamSlug,
+            reportFormat,
             reportNum,
             reportTitle,
             reportDate,
@@ -321,8 +556,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           })
         );
       } catch {}
-    }
-  }, [selectedTeamSlug, reportNum, reportTitle, reportDate, reportSummary, reportStatus, keyPointsText, editingReportId]);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [selectedTeamSlug, reportFormat, reportNum, reportTitle, reportDate, reportSummary, reportStatus, keyPointsText, editingReportId]);
 
   const clearFormDraft = () => {
     try {
@@ -350,9 +587,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     { speaker: 'همکار محترم تیم', role: 'عضو تیم', text: '', avatar: '👩‍💼' }
   ]);
 
-  // Operations feedback
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // Operations feedback & Live Upload State
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitProgress, setSubmitProgress] = useState<number>(0);
+  const [submitStageText, setSubmitStageText] = useState<string>('');
+  const [submitProgressDetails, setSubmitProgressDetails] = useState<{ loadedFormatted: string; totalFormatted: string } | null>(null);
+  const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
 
   // Settings tab: Change username & password state
   const [adminUsername, setAdminUsernameState] = useState<string>(() => getAdminUsername());
@@ -376,10 +617,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [showAdminGeminiBox, setShowAdminGeminiBox] = useState<boolean>(true);
 
   // Handle Gemini AI suggestion request for admin report formulation
-  const handleRequestAdminGemini = async (mode: 'polish' | 'bullets' | 'summary' | 'custom' = 'polish') => {
-    const textToAnalyze = reportSummary.trim() || reportTitle.trim();
+  const handleRequestAdminGemini = async (mode: 'polish' | 'bullets' | 'summary' | 'subtitles' | 'normalize' | 'custom' = 'polish') => {
+    const textToAnalyze = (adminGeminiCustomPrompt.trim() && !reportSummary.trim() && !reportTitle.trim())
+      ? adminGeminiCustomPrompt.trim()
+      : (reportSummary.trim() || reportTitle.trim() || adminGeminiCustomPrompt.trim());
+
     if (!textToAnalyze) {
-      showToast('لطفاً ابتدا بخشی از متن گزارش یا عنوان را وارد نمایید تا هوش مصنوعی آن را تحلیل کند.', 'error');
+      showToast('لطفاً ابتدا بخشی از متن گزارش، عنوان یا کادر دستور را وارد نمایید تا هوش مصنوعی آن را تحلیل کند.', 'error');
       return;
     }
 
@@ -389,6 +633,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const targetTeam = teams[selectedTeamSlug] || getAllTeams()[selectedTeamSlug];
     const teamName = targetTeam?.name || 'باشگاه جوانان محاش';
 
+    // Instant offline normalization
+    if (mode === 'normalize') {
+      const normalized = normalizePersianText(textToAnalyze);
+      setAdminGeminiSuggestion(normalized);
+      setIsAdminGeminiLoading(false);
+      showToast('متن با اصلاح نیم‌فاصله‌ها و قواعد نگارش فارسی پاکسازی شد.');
+      return;
+    }
+
     try {
       const res = await fetch('/api/gemini/suggest-improvements', {
         method: 'POST',
@@ -397,26 +650,42 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           reportText: textToAnalyze,
           teamName: teamName,
           tone: adminGeminiTone,
-          customPrompt: adminGeminiCustomPrompt || (mode === 'bullets' ? 'استخراج نکات کلیدی و محورهای اصلی' : mode === 'summary' ? 'تهیه خلاصه کوتاه و شفاف' : undefined),
+          customPrompt: adminGeminiCustomPrompt || undefined,
           mode: mode
         })
       });
 
       if (!res.ok) throw new Error('Gemini API error');
       const data = await res.json();
-      setAdminGeminiSuggestion(data.suggestion || 'پاسخی دریافت نشد.');
-      showToast('پیشنهاد هوش مصنوعی Gemini با موفقیت آماده شد.');
-    } catch (err) {
-      console.warn('Gemini request failed:', err);
-      // Fallback structured generation
-      let fallbackText = '';
-      if (mode === 'bullets') {
-        fallbackText = `🎯 **محورهای کلیدی گزارش ${teamName}:**\n• ${reportTitle || 'گزارش فعالیت'}\n• اجرای برنامه‌های توانمندسازی و کارگاهی\n• استمرار مستندسازی و اشتراک تجارب اعضا`;
-      } else {
-        fallbackText = `📝 **متن بازنویسی‌شده و ویراستاری رسمی:**\n\n«${reportTitle || 'گزارش فعالیت کارگروه'}»\n\nدر راستای اهداف و مأموریت‌های تعالی ${teamName}، این گزارش فعالیت به شرح زیر تدوین گردیده است:\n\n${reportSummary || 'فعالیت‌های تیم با موفقیت اجرا شد.'}\n\nاین برنامه گامی مؤثر در مسیر توانمندسازی، خودباوری و رشد مهارتی اعضا به شمار می‌رود.`;
+      if (data.suggestion) {
+        setAdminGeminiSuggestion(data.suggestion);
+        showToast('پردازش و استخراج هوشمند با موفقیت آماده شد.');
+        return;
       }
-      setAdminGeminiSuggestion(fallbackText);
-      showToast('متن هوشمند با الگوی استاندارد آماده گردید.');
+      throw new Error('Empty response');
+    } catch (err) {
+      console.warn('Gemini request fallback:', err);
+      // Fallback structured generation using persianTextProcessor
+      const result = proofreadAndPolishText(textToAnalyze, {
+        title: reportTitle || undefined,
+        teamName,
+        tone: adminGeminiTone,
+        customPrompt: adminGeminiCustomPrompt || undefined
+      });
+
+      if (mode === 'bullets') {
+        setAdminGeminiSuggestion(
+          `🎯 **محورها و نکات کلیدی استخراج‌شده (${teamName}):**\n\n` +
+          result.keyPoints.map((k) => `• ${k}`).join('\n')
+        );
+      } else if (mode === 'summary') {
+        setAdminGeminiSuggestion(result.executiveSummary);
+      } else if (mode === 'subtitles') {
+        setAdminGeminiSuggestion(result.subtitleScenario);
+      } else {
+        setAdminGeminiSuggestion(result.polishedText);
+      }
+      showToast('متن هوشمند با الگوی استاندارد پردازش گردید.');
     } finally {
       setIsAdminGeminiLoading(false);
     }
@@ -425,7 +694,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const handleApplyGeminiToSummary = () => {
     if (!adminGeminiSuggestion) return;
     setReportSummary(adminGeminiSuggestion);
-    showToast('متن پیشنهادی Gemini با موفقیت در فیلد توضیحات گزارش درج گردید.');
+    showToast('متن پیشنهادی با موفقیت در فیلد توضیحات گزارش درج گردید.');
+  };
+
+  const handleApplyGeminiToKeyPoints = () => {
+    if (!adminGeminiSuggestion) return;
+    const extracted = extractKeyPoints(adminGeminiSuggestion);
+    if (extracted.length > 0) {
+      setKeyPointsText(extracted.join('\n'));
+      showToast(`${toPersianDigits(extracted.length)} محور کلیدی استخراج‌شده در لیست نکات درج گردید.`);
+    } else {
+      setKeyPointsText(adminGeminiSuggestion);
+      showToast('متن پیشنهادی در لیست محورهای کلیدی درج شد.');
+    }
   };
 
   const handleCopyAdminGemini = () => {
@@ -480,7 +761,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     return () => unsub();
   }, [isAuthenticated]);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  // Run one-time background Firestore hydration for official consultants
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const currentPhotos = getConsultantPhotos();
+    const naziPhotoExists = !!currentPhotos['خانم دکتر نازی عباسیان'] || !!currentPhotos['consultant_nazi_abbasian'] || !!currentPhotos['nazi_abbasian'];
+    const radinPhotoExists = !!currentPhotos['آقای رادین اورومی'] || !!currentPhotos['consultant_radin_oroumi'] || !!currentPhotos['radin_oroumi'];
+
+    if (!naziPhotoExists || !radinPhotoExists) {
+      Promise.all([
+        !naziPhotoExists ? getConsultantPhotoFromFirestore('خانم دکتر نازی عباسیان') : Promise.resolve(null),
+        !radinPhotoExists ? getConsultantPhotoFromFirestore('آقای رادین اورومی') : Promise.resolve(null)
+      ]).then(([naziPhoto, radinPhoto]) => {
+        let updated = false;
+        if (naziPhoto && isCustomImageDataUrlOrUrl(naziPhoto)) {
+          saveConsultantPhoto('خانم دکتر نازی عباسیان', naziPhoto);
+          updated = true;
+        }
+        if (radinPhoto && isCustomImageDataUrlOrUrl(radinPhoto)) {
+          saveConsultantPhoto('آقای رادین اورومی', radinPhoto);
+          updated = true;
+        }
+        if (updated) {
+          setConsultantPhotos(getConsultantPhotos());
+          setConsultantsList(getAllConsultants());
+        }
+      }).catch(() => {});
+    }
+  }, [isAuthenticated]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 5000);
   };
@@ -588,24 +899,50 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     setVideoFile(file);
     const url = URL.createObjectURL(file);
     setVideoPreviewUrl(url);
+    if (reportFormat === 'text') {
+      setReportFormat('hybrid');
+    }
     showToast(`فایل ویدیو «${file.name}» تأیید شد (${(file.size / (1024 * 1024)).toFixed(1)} مگابایت)`);
   };
 
-  // Handle Video Removal
-  const handleRemoveVideo = async () => {
-    setVideoFile(null);
-    setVideoPreviewUrl(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  // Trigger Video Removal Modal
+  const handleRemoveVideo = () => {
+    setVideoRemovalModal({
+      isOpen: true,
+      reportId: editingReportId || undefined,
+      teamSlug: selectedTeamSlug,
+      reportTitle: reportTitle || 'گزارش فعلی',
+      fileName: videoFile?.name || (editingReportId ? 'ویدیوی متصل به گزارش' : undefined)
+    });
+  };
+
+  // Perform confirmed video removal
+  const performConfirmedVideoRemoval = async (options?: { keepInStorage?: boolean }) => {
+    const targetReportId = videoRemovalModal.reportId || editingReportId;
+    const targetTeamSlug = videoRemovalModal.teamSlug || selectedTeamSlug;
+    const isCurrentEditing = !videoRemovalModal.reportId || videoRemovalModal.reportId === editingReportId;
+
+    if (isCurrentEditing) {
+      setVideoFile(null);
+      setVideoPreviewUrl(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setKeepVideoAttachment(options?.keepInStorage || false);
+      setReportFormat('text');
     }
-    if (editingReportId) {
+
+    if (targetReportId) {
       try {
-        await deleteVideoFromCache(editingReportId);
+        await deleteVideoFromCache(targetReportId);
+        removeVideoFromReport(targetReportId, targetTeamSlug);
+        setAllReports(getAllReports());
+        setTeams(getAllTeams());
       } catch (err) {
         console.warn('Could not delete video cache:', err);
       }
     }
-    showToast('ویدیو با موفقیت از این گزارش حذف گردید.');
+
+    setVideoRemovalModal({ isOpen: false, reportTitle: '' });
+    showToast('ویدیو با موفقیت از این گزارش و حافظه حذف شد و گزارش به حالت متنی درآمد.');
   };
 
   // Handle Attachments Selection with Advanced Validation
@@ -629,7 +966,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           continue;
         }
 
-        const dataUrl = await readFileAsDataURL(file);
+        const dataUrl = URL.createObjectURL(file);
         const ext = file.name.split('.').pop()?.toLowerCase() || 'file';
         const attType = detectAttachmentType(file.name, file.type);
         
@@ -641,6 +978,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           sizeBytes: file.size,
           sizeFormatted: formatFileSize(file.size),
           dataUrl,
+          file,
           uploadDate: getSmartCurrentDate()
         };
         newAttachments.push(newAtt);
@@ -693,16 +1031,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
   // Calculate next sequential report number for a given team
   const getNextReportNumForTeam = (teamSlug: string) => {
-    const currentTeam = teams[teamSlug] || getAllTeams()[teamSlug];
-    const teamReports = currentTeam?.reports || [];
-    const nextNum = teamReports.length + 1;
-    return `گزارش ${toPersianDigits(nextNum)}`;
+    return getNextReportNumberForTeam(teamSlug);
   };
 
   const handleTeamChange = (newSlug: string) => {
     setSelectedTeamSlug(newSlug);
     if (!editingReportId) {
-      setReportNum(getNextReportNumForTeam(newSlug));
+      setReportNum(getNextReportNumberForTeam(newSlug));
       const targetTeam = teams[newSlug] || getAllTeams()[newSlug];
       if (targetTeam) {
         setTranscriptLines([
@@ -717,7 +1052,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const resetForm = () => {
     setEditingReportId(null);
     setSelectedTeamSlug('team-angels');
-    setReportNum(getNextReportNumForTeam('team-angels'));
+    setReportFormat('hybrid');
+    setReportNum(getNextReportNumberForTeam('team-angels'));
     setReportTitle('');
     setReportDate(getSmartCurrentDate());
     setReportSummary('');
@@ -739,10 +1075,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const handleEditReport = async (report: ActivityReport, teamSlug: string) => {
     setEditingReportId(report.id);
     setSelectedTeamSlug(teamSlug);
-    setReportNum(formatReportNumberDisplay(report.reportNum));
-    setReportTitle(report.title);
-    setReportDate(report.date);
-    setReportSummary(report.summary);
+    const hasVideo = Boolean((report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '') || false);
+    const initialFormat: ReportType = report.reportType || (hasVideo ? 'hybrid' : 'text');
+    setReportFormat(initialFormat);
+    setReportNum(report.reportNum ? formatReportNumberDisplay(report.reportNum) : getNextReportNumberForTeam(teamSlug));
+    setReportTitle(report.title || '');
+    setReportDate(report.date || getSmartCurrentDate());
+    setReportSummary(report.summary || '');
     setReportStatus(report.status || 'published');
     setKeyPointsText((report.keyPoints || []).join('\n'));
 
@@ -805,14 +1144,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     setVideoFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    const cached = await getVideoFromCache(report.id);
-    if (cached && cached.blob) {
-      const url = URL.createObjectURL(cached.blob);
-      setVideoPreviewUrl(url);
-    } else if (report.videoSrc && !report.videoSrc.startsWith('indexeddb:') && !report.videoSrc.startsWith('blob:') && report.videoSrc !== '#') {
-      setVideoPreviewUrl(report.videoSrc);
-    } else {
+    if (initialFormat === 'text') {
       setVideoPreviewUrl(null);
+    } else {
+      const cached = await getVideoFromCache(report.id);
+      if (cached && cached.blob) {
+        const url = URL.createObjectURL(cached.blob);
+        setVideoPreviewUrl(url);
+      } else if (report.videoSrc && !report.videoSrc.startsWith('indexeddb:') && !report.videoSrc.startsWith('blob:') && report.videoSrc !== '#') {
+        setVideoPreviewUrl(report.videoSrc);
+      } else {
+        setVideoPreviewUrl(null);
+      }
     }
 
     setActiveTab('create');
@@ -821,8 +1164,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   };
 
   // Submit Form (Save or Update Report)
-  const handleSubmitReport = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmitReport = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
 
     // 1. Advanced Full Report Submission Validation
     const validation = validateFullReportSubmission(reportTitle, videoFile, attachments);
@@ -832,66 +1177,104 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
 
     setIsSubmitting(true);
+    setSubmitErrorMessage(null);
+    setSubmitProgress(10);
+    setSubmitStageText('در حال بررسی و اعتبارسنجی اطلاعات گزارش...');
+    setSubmitProgressDetails(null);
+
     try {
       const reportId = editingReportId || `report-${Date.now()}`;
       const targetTeam = teams[selectedTeamSlug] || getAllTeams()[selectedTeamSlug];
 
-      // 1. Save video file to cache if uploaded, or remove if cleared
+      // 1. Save video file to permanent server storage and local IndexedDB cache
       let videoSrc: string | undefined = undefined;
-      if (videoFile) {
+
+      if (reportFormat === 'text' || (!videoFile && !videoPreviewUrl)) {
+        // Clear any existing video for text-only reports or when video is detached
+        videoSrc = undefined;
+        if (editingReportId) {
+          try {
+            await deleteVideoFromCache(editingReportId);
+            removeVideoFromReport(editingReportId, selectedTeamSlug);
+          } catch {}
+        }
+      } else if (videoFile) {
+        setSubmitStageText('در حال آماده‌سازی و بارگذاری فایل ویدیو...');
+        setSubmitProgress(15);
+        
+        // Cache video immediately in client IndexedDB for instant playback
         try {
-          const formData = new FormData();
-          formData.append('file', videoFile, videoFile.name);
-          const uploadRes = await fetch('/api/upload-file', {
-            method: 'POST',
-            body: formData,
-          });
-          if (!uploadRes.ok) throw new Error('Upload failed');
-          const uploadData = await uploadRes.json();
-          if (uploadData.success && uploadData.url) {
-             videoSrc = uploadData.url;
+          await saveVideoToCache(reportId, videoFile, videoFile.name);
+        } catch (cacheErr) {
+          console.warn('Local cache warning:', cacheErr);
+        }
+
+        const uploadResult = await uploadFileToServerStorage(videoFile, (p, info) => {
+          // Scale video progress between 15% and 80%
+          const scaledPercent = Math.min(80, Math.max(15, 15 + Math.round((p / 100) * 65)));
+          setSubmitProgress(scaledPercent);
+          if (info) {
+            const loadedMB = (info.loadedBytes / (1024 * 1024)).toFixed(1);
+            const totalMB = (info.totalBytes / (1024 * 1024)).toFixed(1);
+            setSubmitProgressDetails({
+              loadedFormatted: `${toPersianDigits(loadedMB)} MB`,
+              totalFormatted: `${toPersianDigits(totalMB)} MB`
+            });
+            setSubmitStageText(`در حال آپلود ویدیو (${toPersianDigits(loadedMB)} MB از ${toPersianDigits(totalMB)} MB - ${toPersianDigits(p)}٪)...`);
           } else {
-             throw new Error(uploadData.error || 'Upload failed');
+            setSubmitStageText(`در حال بارگذاری فایل ویدیو (${toPersianDigits(p)}٪)...`);
           }
-        } catch (vErr) {
-          console.warn('Video upload error, falling back to indexedDB:', vErr);
-          await saveVideoToCache(reportId, videoFile, videoFile.name).catch(() => {});
-          videoSrc = `indexeddb:${reportId}`;
-        }
-      } else if (videoPreviewUrl) {
-        if (videoPreviewUrl.startsWith('http://') || videoPreviewUrl.startsWith('https://')) {
+        });
+
+        videoSrc = uploadResult?.url || `indexeddb:${reportId}`;
+      } else if (editingReportId && videoPreviewUrl) {
+        const existingRep = targetTeam?.reports.find(r => r.id === editingReportId);
+        if (existingRep && existingRep.videoSrc && !existingRep.videoSrc.startsWith('blob:') && existingRep.videoSrc !== '#') {
+          videoSrc = existingRep.videoSrc;
+        } else if (!videoPreviewUrl.startsWith('blob:')) {
           videoSrc = videoPreviewUrl;
-        } else {
-          // Cached video in IndexedDB
-          videoSrc = `indexeddb:${reportId}`;
         }
+      } else if (videoPreviewUrl && !videoPreviewUrl.startsWith('blob:')) {
+        videoSrc = videoPreviewUrl;
       } else {
         videoSrc = undefined;
-        try {
-          await deleteVideoFromCache(reportId);
-        } catch (vErr) {
-          console.warn('Delete video cache warning:', vErr);
-        }
       }
 
-      // 2. Save attachments to IndexedDB
-      if (attachments && attachments.length > 0) {
-        for (const att of attachments) {
-          try {
-            await saveAttachmentRecord(reportId, att);
-          } catch (attErr) {
-            console.warn('Attachment cache warning:', attErr);
-          }
-        }
-      } else {
-        try {
-          await deleteAllAttachmentsForReport(reportId);
-        } catch (attErr) {
-          console.warn('Attachment delete warning:', attErr);
-        }
+      // 2. Save attachments to permanent storage and local IndexedDB in parallel
+      setSubmitStageText('در حال بارگذاری و ذخیره فایل‌های پیوست...');
+      setSubmitProgress(82);
+
+      let finalAttachments = [...attachments];
+      if (finalAttachments && finalAttachments.length > 0) {
+        const processed = await Promise.all(
+          finalAttachments.map(async (att) => {
+            if (att.file) {
+              try {
+                await saveAttachmentRecord(reportId, att, att.file);
+                const uploadResult = await uploadFileToServerStorage(att.file);
+                return {
+                  ...att,
+                  dataUrl: uploadResult.url,
+                  file: undefined
+                };
+              } catch (attErr) {
+                console.warn(`Attachment processing fallback for ${att.name}:`, attErr);
+                return {
+                  ...att,
+                  file: undefined
+                };
+              }
+            }
+            return att;
+          })
+        );
+        finalAttachments = processed;
       }
 
       // 3. Parse key points from textarea
+      setSubmitStageText('در حال قالب‌بندی متون، دیالوگ‌ها و محورهای کلیدی...');
+      setSubmitProgress(88);
+
       const parsedKeyPoints = keyPointsText
         .split('\n')
         .map((l) => l.trim())
@@ -908,7 +1291,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         .filter((l) => l.text.length > 0);
 
       // Clean and normalize report number to prevent duplicate 'گزارش'
-      const finalReportNum = formatReportNumberDisplay(reportNum) || getNextReportNumForTeam(selectedTeamSlug);
+      const trimmedNum = reportNum.trim();
+      const finalReportNum = trimmedNum 
+        ? formatReportNumberDisplay(trimmedNum) 
+        : getNextReportNumberForTeam(selectedTeamSlug);
       const finalReportDate = reportDate.trim() || getSmartCurrentDate();
 
       let isoToSave = new Date().toISOString();
@@ -932,21 +1318,53 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         datetimeIso: isoToSave,
         summary: reportSummary.trim() || 'گزارش رسمی فعالیت تیم در باشگاه جوانان محاش.',
         status: reportStatus,
+        reportType: reportFormat,
         videoSrc: videoSrc || undefined,
         posterSrc: targetTeam?.logo || undefined,
         keyPoints: parsedKeyPoints.length > 0 ? parsedKeyPoints : undefined,
         transcript: validTranscript,
-        attachments: attachments.length > 0 ? attachments : undefined
+        attachments: finalAttachments.length > 0 ? finalAttachments : undefined
       };
 
-      // 5. Save to store & trigger sync hook
-      await syncReportData(reportObject, selectedTeamSlug, (freshReports, freshTeams) => {
-        setAllReports([...freshReports]);
-        setTeams({...freshTeams});
+      // 5. Save to store & trigger sync hook with keepVideoAttachment
+      setSubmitStageText('در حال ذخیره نهایی در پایگاه داده و ثبت در سایت...');
+      setSubmitProgress(94);
+
+      await syncReportData(
+        reportObject, 
+        selectedTeamSlug, 
+        (freshReports, freshTeams) => {
+          setAllReports([...freshReports]);
+          setTeams({...freshTeams});
+        },
+        { keepVideoAttachment }
+      );
+
+      // Complete progress animation
+      setSubmitProgress(100);
+      setSubmitStageText('گزارش با موفقیت ذخیره و منتشر گردید.');
+
+      // Log action to MySQL database in real-time
+      logReportToMySQL({
+        actionType: editingReportId ? 'report_update' : 'report_create',
+        title: `${editingReportId ? 'ویرایش' : 'ثبت'} گزارش: ${reportTitle.trim()}`,
+        details: `تیم: ${targetTeam?.name || selectedTeamSlug} | شماره: ${finalReportNum} | فرمت: ${reportFormat}`,
+        userName: 'مدیر سامانه',
+        teamSlug: selectedTeamSlug,
+        reportId: reportObject.id,
+        metadata: {
+          reportNum: finalReportNum,
+          title: reportTitle.trim(),
+          format: reportFormat,
+          hasVideo: !!videoSrc,
+          attachmentsCount: finalAttachments.length
+        },
+        status: 'success'
       });
 
       // Clear local draft upon successful submission
       clearFormDraft();
+      setSavedDraftsList(getSavedDrafts());
 
       showToast(
         editingReportId
@@ -958,10 +1376,91 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       setActiveTab('reports');
     } catch (err: any) {
       console.error('Error saving report:', err);
-      showToast(`خطا در ذخیره‌سازی اطلاعات گزارش: ${err?.message || 'لطفاً مجدداً بررسی فرمایید.'}`, 'error');
+      const friendlyMsg = err?.message || 'خطا در ارتباط با سرور یا پردازش فایل‌ها رخ داده است.';
+      setSubmitErrorMessage(friendlyMsg);
+      showToast(`خطا در ذخیره‌سازی: اطلاعات فرم حفظ شده است. جهت تلاش دوباره دکمه «تلاش مجدد» را کلیک کنید.`, 'error');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Explicit Save as Draft Action
+  const handleSaveDraftAction = async () => {
+    if (!reportTitle.trim() && !reportSummary.trim()) {
+      showToast('حداقل عنوان یا چکیده گزارش را برای ذخیره پیش‌نویس وارد کنید.', 'error');
+      return;
+    }
+
+    try {
+      const draftId = `draft-${Date.now()}`;
+      const parsedKeyPoints = keyPointsText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      const draft: ReportDraft = {
+        id: draftId,
+        reportId: editingReportId || undefined,
+        teamSlug: selectedTeamSlug,
+        reportFormat,
+        title: reportTitle.trim() || 'پیش‌نویس بدون عنوان',
+        date: reportDate.trim() || getSmartCurrentDate(),
+        reportNum: reportNum.trim() || getNextReportNumberForTeam(selectedTeamSlug),
+        summary: reportSummary.trim(),
+        keyPoints: parsedKeyPoints,
+        videoSrc: videoPreviewUrl || undefined,
+        transcript: transcriptLines,
+        attachments,
+        keepVideoAttachment,
+        status: 'draft',
+        updatedAt: Date.now()
+      };
+
+      saveDraft(draft);
+      setSavedDraftsList(getSavedDrafts());
+      showToast('پیش‌نویس گزارش با موفقیت در بخش پیش‌نویس‌ها ذخیره شد.', 'success');
+    } catch (err: any) {
+      showToast(`خطا در ذخیره پیش‌نویس: ${err?.message}`, 'error');
+    }
+  };
+
+  // Load draft into active editor
+  const handleLoadDraft = (draft: ReportDraft) => {
+    if (draft.reportId) {
+      setEditingReportId(draft.reportId);
+    } else {
+      setEditingReportId(null);
+    }
+    setSelectedTeamSlug(draft.teamSlug || 'team-angels');
+    setReportFormat(draft.reportFormat || 'hybrid');
+    setReportNum(draft.reportNum || getNextReportNumberForTeam(draft.teamSlug || 'team-angels'));
+    setReportTitle(draft.title || '');
+    setReportDate(draft.date || getSmartCurrentDate());
+    setReportSummary(draft.summary || '');
+    setReportStatus('draft');
+    setKeyPointsText((draft.keyPoints || []).join('\n'));
+    if (draft.videoSrc) {
+      setVideoPreviewUrl(draft.videoSrc);
+    }
+    if (draft.attachments) {
+      setAttachments(draft.attachments);
+    }
+    if (draft.transcript && draft.transcript.length > 0) {
+      setTranscriptLines(draft.transcript);
+    }
+    if (draft.keepVideoAttachment !== undefined) {
+      setKeepVideoAttachment(draft.keepVideoAttachment);
+    }
+    setActiveTab('create');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast(`پیش‌نویس «${draft.title}» در فرم بارگذاری شد.`);
+  };
+
+  // Delete draft action
+  const handleDeleteDraftAction = (draftId: string) => {
+    deleteDraft(draftId);
+    setSavedDraftsList(getSavedDrafts());
+    showToast('پیش‌نویس با موفقیت حذف گردید.');
   };
 
   // Delete Report Handlers
@@ -978,6 +1477,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
       // 1. Delete from store
       deleteReport(targetId, targetSlug);
+
+      // Log deletion to MySQL
+      logReportToMySQL({
+        actionType: 'report_delete',
+        title: `حذف گزارش: ${reportToDelete.title}`,
+        details: `تیم: ${reportToDelete.teamName || targetSlug || 'نامشخص'} | شناسه: ${targetId}`,
+        userName: 'مدیر سامانه',
+        teamSlug: targetSlug,
+        reportId: targetId,
+        status: 'warning'
+      });
 
       // 2. Clean binary caches from IndexedDB
       await Promise.allSettled([
@@ -1133,43 +1643,116 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Logo & Circular Badge Actions
   // ----------------------------------------------------
 
-  const allAvailableBadges: CircularBadgePreset[] = [
+  const uploadAndProcessImageFile = async (file: File, maxWidth = 480, quality = 0.85): Promise<string> => {
+    // Ultra-fast client-side compression into a lightweight base64 Data URL with hardware acceleration
+    try {
+      const compressed = await compressImageToDataUrl(file, maxWidth, quality);
+      if (compressed) return compressed;
+    } catch (err) {
+      console.warn('Fast compression failed, trying fallback:', err);
+    }
+
+    // Fallback to FileReader
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string) || '');
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const allAvailableBadges: CircularBadgePreset[] = useMemo(() => [
     ...CIRCULAR_BADGE_PRESETS,
     ...customBadgesList
-  ];
+  ], [customBadgesList]);
 
-  const filteredBadges = allAvailableBadges.filter((b) => {
+  const filteredBadges = useMemo(() => allAvailableBadges.filter((b) => {
     if (activeBadgeCategoryFilter === 'all') return true;
     return b.category === activeBadgeCategoryFilter;
-  });
+  }), [allAvailableBadges, activeBadgeCategoryFilter]);
 
-  const handleApplyLogoToMahash = (logoData: string, title?: string) => {
+  const handleApplyLogoToMahash = async (logoData: string, title?: string) => {
+    const previousLogo = mahashLogoSrc;
+    setMahashSyncStatus('syncing');
     setMahashLogo(logoData);
     setMahashLogoSrc(logoData);
-    showToast(`لوگوی اصلی مؤسسه محاش به «${title || 'طرح انتخابی'}» تغییر یافت.`);
+    
+    // WordPress API sync with explicit try-catch state rollback
+    try {
+      await WordPressService.saveLogo('mahash_official_logo', logoData, 'logo', title || 'لوگوی رسمی مؤسسه محاش');
+      await saveMahashLogoToFirestore(logoData);
+      setMahashSyncStatus('synced');
+      setMahashLastSyncedAt(new Date());
+      showToast(`لوگوی اصلی مؤسسه محاش به «${title || 'طرح انتخابی'}» تغییر یافت و در دیتابیس وردپرس و فایربیس ثبت شد.`);
+      setTimeout(() => setMahashSyncStatus('idle'), 3500);
+    } catch (err) {
+      // Explicit state rollback to prevent 'Saving...' loop
+      setMahashLogoSrc(previousLogo);
+      setMahashLogo(previousLogo);
+      setMahashSyncStatus('error');
+      showToast('خطا در ذخیره‌سازی لوگوی محاش در وردپرس. حالت قبلی با موفقیت بازیابی شد.', 'error');
+    }
   };
 
-  const handleResetMahashLogoAction = () => {
+  const handleResetMahashLogoAction = async () => {
+    const previousLogo = mahashLogoSrc;
+    setMahashSyncStatus('syncing');
     resetMahashLogo();
     setMahashLogoSrc(MAHESH_LOGO_SVG);
-    showToast('لوگوی مؤسسه محاش به نشان وکتور استاندارد بازنشانی شد.');
+    try {
+      await WordPressService.saveLogo('mahash_official_logo', MAHESH_LOGO_SVG, 'logo', 'لوگوی رسمی مؤسسه محاش');
+      await saveMahashLogoToFirestore('');
+      setMahashSyncStatus('synced');
+      setMahashLastSyncedAt(new Date());
+      showToast('لوگوی مؤسسه محاش به نشان وکتور استاندارد بازنشانی شد.');
+      setTimeout(() => setMahashSyncStatus('idle'), 2500);
+    } catch (err) {
+      setMahashLogoSrc(previousLogo);
+      setMahashSyncStatus('error');
+      showToast('خطا در بازنشانی لوگو. حالت قبلی بازیابی شد.', 'error');
+    }
   };
 
-  const handleApplyBadgeToYouthClub = (badgeData: string, title?: string) => {
+  const handleApplyBadgeToYouthClub = async (badgeData: string, title?: string) => {
+    const previousBadge = youthClubBadgeSrc;
+    setYouthClubSyncStatus('syncing');
     setYouthClubBadge(badgeData);
     setYouthClubBadgeSrc(badgeData);
-    showToast(`نشان اختصاصی باشگاه جوانان به «${title || 'طرح انتخابی'}» تغییر یافت.`);
+
+    try {
+      await WordPressService.saveLogo('mahash_youth_club_emblem', badgeData, 'badge', title || 'نشان رسمی باشگاه جوانان');
+      await saveYouthClubEmblemToFirestore(badgeData);
+      setYouthClubSyncStatus('synced');
+      setYouthClubLastSyncedAt(new Date());
+      showToast(`نشان اختصاصی باشگاه جوانان به «${title || 'طرح انتخابی'}» تغییر یافت و همگام شد.`);
+      setTimeout(() => setYouthClubSyncStatus('idle'), 3500);
+    } catch (err) {
+      // Explicit state rollback
+      setYouthClubBadgeSrc(previousBadge);
+      setYouthClubBadge(previousBadge);
+      setYouthClubSyncStatus('error');
+      showToast('خطا در ذخیره‌سازی نشان باشگاه جوانان در وردپرس. حالت قبلی بازیابی شد.', 'error');
+    }
   };
 
-  const handleResetYouthClubBadgeAction = () => {
+  const handleResetYouthClubBadgeAction = async () => {
+    const previousBadge = youthClubBadgeSrc;
+    setYouthClubSyncStatus('syncing');
     resetYouthClubBadge();
     setYouthClubBadgeSrc(MAHESH_CLUB_EMBLEM_SVG);
-    showToast('نشان باشگاه جوانان به طرح اصلی بازنشانی گردید.');
+    try {
+      await WordPressService.saveLogo('mahash_youth_club_emblem', MAHESH_CLUB_EMBLEM_SVG, 'badge', 'نشان رسمی باشگاه جوانان');
+      await saveYouthClubEmblemToFirestore('');
+      setYouthClubSyncStatus('synced');
+      setYouthClubLastSyncedAt(new Date());
+      showToast('نشان باشگاه جوانان به طرح اصلی بازنشانی گردید.');
+      setTimeout(() => setYouthClubSyncStatus('idle'), 2500);
+    } catch (err) {
+      setYouthClubBadgeSrc(previousBadge);
+      setYouthClubSyncStatus('error');
+      showToast('خطا در بازنشانی نشان باشگاه. حالت قبلی بازیابی شد.', 'error');
+    }
   };
-
-  const [isSyncingServer, setIsSyncingServer] = useState(false);
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [syncMessage, setSyncMessage] = useState('');
 
   const handleSyncToServer = async () => {
     setIsSyncingServer(true);
@@ -1181,7 +1764,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         setSyncMessage(message);
       });
       if (ok) {
-        showToast('تمامی لوگوها، گزارش‌ها، امتیازات و تنظیمات با موفقیت روی سرور مرکزی منتشر و ذخیره شد.');
+        const msg = 'تمامی لوگوها، گزارش‌ها، امتیازات و تنظیمات با موفقیت روی سرور مرکزی منتشر و ذخیره شد.';
+        showToast(msg);
+        maintenanceSuccess('همگام‌سازی و انتشار موفق سرور', msg);
       } else {
         showToast('خطا در انتشار روی سرور مرکزی. لطفاً اتصال اینترنت را بررسی کنید.', 'error');
       }
@@ -1201,7 +1786,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     try {
       const ok = await fetchAndMergeServerStore();
       if (ok) {
-        showToast('اطلاعات و لوگوها با موفقیت از سرور مرکزی دریافت و اعمال گردید.');
+        const msg = 'اطلاعات و لوگوها با موفقیت از سرور مرکزی دریافت و اعمال گردید.';
+        showToast(msg);
+        maintenanceSuccess('دریافت و هماهنگ‌سازی موفق اطلاعات', msg);
       } else {
         showToast('دریافت اطلاعات از سرور انجام نشد.', 'error');
       }
@@ -1250,92 +1837,139 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const updated = [newBadgeItem, ...customBadgesList];
     setCustomBadgesList(updated);
     safeSetLocalStorage('mahash_custom_badges_v1', JSON.stringify(updated));
+    triggerGlobalCacheBust();
 
     setNewBadgeTitle('');
     setNewBadgeDescription('');
     setNewBadgeFileBase64(null);
-    showToast(`نشان جدید «${newBadgeItem.name}» با موفقیت به کتابخانه افزوده شد.`);
+    showToast(`نشان جدید «${newBadgeItem.name}» با موفقیت به کتابخانه افزوده و پایدار شد.`);
   };
 
   const handleDeleteCustomBadge = (badgeId: string, badgeTitle: string) => {
     const updated = customBadgesList.filter((b) => b.id !== badgeId);
     setCustomBadgesList(updated);
     safeSetLocalStorage('mahash_custom_badges_v1', JSON.stringify(updated));
+    triggerGlobalCacheBust();
     showToast(`نشان «${badgeTitle}» با موفقیت از کتابخانه حذف شد.`);
   };
 
-  // Filtered & Sorted reports list for table
-  const filteredReports = allReports
-    .filter((r) => {
-      // 1. Team filter
-      const matchesTeam = filterTeam === 'all' || r.teamSlug === filterTeam;
+  // Filtered & Sorted reports list for table (memoized to prevent lag during form typing)
+  const filteredReports = useMemo(() => {
+    return allReports
+      .filter((r) => {
+        // 1. Team filter
+        const matchesTeam = filterTeam === 'all' || r.teamSlug === filterTeam;
 
-      // 2. Status filter
-      const rStatus = r.status || 'published';
-      const matchesStatus =
-        filterStatus === 'all' ||
-        (filterStatus === 'published' && rStatus === 'published') ||
-        (filterStatus === 'draft' && rStatus === 'draft');
+        // 2. Status filter
+        const rStatus = r.status || 'published';
+        const matchesStatus =
+          filterStatus === 'all' ||
+          (filterStatus === 'published' && rStatus === 'published') ||
+          (filterStatus === 'draft' && rStatus === 'draft');
 
-      // 3. Date period filter
-      let matchesDate = true;
-      if (filterDatePeriod === '1405') {
-        matchesDate = r.date.includes('۱۴۰۵') || r.date.includes('1405');
-      } else if (filterDatePeriod === '1404') {
-        matchesDate = r.date.includes('۱۴۰۴') || r.date.includes('1404');
-      } else if (filterDatePeriod === 'custom' && customDateQuery.trim() !== '') {
-        const q = customDateQuery.trim();
-        matchesDate = r.date.includes(q) || (r.datetimeIso && r.datetimeIso.includes(q));
-      }
+        // 3. Media Type filter (video vs text-only)
+        const hasVideo = Boolean(r.videoSrc && r.videoSrc !== '#' && r.videoSrc.trim() !== '');
+        const matchesMediaType =
+          filterMediaType === 'all' ||
+          (filterMediaType === 'video' && hasVideo) ||
+          (filterMediaType === 'text-only' && !hasVideo);
 
-      // 4. Search query
-      const matchesSearch =
-        searchQuery.trim() === '' ||
-        r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.reportNum.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (r.teamName && r.teamName.toLowerCase().includes(searchQuery.toLowerCase()));
+        // 4. Date period filter
+        let matchesDate = true;
+        if (filterDatePeriod === '1405') {
+          matchesDate = r.date.includes('۱۴۰۵') || r.date.includes('1405');
+        } else if (filterDatePeriod === '1404') {
+          matchesDate = r.date.includes('۱۴۰۴') || r.date.includes('1404');
+        } else if (filterDatePeriod === 'custom' && customDateQuery.trim() !== '') {
+          const q = customDateQuery.trim();
+          matchesDate = r.date.includes(q) || (r.datetimeIso && r.datetimeIso.includes(q));
+        }
 
-      return matchesTeam && matchesStatus && matchesDate && matchesSearch;
-    })
-    .sort((a, b) => {
-      const viewsA = reportViews[a.id] ?? 0;
-      const viewsB = reportViews[b.id] ?? 0;
-      if (reportsSortBy === 'views-desc') return viewsB - viewsA;
-      if (reportsSortBy === 'views-asc') return viewsA - viewsB;
-      if (reportsSortBy === 'title') return a.title.localeCompare(b.title, 'fa');
-      return b.date.localeCompare(a.date);
-    });
+        // 5. Search query
+        const matchesSearch =
+          searchQuery.trim() === '' ||
+          r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          r.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          r.reportNum.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (r.teamName && r.teamName.toLowerCase().includes(searchQuery.toLowerCase()));
 
-  // Calculate high-level video popularity metrics
-  const totalViewsCount: number = (Object.values(reportViews) as number[]).reduce((acc: number, v: number) => acc + (Number(v) || 0), 0);
-  const reportsWithViews = allReports.map((r) => ({
-    ...r,
-    views: Number(reportViews[r.id]) || 0
-  }));
-  const rankedReports = [...reportsWithViews].sort((a, b) => b.views - a.views);
+        return matchesTeam && matchesStatus && matchesMediaType && matchesDate && matchesSearch;
+      })
+      .sort((a, b) => {
+        const viewsA = reportViews[a.id] ?? 0;
+        const viewsB = reportViews[b.id] ?? 0;
+        if (reportsSortBy === 'views-desc') return viewsB - viewsA;
+        if (reportsSortBy === 'views-asc') return viewsA - viewsB;
+        if (reportsSortBy === 'title') return a.title.localeCompare(b.title, 'fa');
+        if (reportsSortBy === 'num-desc') {
+          const seqA = extractReportSequenceNumber(a);
+          const seqB = extractReportSequenceNumber(b);
+          if (seqA !== seqB) return seqB - seqA;
+          return parseReportTimestamp(b) - parseReportTimestamp(a);
+        }
+        if (reportsSortBy === 'num-asc') {
+          const seqA = extractReportSequenceNumber(a);
+          const seqB = extractReportSequenceNumber(b);
+          if (seqA !== seqB) return seqA - seqB;
+          return parseReportTimestamp(a) - parseReportTimestamp(b);
+        }
+        if (reportsSortBy === 'date-asc') {
+          const timeDiff = parseReportTimestamp(a) - parseReportTimestamp(b);
+          if (timeDiff !== 0) return timeDiff;
+          return extractReportSequenceNumber(a) - extractReportSequenceNumber(b);
+        }
+        // Default: date-desc
+        const timeDiff = parseReportTimestamp(b) - parseReportTimestamp(a);
+        if (timeDiff !== 0) return timeDiff;
+        return extractReportSequenceNumber(b) - extractReportSequenceNumber(a);
+      });
+  }, [allReports, filterTeam, filterStatus, filterMediaType, filterDatePeriod, customDateQuery, searchQuery, reportsSortBy, reportViews]);
+
+  // Calculate high-level video popularity metrics (memoized)
+  const totalViewsCount: number = useMemo(() => {
+    return (Object.values(reportViews) as number[]).reduce((acc: number, v: number) => acc + (Number(v) || 0), 0);
+  }, [reportViews]);
+
+  const reportsWithViews = useMemo(() => {
+    return allReports.map((r) => ({
+      ...r,
+      views: Number(reportViews[r.id]) || 0
+    }));
+  }, [allReports, reportViews]);
+
+  const rankedReports = useMemo(() => {
+    return [...reportsWithViews].sort((a, b) => b.views - a.views);
+  }, [reportsWithViews]);
+
   const topReport = rankedReports.length > 0 ? rankedReports[0] : null;
-  const maxViews = rankedReports.length > 0 ? Math.max(...rankedReports.map((r) => r.views), 1) : 1;
-  const avgViewsPerReport: number = allReports.length > 0 ? Math.round(totalViewsCount / allReports.length) : 0;
+  const maxViews = useMemo(() => {
+    return rankedReports.length > 0 ? Math.max(...rankedReports.map((r) => r.views), 1) : 1;
+  }, [rankedReports]);
 
-  // Team views statistics
-  const teamViewsStats = (Object.entries(teams) as [string, TeamData][])
-    .map(([slug, team]) => {
-      const teamReps = team.reports || [];
-      const teamTotalViews = teamReps.reduce((sum, r) => sum + (Number(reportViews[r.id]) || 0), 0);
-      const percentage = totalViewsCount > 0 ? Math.round((teamTotalViews / totalViewsCount) * 100) : 0;
-      return {
-        slug,
-        name: team.name,
-        icon: team.icon,
-        manager: team.manager,
-        logo: team.logo,
-        reportsCount: teamReps.length,
-        totalViews: teamTotalViews,
-        percentage
-      };
-    })
-    .sort((a, b) => b.totalViews - a.totalViews);
+  const avgViewsPerReport: number = useMemo(() => {
+    return allReports.length > 0 ? Math.round(totalViewsCount / allReports.length) : 0;
+  }, [allReports.length, totalViewsCount]);
+
+  // Team views statistics (memoized)
+  const teamViewsStats = useMemo(() => {
+    return (Object.entries(teams) as [string, TeamData][])
+      .map(([slug, team]) => {
+        const teamReps = team.reports || [];
+        const teamTotalViews = teamReps.reduce((sum, r) => sum + (Number(reportViews[r.id]) || 0), 0);
+        const percentage = totalViewsCount > 0 ? Math.round((teamTotalViews / totalViewsCount) * 100) : 0;
+        return {
+          slug,
+          name: team.name,
+          icon: team.icon,
+          manager: team.manager,
+          logo: team.logo,
+          reportsCount: teamReps.length,
+          totalViews: teamTotalViews,
+          percentage
+        };
+      })
+      .sort((a, b) => b.totalViews - a.totalViews);
+  }, [teams, reportViews, totalViewsCount]);
 
   const topTeam = teamViewsStats.length > 0 ? teamViewsStats[0] : null;
 
@@ -1604,10 +2238,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           className={`fixed bottom-5 right-5 z-[9999] p-4 rounded-2xl shadow-2xl border flex items-center gap-3 text-sm font-bold animate-bounce transition-all ${
             notification.type === 'success'
               ? 'bg-emerald-600 text-white border-emerald-500'
+              : notification.type === 'info'
+              ? 'bg-blue-600 text-white border-blue-500'
               : 'bg-rose-600 text-white border-rose-500'
           }`}
         >
-          {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          {notification.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : notification.type === 'info' ? (
+            <Sparkles className="w-5 h-5" />
+          ) : (
+            <AlertCircle className="w-5 h-5" />
+          )}
           <span>{notification.message}</span>
         </div>
       )}
@@ -1635,6 +2277,107 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* MySQL Health Indicator Badge */}
+            <div className="flex items-center gap-2 bg-black/30 px-3.5 py-2 rounded-xl border border-white/10 text-xs">
+              <span className={`w-2.5 h-2.5 rounded-full ${mysqlHealthStatus?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+              <span className="text-white font-medium">
+                {mysqlHealthStatus?.connected ? `MySQL متصل (${mysqlHealthStatus.database || 'mahash_db'})` : 'MySQL قطع (پشتیبان محلی)'}
+              </span>
+            </div>
+
+            {/* Real-time System Notification Badge (Task 4) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowNotificationPopup(!showNotificationPopup)}
+                className="px-3.5 py-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-indigo-400/30 cursor-pointer relative"
+                title="اعلان‌های زنده سامانه و درخواست‌های مشاوره"
+              >
+                <Bell className="w-3.5 h-3.5 text-indigo-300" />
+                <span>اعلان‌ها</span>
+                {unreadConsultationCount > 0 && (
+                  <span className="flex items-center justify-center px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-mono animate-pulse">
+                    {toPersianDigits(unreadConsultationCount)}
+                  </span>
+                )}
+              </button>
+
+              {/* Dropdown notification popup */}
+              {showNotificationPopup && (
+                <div className="absolute left-0 mt-2 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 z-50 text-slate-900 dark:text-white space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-1.5">
+                      <Bell className="w-4 h-4 text-indigo-500" />
+                      <span className="font-bold text-xs">درخواست‌های مشاوره جدید</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {toPersianDigits(unreadConsultationCount)} مورد
+                    </span>
+                  </div>
+
+                  {highPriorityConsultations.length === 0 ? (
+                    <div className="text-center py-4 text-xs text-slate-400">
+                      هیچ درخواست جدیدی در انتظار نیست.
+                    </div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto space-y-2 text-xs">
+                      {highPriorityConsultations.slice(0, 5).map((c, idx) => (
+                        <div
+                          key={c.id || idx}
+                          onClick={() => {
+                            setActiveTab('mysql_logs');
+                            setShowNotificationPopup(false);
+                          }}
+                          className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-slate-100 dark:border-slate-800 transition cursor-pointer space-y-1"
+                        >
+                          <div className="flex items-center justify-between font-bold text-[11px]">
+                            <span className="text-indigo-600 dark:text-indigo-400">
+                              {c.user_name || 'کاربر متقاضی'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {new Date(c.created_at || (c as any).timestamp || 0).toLocaleTimeString('fa-IR')}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                            {c.details || 'درخواست مشاوره ثبت شده در MySQL'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center text-xs">
+                    <button
+                      onClick={() => {
+                        setActiveTab('mysql_logs');
+                        setShowNotificationPopup(false);
+                      }}
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
+                    >
+                      مشاهده همه لاگ‌ها
+                    </button>
+                    <button
+                      onClick={() => setShowNotificationPopup(false)}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      بستن
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Archive & Clear Logs Button (Task 3) */}
+            <button
+              type="button"
+              onClick={() => setIsArchiveModalOpen(true)}
+              className="px-3.5 py-2 bg-teal-500/20 hover:bg-teal-500/30 text-teal-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-teal-400/30 cursor-pointer"
+              title="بایگانی ایمن و پاک‌سازی لاگ‌های قدیمی دیتابیس MySQL همراه با دانلود فایل پشتیبان"
+            >
+              <Archive className="w-3.5 h-3.5 text-teal-300" />
+              <span>📦 بایگانی لاگ‌ها</span>
+            </button>
+
             <div className="relative">
               <button
                 type="button"
@@ -1694,7 +2437,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         </div>
 
         {/* Stats KPIs row */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-white/10 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 pt-3 border-t border-white/10 text-xs">
           <div className="bg-black/20 p-3 rounded-2xl border border-white/10">
             <span className="text-blue-200 block text-[11px]">مجموع گزارش‌ها</span>
             <span className="text-xl font-black text-white">{allReports.length.toLocaleString('fa-IR')}</span>
@@ -1719,6 +2462,151 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             <span className="text-xl font-black text-white">
               {(storageStats.totalSizeBytes / (1024 * 1024)).toFixed(1)} MB
             </span>
+          </div>
+          <div
+            onClick={() => setActiveTab('mysql')}
+            className="bg-emerald-900/30 hover:bg-emerald-900/50 p-3 rounded-2xl border border-emerald-400/30 cursor-pointer transition flex flex-col justify-between"
+            title="کلیک برای مشاهده داشبورد و مدیریت پشتیبان‌گیری‌های MySQL"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-emerald-300 block text-[11px] font-bold">پشتیبان‌گیری MySQL</span>
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="mt-1">
+              <span className="text-lg font-black font-mono text-white">
+                {backupSummary.totalBackups.toLocaleString('fa-IR')} <span className="text-[10px] font-normal text-emerald-200">نسخه</span>
+              </span>
+              <span className="text-[10px] text-emerald-300/90 block truncate mt-0.5" title={backupSummary.lastSuccessDate}>
+                آخرین: {backupSummary.lastSuccessDate}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Real-time High Priority Consultation Alert Banner (Task 4) */}
+      {unreadConsultationCount > 0 && !hasDismissedAlertBanner && (
+        <div className="bg-gradient-to-r from-amber-500/20 via-rose-500/15 to-indigo-500/20 border border-amber-400/50 rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-amber-950/10 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/25 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
+              <BellRing className="w-5 h-5 animate-bounce text-amber-400" />
+            </div>
+            <div>
+              <div className="text-xs font-black text-amber-900 dark:text-amber-200 flex items-center gap-2 flex-wrap">
+                <span>درخواست مشاوره جدید با اولویت بالا دریافت شد</span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-mono">
+                  {toPersianDigits(unreadConsultationCount)} مورد منتظر اقدام
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5">
+                {highPriorityConsultations[0]?.details || 'درخواست مشاوره تخصصی در پایگاه داده MySQL ثبت شده است.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <button
+              onClick={() => {
+                setActiveTab('mysql_logs');
+                setHasDismissedAlertBanner(true);
+              }}
+              className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-md"
+            >
+              <span>مشاهده و بررسی در لاگ‌ها</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setHasDismissedAlertBanner(true)}
+              className="px-2.5 py-2 text-slate-400 hover:text-slate-600 dark:hover:text-white text-xs cursor-pointer rounded-xl"
+              title="بستن موقت اعلان"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Stats Summary Card for Today's Activity (Task 5) */}
+      <div className="bg-gradient-to-br from-slate-900 via-[#0d1b2a] to-slate-900 text-white p-4 sm:p-5 rounded-3xl border border-blue-900/60 shadow-xl space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-white/10 text-xs">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <h3 className="font-black text-sm text-amber-300">
+              خلاصه وضعیت و آمار سریع امروز (Quick Stats Summary - MySQL Live Activity)
+            </h3>
+            <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+              (آخرین بروزرسانی: {todayLogsStats.lastUpdated})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => refreshQuickStatsAndAlerts(true)}
+              disabled={isRefreshingQuickStats}
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingQuickStats ? 'animate-spin' : ''}`} />
+              <span>{isRefreshingQuickStats ? 'در حال بروزرسانی...' : 'بروزرسانی آمار'}</span>
+            </button>
+
+            <button
+              onClick={() => setIsArchiveModalOpen(true)}
+              className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>بایگانی و پاک‌سازی لاگ‌ها</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="bg-black/30 p-3 rounded-2xl border border-white/10">
+            <span className="text-slate-400 text-[11px] block">کل عملیات ثبت‌شده امروز</span>
+            <div className="text-xl font-black text-white font-mono mt-0.5">
+              {toPersianDigits(todayLogsStats.total)}
+            </div>
+            <span className="text-[10px] text-slate-400">تراکنش در پایگاه داده</span>
+          </div>
+
+          <div className="bg-emerald-950/40 p-3 rounded-2xl border border-emerald-500/30">
+            <div className="flex items-center justify-between text-emerald-300 text-[11px] font-bold">
+              <span>تراکنش‌های موفق</span>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </div>
+            <div className="text-xl font-black text-emerald-300 font-mono mt-0.5">
+              {toPersianDigits(todayLogsStats.success)}
+            </div>
+            <span className="text-[10px] text-emerald-400/80">
+              نرخ پایداری: {toPersianDigits(todayLogsStats.rate)}٪
+            </span>
+          </div>
+
+          <div className={`p-3 rounded-2xl border ${
+            todayLogsStats.failed > 0
+              ? 'bg-rose-950/50 border-rose-500/40 text-rose-300 ring-2 ring-rose-500/20'
+              : 'bg-black/30 border-white/10 text-slate-400'
+          }`}>
+            <div className="flex items-center justify-between text-[11px] font-bold">
+              <span>خطاها و هشدارهای امروز</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+            </div>
+            <div className={`text-xl font-black font-mono mt-0.5 ${todayLogsStats.failed > 0 ? 'text-rose-300' : 'text-slate-300'}`}>
+              {toPersianDigits(todayLogsStats.failed)}
+            </div>
+            <span className="text-[10px] text-rose-400/80">
+              {todayLogsStats.failed > 0 ? 'نیاز به بازبینی لاگ‌ها' : 'عملکرد بدون خطا'}
+            </span>
+          </div>
+
+          <div className="bg-indigo-950/40 p-3 rounded-2xl border border-indigo-500/30">
+            <div className="flex items-center justify-between text-indigo-300 text-[11px] font-bold">
+              <span>مشاوره‌های ثبت‌شده</span>
+              <Bell className="w-3.5 h-3.5" />
+            </div>
+            <div className="text-xl font-black text-indigo-300 font-mono mt-0.5">
+              {toPersianDigits(unreadConsultationCount)}
+            </div>
+            <span className="text-[10px] text-indigo-400/80">درخواست‌های اولویت‌دار</span>
           </div>
         </div>
       </div>
@@ -1747,6 +2635,53 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         >
           <Film className="w-4 h-4" />
           <span>لیست گزارش‌های منتشرشده ({allReports.length})</span>
+        </button>
+
+        <button
+          id="admin-tab-drafts"
+          onClick={() => {
+            setSavedDraftsList(getSavedDrafts());
+            setActiveTab('drafts');
+          }}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'drafts'
+              ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4 text-amber-400" />
+          <span>پیش‌نویس‌ها</span>
+          {savedDraftsList.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/30">
+              {toPersianDigits(savedDraftsList.length)}
+            </span>
+          )}
+        </button>
+
+        <button
+          id="admin-tab-repair"
+          onClick={() => setActiveTab('repair')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'repair'
+              ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Wrench className="w-4 h-4 text-indigo-400" />
+          <span>🔧 تعمیر رسانه‌ها و آزادسازی حافظه</span>
+        </button>
+
+        <button
+          id="admin-tab-gallery"
+          onClick={() => setActiveTab('gallery')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'gallery'
+              ? 'bg-cyan-700 text-white shadow-sm ring-2 ring-cyan-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Film className="w-4 h-4 text-cyan-400" />
+          <span>🎬 نگارخانه ویدیوها</span>
         </button>
 
         <button
@@ -1798,6 +2733,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         </button>
 
         <button
+          onClick={() => setActiveTab('media')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'media'
+              ? 'bg-gradient-to-l from-indigo-800 to-blue-700 text-white shadow-sm ring-2 ring-cyan-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <ImageIcon className="w-4 h-4 text-cyan-400" />
+          <span>🖼️ مدیریت تصاویر و مدیا (WebP & MySQL)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('scores')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'scores'
@@ -1846,6 +2793,42 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         </button>
 
         <button
+          onClick={() => setActiveTab('wordpress')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'wordpress'
+              ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Database className="w-4 h-4 text-blue-400" />
+          <span>وردپرس و دیتابیس MySQL</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('mysql')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'mysql'
+              ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Database className="w-4 h-4 text-emerald-400" />
+          <span>داشبورد و CRUD دیتابیس MySQL</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('mysql_logs')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'mysql_logs'
+              ? 'bg-teal-700 text-white shadow-sm ring-2 ring-teal-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Activity className="w-4 h-4 text-teal-400" />
+          <span>📡 مانیتورینگ زنده رویدادهای MySQL</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'settings'
@@ -1857,6 +2840,139 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           <span>تنظیمات و امنیت</span>
         </button>
       </div>
+
+      {/* Quick Edit Report Number & Title Modal */}
+      {/* ==================================================== */}
+      {editingNumReport && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-black text-slate-900 dark:text-white text-sm">
+                  ویرایش سریع شماره و عنوان گزارش
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingNumReport(null)}
+                className="text-slate-400 hover:text-slate-600 text-lg leading-none cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                تیم: <span className="font-bold text-slate-800 dark:text-slate-200">{teams[editingNumReport.teamSlug]?.name || editingNumReport.teamSlug}</span>
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    شماره یا نوع گزارش
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = getNextReportNumberForTeam(editingNumReport.teamSlug);
+                      setCustomNumInput(next);
+                    }}
+                    className="text-[11px] text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                  >
+                    🔄 شماره بعدی خودکار
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={customNumInput}
+                  onChange={(e) => setCustomNumInput(e.target.value)}
+                  placeholder="مثلاً: گزارش ۱، گزارش ۲ یا پیام ویدئویی"
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white"
+                />
+
+                {/* Quick Number Selector Chips */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {['گزارش ۱', 'گزارش ۲', 'گزارش ۳', 'گزارش ۴', 'گزارش ۵', 'گزارش ۶'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setCustomNumInput(preset)}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        customNumInput === preset
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  عنوان کامل گزارش
+                </label>
+                <input
+                  type="text"
+                  value={customTitleInput}
+                  onChange={(e) => setCustomTitleInput(e.target.value)}
+                  placeholder="عنوان گزارش..."
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white"
+                />
+              </div>
+            </div>
+
+            {saveSuccess && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 p-2.5 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                <Check className="w-4 h-4" />
+                <span>شماره و عنوان با موفقیت ذخیره شد!</span>
+              </div>
+            )}
+
+            <button
+              disabled={isSaving}
+              onClick={async () => {
+                const targetTeam = teams[editingNumReport.teamSlug] || getAllTeams()[editingNumReport.teamSlug];
+                if (!targetTeam) return;
+                const reportToEdit = targetTeam.reports.find((r) => r.id === editingNumReport.id);
+                if (!reportToEdit) return;
+
+                const trimmedNum = customNumInput.trim();
+                const finalNum = trimmedNum ? formatReportNumberDisplay(trimmedNum) : reportToEdit.reportNum;
+                const updatedReport = {
+                  ...reportToEdit,
+                  reportNum: finalNum,
+                  title: customTitleInput.trim() || reportToEdit.title
+                };
+
+                await syncReportData(updatedReport, editingNumReport.teamSlug, (freshReports, freshTeams) => {
+                  setAllReports(freshReports);
+                  setTeams(freshTeams);
+                });
+
+                showToast(`شماره و عنوان گزارش به «${finalNum}» تغییر یافت.`);
+                setTimeout(() => setEditingNumReport(null), 800);
+              }}
+              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-sm font-bold transition shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {isSaving ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  <span>در حال ذخیره‌سازی...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>ذخیره تغییرات شماره و عنوان</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick Edit Date Modal */}
       {/* ==================================================== */}
@@ -2005,6 +3121,103 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           )}
 
           <form onSubmit={handleSubmitReport} className="space-y-6">
+            {/* Report Format Selection (Video / Text / Hybrid) */}
+            <div className="bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  <span>نوع و ساختار رسانه‌ای گزارش:</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                    (مشخص کنید گزارش فقط ویدیویی، فقط متنی و اسنادی، یا ترکیبی است)
+                  </span>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* Hybrid */}
+                <button
+                  type="button"
+                  onClick={() => setReportFormat('hybrid')}
+                  className={`p-3 rounded-xl border text-right transition cursor-pointer flex items-start gap-2.5 ${
+                    reportFormat === 'hybrid'
+                      ? 'bg-blue-50/90 dark:bg-blue-950/70 border-blue-500 dark:border-blue-400 shadow-xs ring-2 ring-blue-500/20'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                    reportFormat === 'hybrid' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>گزارش ترکیبی (متن + ویدیو)</span>
+                      {reportFormat === 'hybrid' && <Check className="w-3 h-3 text-blue-600 dark:text-blue-400" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      حاوی فایل ویدیویی، زیرنویس همگام، توضیحات متنی و فایل‌های پیوست
+                    </div>
+                  </div>
+                </button>
+
+                {/* Text Only */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportFormat('text');
+                    if (videoPreviewUrl || videoFile) {
+                      showToast('حالت گزارش متنی انتخاب شد. در صورت تمایل دکمه حذف ویدیو را بزنید یا با ذخیره گزارش، ویدیو حذف خواهد شد.');
+                    }
+                  }}
+                  className={`p-3 rounded-xl border text-right transition cursor-pointer flex items-start gap-2.5 ${
+                    reportFormat === 'text'
+                      ? 'bg-amber-50/90 dark:bg-amber-950/70 border-amber-500 dark:border-amber-400 shadow-xs ring-2 ring-amber-500/20'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                    reportFormat === 'text' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>گزارش متنی و اسنادی (بدون ویدیو)</span>
+                      {reportFormat === 'text' && <Check className="w-3 h-3 text-amber-600 dark:text-amber-400" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      مناسب اسناد PDF، صورتجلسات، تصاویر و گزارش‌های مکتوب بدون فیلم
+                    </div>
+                  </div>
+                </button>
+
+                {/* Video Only */}
+                <button
+                  type="button"
+                  onClick={() => setReportFormat('video')}
+                  className={`p-3 rounded-xl border text-right transition cursor-pointer flex items-start gap-2.5 ${
+                    reportFormat === 'video'
+                      ? 'bg-emerald-50/90 dark:bg-emerald-950/70 border-emerald-500 dark:border-emerald-400 shadow-xs ring-2 ring-emerald-500/20'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                    reportFormat === 'video' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    <Film className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>گزارش تصویری (ویدیومحور)</span>
+                      {reportFormat === 'video' && <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      تمرکز بر پخش فیلم، زیرنویس فارسی و نکات خلاصه
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             {/* Top Grid: Team, Number, Date, Status */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Target Team */}
@@ -2027,9 +3240,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
               {/* Report Number */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                  شماره یا نوع گزارش
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    شماره یا نوع گزارش
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setReportNum(getNextReportNumberForTeam(selectedTeamSlug))}
+                    className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                    title="محاسبه خودکار شماره گزارش بعدی برای این تیم"
+                  >
+                    🔄 شماره بعدی خودکار
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={reportNum}
@@ -2152,20 +3375,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               </div>
 
               {/* Action Buttons & Custom Prompt */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="space-y-2.5">
                 <input
                   type="text"
                   value={adminGeminiCustomPrompt}
                   onChange={(e) => setAdminGeminiCustomPrompt(e.target.value)}
-                  placeholder="دستور ویژه اختیاری (مثلاً: تأکید روی نقش اعضا، کارگاه یا نتایج آزمون)..."
-                  className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                  placeholder="دستور یا متن ورودی اختیاری (مثلاً: تأکید روی نقش اعضا، کارگاه یا نتایج آزمون)..."
+                  className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 />
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleRequestAdminGemini('polish')}
-                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim())}
+                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim() && !adminGeminiCustomPrompt.trim())}
                     className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
                   >
                     {isAdminGeminiLoading ? (
@@ -2173,17 +3396,47 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     ) : (
                       <Sparkles className="w-3.5 h-3.5" />
                     )}
-                    <span>ویراستاری متن با Gemini</span>
+                    <span>ویراستاری متن</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleRequestAdminGemini('bullets')}
-                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim())}
+                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim() && !adminGeminiCustomPrompt.trim())}
                     className="px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>استخراج محورها</span>
+                    <span>استخراج محورها و نکات</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRequestAdminGemini('summary')}
+                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim() && !adminGeminiCustomPrompt.trim())}
+                    className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>چکیده اجرایی</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRequestAdminGemini('subtitles')}
+                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim() && !adminGeminiCustomPrompt.trim())}
+                    className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                  >
+                    <Film className="w-3.5 h-3.5" />
+                    <span>سناریوی زیرنویس</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRequestAdminGemini('normalize')}
+                    disabled={isAdminGeminiLoading || (!reportSummary.trim() && !reportTitle.trim() && !adminGeminiCustomPrompt.trim())}
+                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
+                    <span>پاکسازی نیم‌فاصله</span>
                   </button>
                 </div>
               </div>
@@ -2191,20 +3444,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               {/* Suggestion Output */}
               {adminGeminiSuggestion && (
                 <div className="p-3.5 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900/60 rounded-xl space-y-2.5">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                       <Check className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>متن پیشنهادی هوش مصنوعی:</span>
+                      <span>نتیجه پردازش هوش مصنوعی:</span>
                     </span>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
                         onClick={handleApplyGeminiToSummary}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                        title="درج مستقیم در کادر توضیحات گزارش"
                       >
                         <Save className="w-3 h-3" />
-                        <span>درج مستقیم در متن گزارش</span>
+                        <span>درج در توضیحات</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleApplyGeminiToKeyPoints}
+                        className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                        title="استخراج و درج در کادر محورهای کلیدی"
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>درج در محورهای کلیدی</span>
                       </button>
                       <button
                         type="button"
@@ -2217,7 +3480,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     </div>
                   </div>
 
-                  <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-line max-h-48 overflow-y-auto p-1">
+                  <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-line max-h-48 overflow-y-auto p-1 bg-slate-50/50 dark:bg-slate-850/50 rounded-lg">
                     {adminGeminiSuggestion}
                   </div>
                 </div>
@@ -2234,20 +3497,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             />
 
             {/* Video File Upload Box */}
-            <div className="bg-blue-50/50 dark:bg-slate-800/50 rounded-2xl p-5 border-2 border-dashed border-blue-200 dark:border-blue-900/60 space-y-3">
+            <div className={`rounded-2xl p-5 border-2 border-dashed space-y-3 transition-colors ${
+              reportFormat === 'text'
+                ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'
+                : 'bg-blue-50/50 dark:bg-slate-800/50 border-blue-200 dark:border-blue-900/60'
+            }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <div className={`w-10 h-10 rounded-xl text-white flex items-center justify-center shrink-0 shadow-md ${
+                    reportFormat === 'text' ? 'bg-amber-600' : 'bg-blue-600'
+                  }`}>
                     <Film className="w-5 h-5" />
                   </div>
                   <div>
                     <span className="text-xs font-black text-slate-800 dark:text-slate-100 block">
-                      بارگذاری مستقیم فایل ویدیو (MP4 / WebM)
+                      {reportFormat === 'text'
+                        ? 'بخش ویدیو (در حالت گزارش متنی غیرفعال است)'
+                        : 'بارگذاری مستقیم فایل ویدیو (MP4 / WebM)'}
                     </span>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {videoPreviewUrl
-                        ? 'ویدیوی گزارش آماده پخش است. برای تغییر یا حذف از دکمه‌های روبرو استفاده کنید.'
-                        : 'فایل ویدیو اختیاری است و برای گزارش‌های دارای فیلم در حافظه ذخیره و پخش می‌گردد.'}
+                      {reportFormat === 'text'
+                        ? 'این گزارش به عنوان گزارش متنی ذخیره می‌شود. در صورت انتخاب فایل ویدیو، نوع گزارش خودکار به ترکیبی تغییر می‌کند.'
+                        : (videoPreviewUrl
+                          ? 'ویدیوی گزارش آماده پخش است. برای تغییر یا حذف از دکمه‌های روبرو استفاده کنید.'
+                          : 'فایل ویدیو اختیاری است و برای گزارش‌های دارای فیلم در حافظه ذخیره و پخش می‌گردد.')}
                     </span>
                   </div>
                 </div>
@@ -2267,10 +3540,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       type="button"
                       onClick={handleRemoveVideo}
                       className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-                      title="حذف ویدیوی این گزارش"
+                      title="حذف و پاکسازی کامل ویدیو از این گزارش"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>حذف ویدیو</span>
+                      <span>حذف کامل ویدیو</span>
                     </button>
                   )}
                 </div>
@@ -2307,8 +3580,70 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       className="text-rose-600 hover:text-rose-800 dark:text-rose-400 font-bold shrink-0 flex items-center gap-1 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>حذف</span>
+                      <span>حذف و جداسازی ویدیو</span>
                     </button>
+                  </div>
+
+                  {/* Live Video Upload Progress Indicator */}
+                  {isSubmitting && videoFile && (
+                    <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-2">
+                          <div className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                          <span>وضعیت آپلود ویدیو: {submitStageText}</span>
+                        </span>
+                        <span className="font-mono font-black text-blue-700 dark:text-blue-300">
+                          {toPersianDigits(submitProgress)}٪
+                        </span>
+                      </div>
+                      <div className="w-full h-2.5 bg-blue-100 dark:bg-blue-900/60 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full transition-all duration-300 ease-out"
+                          style={{ width: `${submitProgress}%` }}
+                        />
+                      </div>
+                      {submitProgressDetails && (
+                        <div className="flex items-center justify-between text-[11px] text-blue-700 dark:text-blue-300">
+                          <span>حجم منتقل‌شده:</span>
+                          <span className="font-mono font-bold">
+                            {submitProgressDetails.loadedFormatted} از {submitProgressDetails.totalFormatted}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Explicit Keep Video Attachment Toggle */}
+                  <div className="p-3.5 rounded-2xl bg-blue-50/80 dark:bg-slate-800/90 border border-blue-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                        <Film className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                          <span>نگهداری فایل ویدیو در بایگانی (Keep Video Attachment)</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-normal ${
+                            keepVideoAttachment 
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300' 
+                              : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                          }`}>
+                            {keepVideoAttachment ? 'فعال (حفظ امن در حافظه)' : 'غیرفعال (حذف در تبدیل متنی)'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          در صورت فعال بودن، در صورت تغییر نوع گزارش به «متنی»، ویدیو از حافظه پاک نشده و در صورت نیاز مجدداً قابل دسترس است.
+                        </div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={keepVideoAttachment}
+                        onChange={(e) => setKeepVideoAttachment(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                    </label>
                   </div>
 
                   {/* Video Live Preview if selected */}
@@ -2322,7 +3657,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 </div>
               ) : (
                 <div className="py-4 px-3 bg-white/70 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">
-                  <span>هیچ فایلی برای ویدیو انتخاب نشده است. (این بخش برای گزارش‌های متنی و اسنادی خالی می‌ماند)</span>
+                  <span>
+                    {reportFormat === 'text'
+                      ? '📄 گزارش در حالت متنی است؛ هیچ ویدیویی ذخیره یا نمایش داده نخواهد شد.'
+                      : 'هیچ فایلی برای ویدیو انتخاب نشده است. (برای گزارش‌های متنی و اسنادی این بخش خالی می‌ماند)'}
+                  </span>
                 </div>
               )}
             </div>
@@ -2581,24 +3920,180 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               />
             </div>
 
-            {/* Submit Button */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+            {/* Live Submission Progress Card */}
+            {isSubmitting && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800/90 dark:to-indigo-950/60 border-2 border-blue-300 dark:border-blue-700 rounded-2xl p-5 shadow-md space-y-3.5 animate-fadeIn">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm animate-pulse">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-blue-950 dark:text-blue-100 flex items-center gap-2">
+                        <span>{submitStageText || 'در حال پردازش و ذخیره‌سازی گزارش...'}</span>
+                      </h4>
+                      <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
+                        لطفاً تا اتمام فرآیند صفحه را نبندید. اطلاعات به صورت خودکار محافظت می‌شود.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    {submitProgressDetails && (
+                      <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-900 dark:text-blue-200">
+                        {submitProgressDetails.loadedFormatted} / {submitProgressDetails.totalFormatted}
+                      </span>
+                    )}
+                    <span className="text-sm font-mono font-black px-3 py-1 rounded-xl bg-blue-600 text-white shadow-xs">
+                      {toPersianDigits(submitProgress)}٪
+                    </span>
+                  </div>
+                </div>
+
+                {/* Animated Progress Bar */}
+                <div className="w-full h-3 bg-blue-200/80 dark:bg-slate-700 rounded-full overflow-hidden p-0.5 shadow-inner">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500 rounded-full transition-all duration-300 ease-out shadow-sm"
+                    style={{ width: `${Math.max(5, submitProgress)}%` }}
+                  />
+                </div>
+
+                {/* Workflow Milestones */}
+                <div className="grid grid-cols-3 gap-2 pt-1 text-[10px] font-bold text-center">
+                  <div className={`p-1.5 rounded-lg border transition ${
+                    submitProgress >= 15
+                      ? 'bg-blue-100/80 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                      : 'bg-white/50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
+                  }`}>
+                    ۱. اعتبارسنجی
+                  </div>
+                  <div className={`p-1.5 rounded-lg border transition ${
+                    submitProgress >= 80
+                      ? 'bg-indigo-100/80 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                      : submitProgress >= 20
+                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 animate-pulse'
+                      : 'bg-white/50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
+                  }`}>
+                    ۲. آپلود رسانه و پیوست‌ها
+                  </div>
+                  <div className={`p-1.5 rounded-lg border transition ${
+                    submitProgress >= 100
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                      : submitProgress >= 85
+                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800 animate-pulse'
+                      : 'bg-white/50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
+                  }`}>
+                    ۳. ذخیره و انتشار نهایی
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Error Banner with Immediate Retry Button */}
+            {submitErrorMessage && !isSubmitting && (
+              <div className="bg-rose-50 dark:bg-rose-950/60 border-2 border-rose-300 dark:border-rose-800 rounded-2xl p-5 shadow-md space-y-3.5 animate-fadeIn">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-rose-900 dark:text-rose-100 flex items-center gap-2">
+                        <span>خطا در ثبت یا بارگذاری گزارش</span>
+                      </h4>
+                      <p className="text-xs text-rose-700 dark:text-rose-300 mt-1 font-medium leading-relaxed">
+                        {submitErrorMessage}
+                      </p>
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1 font-bold">
+                        ✓ تمام اطلاعات وارد شده در فرم (متن، ویدیو و فایل‌های پیوست) حفظ شده‌اند و نیازی به وارد کردن مجدد ندارید.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSubmitErrorMessage(null)}
+                    className="text-rose-500 hover:text-rose-700 dark:text-rose-400 p-1.5 rounded-lg transition"
+                    title="بستن این پیام"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-rose-200 dark:border-rose-900">
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitReport()}
+                    className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition shadow-md flex items-center gap-2 cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>تلاش مجدد برای ذخیره و انتشار (Retry)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveDraftAction}
+                    className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>ذخیره در پیش‌نویس‌های آفلاین</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSubmitErrorMessage(null)}
+                    className="px-3.5 py-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                  >
+                    ادامه ویرایش فرم
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Submit & Draft Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={resetForm}
-                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+                disabled={isSubmitting}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50"
               >
                 پاک کردن فرم
               </button>
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-7 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs sm:text-sm font-black transition shadow-lg flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <Save className="w-4 h-4" />
-                <span>{isSubmitting ? 'در حال ذخیره‌سازی...' : editingReportId ? 'ذخیره تغییرات و بازنشر' : 'ذخیره و انتشار فوری در سایت'}</span>
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  id="save-report-draft-btn"
+                  type="button"
+                  onClick={handleSaveDraftAction}
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="ذخیره تغییرات در پیش‌نویس‌ها بدون انتشار در صفحه اصلی"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>ذخیره به عنوان پیش‌نویس</span>
+                </button>
+
+                <button
+                  id="publish-report-btn"
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-7 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs sm:text-sm font-black transition shadow-lg flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  <span>
+                    {isSubmitting
+                      ? `در حال ذخیره‌سازی (${toPersianDigits(submitProgress)}٪)...`
+                      : editingReportId
+                      ? 'ذخیره تغییرات و بازنشر'
+                      : 'ذخیره و انتشار رسمی در سایت'}
+                  </span>
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -2687,17 +4182,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 </select>
               </div>
 
-              {/* Date Filter */}
+              {/* Media Type Filter (Video vs Text Only) */}
               <div>
                 <select
-                  value={filterDatePeriod}
-                  onChange={(e) => setFilterDatePeriod(e.target.value as any)}
+                  value={filterMediaType}
+                  onChange={(e) => setFilterMediaType(e.target.value as any)}
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white cursor-pointer"
                 >
-                  <option value="all">📅 همه تاریخ‌ها</option>
-                  <option value="1405">📅 گزارش‌های سال ۱۴۰۵</option>
-                  <option value="1404">📅 گزارش‌های سال ۱۴۰۴</option>
-                  <option value="custom">🔍 جستجوی تاریخ خاص...</option>
+                  <option value="all">🎬 نوع رسانه (همه گزارش‌ها)</option>
+                  <option value="video">🎥 دارای ویدیو ({allReports.filter(r => Boolean(r.videoSrc && r.videoSrc !== '#' && r.videoSrc.trim() !== '')).length})</option>
+                  <option value="text-only">📄 فقط متنی / بدون ویدیو ({allReports.filter(r => !r.videoSrc || r.videoSrc === '#' || r.videoSrc.trim() === '').length})</option>
                 </select>
               </div>
             </div>
@@ -2705,6 +4199,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             {/* Custom Date Input (conditional) & Sort + Active Info */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200 dark:border-slate-700/80 text-xs">
               <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={filterDatePeriod}
+                  onChange={(e) => setFilterDatePeriod(e.target.value as any)}
+                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white cursor-pointer"
+                >
+                  <option value="all">📅 همه تاریخ‌ها</option>
+                  <option value="1405">📅 سال ۱۴۰۵</option>
+                  <option value="1404">📅 سال ۱۴۰۴</option>
+                  <option value="custom">🔍 تاریخ خاص...</option>
+                </select>
+
                 {filterDatePeriod === 'custom' && (
                   <input
                     type="text"
@@ -2719,11 +4224,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                   نمایش {toPersianDigits(filteredReports.length)} از {toPersianDigits(allReports.length)} گزارش
                 </span>
 
-                {(filterTeam !== 'all' || filterStatus !== 'all' || filterDatePeriod !== 'all' || searchQuery !== '' || customDateQuery !== '') && (
+                {(filterTeam !== 'all' || filterStatus !== 'all' || filterMediaType !== 'all' || filterDatePeriod !== 'all' || searchQuery !== '' || customDateQuery !== '') && (
                   <button
                     onClick={() => {
                       setFilterTeam('all');
                       setFilterStatus('all');
+                      setFilterMediaType('all');
                       setFilterDatePeriod('all');
                       setCustomDateQuery('');
                       setSearchQuery('');
@@ -2746,7 +4252,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 >
                   <option value="views-desc">🔥 بیشترین بازدید ویدیو</option>
                   <option value="views-asc">📉 کمترین بازدید ویدیو</option>
+                  <option value="num-desc">🔢 شماره گزارش (از بزرگ به کوچک)</option>
+                  <option value="num-asc">🔢 شماره گزارش (از ۱ به بعد - ترتیبی صعودی)</option>
                   <option value="date-desc">📅 جدیدترین تاریخ</option>
+                  <option value="date-asc">📅 قدیمی‌ترین تاریخ</option>
                   <option value="title">🔤 بر اساس عنوان</option>
                 </select>
               </div>
@@ -2793,10 +4302,44 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                           {report.teamName}
                         </td>
                         <td className="py-3.5">
-                          <div className="font-bold text-slate-800 dark:text-slate-200">
-                            {formatReportNumberDisplay(report.reportNum)}: {report.title}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingNumReport({
+                                  id: report.id,
+                                  teamSlug: report.teamSlug,
+                                  title: report.title,
+                                  reportNum: report.reportNum || ''
+                                });
+                                setCustomNumInput(report.reportNum || '');
+                                setCustomTitleInput(report.title || '');
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-bold text-xs transition cursor-pointer shrink-0"
+                              title="برای ویرایش سریع شماره یا عنوان گزارش کلیک کنید"
+                            >
+                              <span>{formatReportNumberDisplay(report.reportNum)}</span>
+                              <Edit3 className="w-2.5 h-2.5 opacity-60" />
+                            </button>
+
+                            {/* Media Status Pill Indicator */}
+                            {report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[10px] shrink-0" title="دارای فایل ویدیویی و زیرنویس آماده">
+                                <Film className="w-2.5 h-2.5 text-blue-500" />
+                                <span>گزارش تصویری</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[10px] shrink-0" title="این گزارش فقط متنی است و فایل ویدیویی آپلود نشده">
+                                <FileText className="w-2.5 h-2.5 text-amber-500" />
+                                <span>گزارش متنی</span>
+                              </span>
+                            )}
+
+                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                              {report.title}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-md">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-md mt-0.5">
                             {report.summary}
                           </div>
                         </td>
@@ -2887,6 +4430,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                               <Send className="w-4 h-4" />
                             </button>
 
+                            {/* Detach Video Quick Action */}
+                            {report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '' && report.reportType !== 'text' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setVideoRemovalModal({
+                                    isOpen: true,
+                                    reportId: report.id,
+                                    teamSlug: report.teamSlug,
+                                    reportTitle: report.title,
+                                    fileName: 'ویدیوی پیوست شده به گزارش'
+                                  });
+                                }}
+                                className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 rounded-lg transition cursor-pointer"
+                                title="حذف فایل ویدیویی و تبدیل به گزارش متنی"
+                              >
+                                <Film className="w-4 h-4" />
+                              </button>
+                            )}
+
                             {/* View in Team Page */}
                             <button
                               onClick={() => onNavigate(report.teamSlug as PageId)}
@@ -2926,8 +4489,142 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ==================================================== */}
-      {/* TAB: Video Analytics & Popularity Dashboard */}
+      {/* TAB: Drafts Management */}
       {/* ==================================================== */}
+      {activeTab === 'drafts' && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div>
+              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-amber-500" />
+                <span>مدیریت پیش‌نویس‌های ذخیره‌شده</span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-xs font-mono font-bold border border-amber-300 dark:border-amber-800">
+                  {toPersianDigits(savedDraftsList.length)} پیش‌نویس
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                گزارش‌های در دست نگارش و پیش‌نویس‌های بدون انتشار عمومی را مشاهده، ویرایش یا منتشر کنید.
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                resetForm();
+                setActiveTab('create');
+              }}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>ایجاد پیش‌نویس جدید</span>
+            </button>
+          </div>
+
+          {savedDraftsList.length === 0 ? (
+            <div className="text-center py-16 bg-slate-50 dark:bg-slate-850 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                <FileText className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                در حال حاضر هیچ پیش‌نویسی ذخیره نشده است
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                هنگام تکمیل فرم در برگه «ثبت گزارش»، با کلیک روی دکمه «ذخیره به عنوان پیش‌نویس» می‌توانید متن را بدون انتشار در سایت ذخیره کنید.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {savedDraftsList.map((draft) => {
+                const draftTeam = teams[draft.teamSlug || 'team-angels'] || getAllTeams()[draft.teamSlug || 'team-angels'];
+                return (
+                  <div
+                    key={draft.id}
+                    className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 flex flex-col justify-between gap-4 shadow-xs hover:border-amber-400 transition"
+                  >
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                          <span>{draftTeam?.icon || '👥'}</span>
+                          <span>{draftTeam?.name || 'تیم'}</span>
+                        </span>
+
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                          draft.reportFormat === 'text'
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                            : draft.reportFormat === 'video'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300'
+                            : 'bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300'
+                        }`}>
+                          {draft.reportFormat === 'text' ? '📄 متنی' : draft.reportFormat === 'video' ? '🎥 ویدیویی' : '✨ ترکیبی'}
+                        </span>
+                      </div>
+
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2">
+                        {draft.title || 'پیش‌نویس بدون عنوان'}
+                      </h4>
+
+                      {draft.summary && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                          {draft.summary}
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-1">
+                        <span>تاریخ: {toPersianDigits(draft.date || '')}</span>
+                        {draft.keepVideoAttachment && (
+                          <span className="text-blue-500 font-bold">• ویدیو بایگانی شده</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+                      <button
+                        onClick={() => handleLoadDraft(draft)}
+                        className="flex-1 py-2 bg-[#173b82] hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>ادامه ویرایش</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteDraftAction(draft.id)}
+                        className="p-2 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 rounded-xl transition"
+                        title="حذف پیش‌نویس"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Orphan Media & Storage Repair Utility */}
+      {/* ==================================================== */}
+      {activeTab === 'repair' && (
+        <OrphanMediaRepairUtility
+          onRepaired={() => {
+            setAllReports(getAllReports());
+            setTeams(getAllTeams());
+          }}
+        />
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Video Gallery View */}
+      {/* ==================================================== */}
+      {activeTab === 'gallery' && (
+        <VideoGalleryView
+          reports={allReports}
+          teams={teams}
+          onSelectReport={(report, teamSlug) => {
+            handleEditReport(report, teamSlug);
+          }}
+        />
+      )}
       {activeTab === 'monthly' && (
         <MonthlyReports allReports={allReports} />
       )}
@@ -3085,7 +4782,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-black text-slate-900 dark:text-white text-xs sm:text-sm truncate">
-                                {report.reportNum}: {report.title}
+                                {formatReportNumberDisplay(report.reportNum)}: {report.title}
                               </span>
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
                                 {report.teamName}
@@ -3361,26 +5058,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                               const file = e.target.files?.[0];
                               if (file) {
                                 try {
-                                  const compressedDataUrl = await compressImageToDataUrl(file, 512, 0.88);
-                                  const finalLogo = compressedDataUrl || (await new Promise<string>((res) => {
-                                    const r = new FileReader();
-                                    r.onload = () => res(r.result as string);
-                                    r.onerror = () => res('');
-                                    r.readAsDataURL(file);
-                                  }));
+                                  showToast('در حال بارگذاری و ذخیره لوگوی تیم...', 'info');
+                                  const finalLogo = await uploadAndProcessImageFile(file, 512, 0.88);
                                   saveTeamLogo(slug, finalLogo);
                                   setTeams(getAllTeams());
                                   showToast(`لوگوی جدید تیم «${team.name}» با موفقیت بارگذاری و ذخیره شد.`);
                                 } catch (err) {
                                   console.warn(err);
-                                  const reader = new FileReader();
-                                  reader.onload = () => {
-                                    const base64 = reader.result as string;
-                                    saveTeamLogo(slug, base64);
-                                    setTeams(getAllTeams());
-                                    showToast(`لوگوی تیم «${team.name}» با موفقیت ذخیره شد.`);
-                                  };
-                                  reader.readAsDataURL(file);
+                                  showToast('خطا در ذخیره‌سازی لوگوی تیم', 'error');
                                 }
                               }
                             }}
@@ -3493,8 +5178,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                                       const file = e.target.files?.[0];
                                       if (file) {
                                         try {
-                                          const compressed = await compressImageToDataUrl(file, 256, 0.85);
-                                          saveMemberAvatar(slug, member, compressed);
+                                          const finalAvatar = await uploadAndProcessImageFile(file, 256, 0.85);
+                                          saveMemberAvatar(slug, member, finalAvatar);
                                           setMemberAvatars(getMemberAvatars());
                                           showToast(`عکس پروفایل «${member}» با موفقیت ذخیره شد.`);
                                         } catch {
@@ -3554,7 +5239,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('media')}
+                  className="px-4 py-2 bg-gradient-to-l from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>فرم بهینه‌سازی WebP و دیتابیس MySQL</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -3575,82 +5269,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           {/* Section 1 & 2: Institutional Logo & Youth Club Badge */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 1. Official Mahash Institution Logo */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 flex items-center justify-center font-bold">
-                    🏛️
-                  </div>
-                  <div>
-                    <h3 className="text-base font-black text-slate-900 dark:text-white">
-                      لوگوی رسمی مؤسسه محاش
-                    </h3>
-                    <span className="text-[11px] text-slate-500">نمایش در هدر، فوتر و گزارش‌های رسمی</span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleResetMahashLogoAction}
-                  className="text-xs text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>بازنشانی وکتور</span>
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center gap-5 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <div className="w-24 h-24 rounded-full bg-white dark:bg-slate-900 border-4 border-cyan-500/20 shadow-md p-1.5 flex items-center justify-center shrink-0">
-                  <img
-                    src={mahashLogoSrc}
-                    alt="لوگوی مؤسسه محاش"
-                    className="w-full h-full object-contain rounded-full"
-                  />
-                </div>
-
-                <div className="space-y-2 text-center sm:text-right flex-1">
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    وضعیت: {mahashLogoSrc.startsWith('data:image/svg') ? 'وکتور اختصاصی SVG (کیفیت بی‌نهایت)' : 'تصویر سفارشی بارگذاری‌شده'}
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    این لوگو در بالای تمامی صفحات، منوی اصلی و فوتر پایانی به صورت خودکار با پس‌زمینه شفاف قرار می‌گیرد.
-                  </p>
-
-                  <div className="pt-1 flex flex-wrap gap-2 justify-center sm:justify-start">
-                    <label className="px-3 py-1.5 bg-[#173b82] hover:bg-[#1f4da7] text-white rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-sm">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>بارگذاری عکس جدید (PNG / JPG / SVG)</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            try {
-                              const compressedDataUrl = await compressImageToDataUrl(file, 512, 0.88);
-                              if (compressedDataUrl) {
-                                handleApplyLogoToMahash(compressedDataUrl, file.name);
-                              } else {
-                                const reader = new FileReader();
-                                reader.onload = () => handleApplyLogoToMahash(reader.result as string, file.name);
-                                reader.readAsDataURL(file);
-                              }
-                            } catch {
-                              const reader = new FileReader();
-                              reader.onload = () => handleApplyLogoToMahash(reader.result as string, file.name);
-                              reader.readAsDataURL(file);
-                            }
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
+            <div className="space-y-4">
+              <AdminLogoManager
+                id="admin-mahash-official-logo"
+                assetId="mahash_official_logo"
+                category="logo"
+                title="لوگوی رسمی مؤسسه محاش"
+                description="این لوگو در بالای تمامی صفحات، هدر اصلی، کارنامه‌ها و فوتر رسمی سیستم به کار می‌رود."
+                defaultSvg={MAHESH_LOGO_SVG}
+                badgeText="هدر، فوتر و اسناد"
+                maxFileSizeMB={5}
+                maxDimension={512}
+                onSyncSuccess={(newLogo) => {
+                  setMahashLogo(newLogo);
+                  setMahashLogoSrc(newLogo);
+                  showToast('لوگوی رسمی مؤسسه محاش با موفقیت در دیتابیس ابری ثبت و همگام شد.');
+                }}
+              />
 
               {/* Quick Presets for Mahash */}
-              <div className="space-y-2">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-2.5">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
                   انتخاب سریع از الگوهای رسمی محاش:
                 </span>
@@ -3663,7 +5301,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       className="p-2 bg-slate-50 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center gap-2 text-right cursor-pointer text-xs"
                     >
                       <div className="w-8 h-8 rounded-full p-0.5 border border-slate-200 dark:border-slate-600 bg-white shrink-0">
-                        <img src={badge.svg || badge.svgDataUri} alt={badge.name || badge.title} className="w-full h-full object-contain rounded-full" />
+                        <img loading="lazy" src={badge.svg || badge.svgDataUri} alt={badge.name || badge.title} className="w-full h-full object-contain rounded-full" />
                       </div>
                       <span className="font-bold text-slate-800 dark:text-slate-200 truncate text-[11px]">
                         {badge.name || badge.title}
@@ -3675,82 +5313,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             </div>
 
             {/* 2. Mahash Youth Club Emblem */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center font-bold">
-                    🎖️
-                  </div>
-                  <div>
-                    <h3 className="text-base font-black text-slate-900 dark:text-white">
-                      نشان حلقوی باشگاه جوانان محاش
-                    </h3>
-                    <span className="text-[11px] text-slate-500">مدال افتخار، کارنامه‌ها و بنرهای باشگاهی</span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleResetYouthClubBadgeAction}
-                  className="text-xs text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>بازنشانی نشان</span>
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center gap-5 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <div className="w-24 h-24 rounded-full bg-white dark:bg-slate-900 border-4 border-amber-500/30 shadow-md p-1 flex items-center justify-center shrink-0">
-                  <img
-                    src={youthClubBadgeSrc}
-                    alt="نشان باشگاه جوانان محاش"
-                    className="w-full h-full object-contain rounded-full"
-                  />
-                </div>
-
-                <div className="space-y-2 text-center sm:text-right flex-1">
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    نشان طلایی و مدرج باشگاه جوانان
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    این نشان در صفحه اصلی، بخش افتخارات و کارت‌های شناسایی اعضای باشگاه جوانان به کار می‌رود.
-                  </p>
-
-                  <div className="pt-1 flex flex-wrap gap-2 justify-center sm:justify-start">
-                    <label className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-sm">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>بارگذاری نشان اختصاصی (تصویر / وکتور)</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            try {
-                              const compressedDataUrl = await compressImageToDataUrl(file, 512, 0.88);
-                              if (compressedDataUrl) {
-                                handleApplyBadgeToYouthClub(compressedDataUrl, file.name);
-                              } else {
-                                const reader = new FileReader();
-                                reader.onload = () => handleApplyBadgeToYouthClub(reader.result as string, file.name);
-                                reader.readAsDataURL(file);
-                              }
-                            } catch {
-                              const reader = new FileReader();
-                              reader.onload = () => handleApplyBadgeToYouthClub(reader.result as string, file.name);
-                              reader.readAsDataURL(file);
-                            }
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
+            <div className="space-y-4">
+              <AdminLogoManager
+                id="admin-youth-club-emblem"
+                assetId="mahash_youth_club_emblem"
+                category="badge"
+                title="نشان و مدال رسمی باشگاه جوانان"
+                description="این نشان در مدال‌های افتخار، صفحه اصلی، بنرهای باشگاهی و کارت‌های عضویت نمایش داده می‌شود."
+                defaultSvg={MAHESH_CLUB_EMBLEM_SVG}
+                badgeText="افتخارات و باشگاه جوانان"
+                maxFileSizeMB={5}
+                maxDimension={512}
+                onSyncSuccess={(newBadge) => {
+                  setYouthClubBadge(newBadge);
+                  setYouthClubBadgeSrc(newBadge);
+                  showToast('نشان رسمی باشگاه جوانان محاش با موفقیت در دیتابیس ابری ثبت و همگام شد.');
+                }}
+              />
 
               {/* Quick Presets for Club Badge */}
-              <div className="space-y-2">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-2.5">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
                   انتخاب سریع از مدال‌ها و نشان‌های افتخار:
                 </span>
@@ -3763,7 +5345,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       className="p-2 bg-slate-50 hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center gap-2 text-right cursor-pointer text-xs"
                     >
                       <div className="w-8 h-8 rounded-full p-0.5 border border-slate-200 dark:border-slate-600 bg-white shrink-0">
-                        <img src={badge.svg || badge.svgDataUri} alt={badge.name || badge.title} className="w-full h-full object-contain rounded-full" />
+                        <img loading="lazy" src={badge.svg || badge.svgDataUri} alt={badge.name || badge.title} className="w-full h-full object-contain rounded-full" />
                       </div>
                       <span className="font-bold text-slate-800 dark:text-slate-200 truncate text-[11px]">
                         {badge.name || badge.title}
@@ -3903,7 +5485,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         </div>
                       )}
                       <div className="w-14 h-14 rounded-full p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center group-hover:scale-105 transition">
-                        <img src={badgeData} alt={badgeLabel} className="w-full h-full object-contain rounded-full" />
+                        <img loading="lazy" src={badgeData} alt={badgeLabel} className="w-full h-full object-contain rounded-full" />
                       </div>
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-1">
                         {badgeLabel}
@@ -3965,14 +5547,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         type="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              setNewBadgeFileBase64(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
+                            try {
+                              const processed = await uploadAndProcessImageFile(file, 512, 0.88);
+                              setNewBadgeFileBase64(processed);
+                            } catch {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                setNewBadgeFileBase64(reader.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            }
                           }
                         }}
                       />
@@ -3980,7 +5567,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
                     {newBadgeFileBase64 && (
                       <div className="w-10 h-10 rounded-full border border-slate-300 p-0.5 bg-white shrink-0">
-                        <img src={newBadgeFileBase64} alt="پیش‌نمایش" className="w-full h-full object-contain rounded-full" />
+                        <img loading="lazy" src={newBadgeFileBase64} alt="پیش‌نمایش" className="w-full h-full object-contain rounded-full" />
                       </div>
                     )}
                   </div>
@@ -4049,7 +5636,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-full p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xs shrink-0 flex items-center justify-center">
-                            <img src={badgeData} alt={badgeLabel} className="w-full h-full object-contain rounded-full" />
+                            <img loading="lazy" src={badgeData} alt={badgeLabel} className="w-full h-full object-contain rounded-full" />
                           </div>
                           <div className="space-y-0.5">
                             <h4 className="font-black text-xs text-slate-900 dark:text-white">
@@ -4118,6 +5705,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 const defaultAvatar = cIdx === 0 ? NAZI_AVATAR_SVG : (consultant.image || RADIN_AVATAR_SVG);
                 const currentPhoto = getConsultantPhoto(consultant.name, consultant.image || defaultAvatar);
                 const isCustomPhoto = currentPhoto !== defaultAvatar && currentPhoto !== consultant.image;
+                const cPreview = consultantPreviews[consultant.name];
+                const displayPhoto = cPreview || currentPhoto;
+                const isSaving = consultantSavingMap[consultant.name] || false;
+                const syncStatus = consultantSyncStatusMap[consultant.name] || 'idle';
+                const lastSynced = consultantLastSyncedMap[consultant.name] || null;
 
                 return (
                   <div
@@ -4127,7 +5719,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     {/* Photo & Actions */}
                     <div className="relative group/avatar w-24 h-24 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 border-2 border-teal-500/30 shadow-md flex items-center justify-center shrink-0">
                       <ResponsiveImage
-                        src={currentPhoto}
+                        src={displayPhoto}
                         alt={consultant.name}
                         sizes="96px"
                         className="w-full h-full object-cover"
@@ -4137,7 +5729,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                       />
                     </div>
 
-                    <div className="flex-1 min-w-0 text-center sm:text-right space-y-1.5">
+                    <div className="flex-1 min-w-0 text-center sm:text-right space-y-1.5 w-full">
                       <div className="flex items-center justify-between gap-2">
                         <h4 className="text-base font-black text-slate-900 dark:text-white truncate">
                           {consultant.name}
@@ -4151,47 +5743,157 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         {consultant.specialty}
                       </p>
 
-                      <div className="pt-2 flex flex-wrap gap-2 justify-center sm:justify-start">
-                        <label className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-2xs">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>تغییر / آپلود عکس</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                try {
-                                  const compressed = await compressImageToDataUrl(file, 400, 0.88);
-                                  saveConsultantPhoto(consultant.name, compressed);
-                                  setConsultantPhotos(getConsultantPhotos());
-                                  setConsultantsList(getAllConsultants());
-                                  showToast(`عکس مشاور «${consultant.name}» با موفقیت ذخیره شد.`);
-                                } catch {
-                                  showToast('خطا در فشرده‌سازی و ذخیره تصویر مشاور', 'error');
-                                }
+                      <div className="flex items-center justify-center sm:justify-start gap-2 pt-1">
+                        <SyncStatusBadge
+                          status={syncStatus}
+                          lastSyncedAt={lastSynced}
+                          onRetry={async () => {
+                            if (currentPhoto && isCustomImageDataUrlOrUrl(currentPhoto)) {
+                              setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'syncing' }));
+                              const ok = await saveConsultantPhotoToFirestore(consultant.name, currentPhoto);
+                              if (ok) {
+                                setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'synced' }));
+                                setConsultantLastSyncedMap((prev) => ({ ...prev, [consultant.name]: new Date() }));
+                                showToast(`عکس مشاور «${consultant.name}» در پایگاه ابری همگام‌سازی شد.`);
+                              } else {
+                                setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'error' }));
+                                showToast('خطا در اتصال به پایگاه ابری', 'error');
                               }
-                            }}
-                          />
-                        </label>
+                            }
+                          }}
+                        />
+                      </div>
 
-                        {isCustomPhoto && (
+                      {cPreview ? (
+                        <div className="pt-2 flex flex-wrap gap-2 justify-center sm:justify-start">
                           <button
                             type="button"
-                            onClick={() => {
-                              resetConsultantPhoto(consultant.name);
-                              setConsultantPhotos(getConsultantPhotos());
-                              setConsultantsList(getAllConsultants());
-                              showToast(`عکس مشاور «${consultant.name}» به حالت پیش‌فرض بازنشانی شد.`);
+                            disabled={isSaving}
+                            onClick={async () => {
+                              const file = consultantSelectedFiles[consultant.name];
+                              if (!file) return;
+                              setConsultantSavingMap((prev) => ({ ...prev, [consultant.name]: true }));
+                              setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'syncing' }));
+                              
+                              const previousPhoto = currentPhoto;
+                              try {
+                                showToast('در حال پردازش و بهینه‌سازی تصویر...', 'info');
+                                
+                                if (file.size > 5 * 1024 * 1024) {
+                                  throw new Error('حجم تصویر بیش از ۵ مگابایت است. لطفاً فایل کم‌حجم‌تری انتخاب فرمایید.');
+                                }
+
+                                const finalPhoto = await uploadAndProcessImageFile(file, 400, 0.85);
+                                
+                                // Optimistic local save
+                                saveConsultantPhoto(consultant.name, finalPhoto);
+                                setConsultantPhotos(getConsultantPhotos());
+                                setConsultantsList(getAllConsultants());
+
+                                // Persist to Firestore with timeout & diagnostic logging
+                                const ok = await saveConsultantPhotoToFirestore(consultant.name, finalPhoto);
+                                if (ok) {
+                                  setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'synced' }));
+                                  setConsultantLastSyncedMap((prev) => ({ ...prev, [consultant.name]: new Date() }));
+                                  showToast(`عکس مشاور «${consultant.name}» با موفقیت در دیتابیس ابری ذخیره و پایدار گردید.`);
+                                } else {
+                                  setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'synced' }));
+                                  showToast(`عکس مشاور «${consultant.name}» در حافظه پایدار ثبت شد.`);
+                                }
+
+                                if (cPreview) URL.revokeObjectURL(cPreview);
+                                setConsultantPreviews((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy[consultant.name];
+                                  return copy;
+                                });
+                                setConsultantSelectedFiles((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy[consultant.name];
+                                  return copy;
+                                });
+                              } catch (err: any) {
+                                // Rollback to previous persistent photo on catastrophic failure
+                                console.error('Error uploading consultant photo:', err);
+                                saveConsultantPhoto(consultant.name, previousPhoto);
+                                setConsultantPhotos(getConsultantPhotos());
+                                setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'error' }));
+                                showToast(err?.message || 'خطا در پردازش و ذخیره تصویر', 'error');
+                              } finally {
+                                setConsultantSavingMap((prev) => ({ ...prev, [consultant.name]: false }));
+                              }
                             }}
-                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
                           >
-                            <RotateCcw className="w-3 h-3" />
-                            <span>بازنشانی</span>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{isSaving ? 'در حال ذخیره...' : 'تأیید و ذخیره در پایگاه داده'}</span>
                           </button>
-                        )}
-                      </div>
+
+                          <button
+                            type="button"
+                            disabled={isSaving}
+                            onClick={() => {
+                              if (cPreview) URL.revokeObjectURL(cPreview);
+                              setConsultantPreviews((prev) => {
+                                const copy = { ...prev };
+                                delete copy[consultant.name];
+                                return copy;
+                              });
+                              setConsultantSelectedFiles((prev) => {
+                                const copy = { ...prev };
+                                delete copy[consultant.name];
+                                return copy;
+                              });
+                            }}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>لغو</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-2 flex flex-wrap gap-2 justify-center sm:justify-start">
+                          <label className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-2xs">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>تغییر / آپلود عکس</span>
+                            <input
+                              type="file"
+                              accept="image/png, image/jpeg, image/jpg, image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  if (file.size > 5 * 1024 * 1024) {
+                                    showToast('حجم تصویر بیش از ۵ مگابایت است.', 'error');
+                                    return;
+                                  }
+                                  const preview = URL.createObjectURL(file);
+                                  setConsultantPreviews((prev) => ({ ...prev, [consultant.name]: preview }));
+                                  setConsultantSelectedFiles((prev) => ({ ...prev, [consultant.name]: file }));
+                                }
+                              }}
+                            />
+                          </label>
+
+                          {isCustomPhoto && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                resetConsultantPhoto(consultant.name);
+                                setConsultantPhotos(getConsultantPhotos());
+                                setConsultantsList(getAllConsultants());
+                                await deleteConsultantPhotoFromFirestore(consultant.name).catch(() => {});
+                                setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'idle' }));
+                                showToast(`عکس مشاور «${consultant.name}» به حالت پیش‌فرض بازنشانی شد.`);
+                              }}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>بازنشانی</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -4280,6 +5982,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: WebP Media & MySQL Content Management */}
+      {/* ==================================================== */}
+      {activeTab === 'media' && (
+        <MediaContentManager
+          onRefreshAll={() => {
+            setConsultantPhotos(getConsultantPhotos());
+            setConsultantsList(getAllConsultants());
+            setTeams(getAllTeams());
+          }}
+        />
       )}
 
       {/* ==================================================== */}
@@ -4882,6 +6597,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ==================================================== */}
+      {/* TAB: WordPress & MySQL Database Manager */}
+      {/* ==================================================== */}
+      {activeTab === 'wordpress' && (
+        <div className="space-y-6">
+          <WordPressCMSPanel />
+          <SyncLogger />
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: MySQL Admin Dashboard & CRUD */}
+      {/* ==================================================== */}
+      {activeTab === 'mysql' && (
+        <MySQLAdminDashboard />
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Real-Time MySQL Activity & Action Logs Monitor */}
+      {/* ==================================================== */}
+      {activeTab === 'mysql_logs' && (
+        <MySQLLiveLogsMonitor />
+      )}
+
+      {/* ==================================================== */}
       {/* TAB: Link & File Health Diagnostics Auditor */}
       {/* ==================================================== */}
       {activeTab === 'health' && (
@@ -5051,6 +6790,143 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
+
+      {/* ==================================================== */}
+      {/* CONFIRMATION MODAL: MySQL Archive & Clear Logs (Task 3) */}
+      {/* ==================================================== */}
+      {isArchiveModalOpen && (
+        <div className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-teal-600 dark:text-teal-400">
+              <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-950/80 flex items-center justify-center shrink-0 border border-teal-500/20">
+                <Archive className="w-6 h-6 text-teal-600 dark:text-teal-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  بایگانی ایمن و پاک‌سازی لاگ‌های MySQL
+                </h3>
+                <span className="text-xs text-teal-600 dark:text-teal-400 font-bold">
+                  تخلیه حجم پایگاه داده همراه با دانلود خودکار فایل پشتیبان JSON
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 dark:bg-amber-950/40 p-4 rounded-2xl border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span>حفاظت از داده‌ها در برابر حذف ناخواسته</span>
+              </div>
+              <p className="leading-relaxed">
+                قبل از حذف لاگ‌ها از دیتابیس فعال، تمامی سوابق انتخاب‌شده در یک فایل استاندارد JSON گردآوری شده و بلافاصله بر روی سیستم شما دانلود خواهد شد.
+              </p>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  بازه زمانی لاگ‌ها جهت بایگانی:
+                </label>
+                <select
+                  value={archiveOlderThanDays}
+                  onChange={(e) => setArchiveOlderThanDays(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none dark:text-white"
+                >
+                  <option value={0}>تمام لاگ‌ها و سوابق موجود در سامانه (تخلیه کامل)</option>
+                  <option value={7}>لاگ‌های قدیمی‌تر از ۷ روز</option>
+                  <option value={14}>لاگ‌های قدیمی‌تر از ۱۴ روز</option>
+                  <option value={30}>لاگ‌های قدیمی‌تر از ۳۰ روز (یک ماه)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  جهت تأیید، عبارت <span className="text-rose-600 font-black font-mono">بایگانی</span> را در کادر زیر تایپ کنید:
+                </label>
+                <input
+                  type="text"
+                  value={archiveConfirmInput}
+                  onChange={(e) => setArchiveConfirmInput(e.target.value)}
+                  placeholder="بایگانی"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none dark:text-white text-center font-mono font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsArchiveModalOpen(false);
+                  setArchiveConfirmInput('');
+                }}
+                disabled={isArchivingLogs}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50"
+              >
+                انصراف
+              </button>
+
+              <button
+                type="button"
+                onClick={handleArchiveAndClearLogs}
+                disabled={
+                  isArchivingLogs ||
+                  (archiveConfirmInput.trim() !== 'بایگانی' && archiveConfirmInput.trim().toUpperCase() !== 'ARCHIVE')
+                }
+                className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isArchivingLogs ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>در حال بایگانی و دانلود...</span>
+                  </>
+                ) : (
+                  <>
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>تأیید بایگانی و پاک‌سازی لاگ‌ها</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* GLOBAL LOADING / SYNC OVERLAY: Prevents Concurrent Writes */}
+      {/* ==================================================== */}
+      {(isSyncingServer || Object.values(consultantSavingMap).some(Boolean)) && (
+        <div className="fixed inset-0 z-[99998] bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-xs text-center">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/80 border border-blue-100 dark:border-blue-900/60 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                {isSyncingServer ? 'در حال انتشار سراسری در سرور...' : 'در حال ذخیره‌سازی و همگام‌سازی ابری...'}
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                لطفاً شکیبا باشید؛ اطلاعات در حال پردازش و ثبت پایدار است.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* CONFIRMATION MODAL: Video Removal from Report */}
+      {/* ==================================================== */}
+      <VideoRemovalConfirmModal
+        isOpen={videoRemovalModal.isOpen}
+        reportTitle={videoRemovalModal.reportTitle}
+        videoFileName={videoRemovalModal.fileName}
+        fileName={videoRemovalModal.fileName}
+        onCancel={() => setVideoRemovalModal({ isOpen: false, reportTitle: '' })}
+        onClose={() => setVideoRemovalModal({ isOpen: false, reportTitle: '' })}
+        onConfirm={() => performConfirmedVideoRemoval({ keepInStorage: false })}
+        onConfirmRemove={(options) => performConfirmedVideoRemoval(options)}
+      />
     </div>
   );
 };
+
+export default AdminPage;

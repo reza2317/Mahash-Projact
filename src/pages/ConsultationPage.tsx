@@ -4,13 +4,18 @@ import {
   getAllConsultants, 
   getConsultantPhotos,
   getConsultantPhoto,
+  saveConsultantPhoto,
+  isCustomImageDataUrlOrUrl,
   subscribeToStoreUpdates 
 } from '../utils/reportsStore';
+import { getConsultantPhotoFromFirestore } from '../utils/firestorePersistence';
 import { NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from '../utils/assets';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { useAutoSaveForm } from '../hooks/useAutoSaveForm';
 import { useNotification } from '../context/NotificationContext';
 import { ResponsiveImage } from '../components/ResponsiveImage';
+import { ImageLoader } from '../components/ImageLoader';
+import { logReportToMySQL } from '../utils/mysqlLogger';
 import {
   MessageSquare,
   CheckCircle2,
@@ -50,6 +55,32 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
       setCustomPhotos(getConsultantPhotos());
     };
     syncData();
+
+    // Background Firestore hydration for consultants
+    const currentPhotos = getConsultantPhotos();
+    const naziPhotoExists = !!currentPhotos['خانم دکتر نازی عباسیان'] || !!currentPhotos['consultant_nazi_abbasian'] || !!currentPhotos['nazi_abbasian'];
+    const radinPhotoExists = !!currentPhotos['آقای رادین اورومی'] || !!currentPhotos['consultant_radin_oroumi'] || !!currentPhotos['radin_oroumi'];
+
+    if (!naziPhotoExists || !radinPhotoExists) {
+      Promise.all([
+        !naziPhotoExists ? getConsultantPhotoFromFirestore('خانم دکتر نازی عباسیان') : Promise.resolve(null),
+        !radinPhotoExists ? getConsultantPhotoFromFirestore('آقای رادین اورومی') : Promise.resolve(null)
+      ]).then(([naziPhoto, radinPhoto]) => {
+        let updated = false;
+        if (naziPhoto && isCustomImageDataUrlOrUrl(naziPhoto)) {
+          saveConsultantPhoto('خانم دکتر نازی عباسیان', naziPhoto);
+          updated = true;
+        }
+        if (radinPhoto && isCustomImageDataUrlOrUrl(radinPhoto)) {
+          saveConsultantPhoto('آقای رادین اورومی', radinPhoto);
+          updated = true;
+        }
+        if (updated) {
+          syncData();
+        }
+      }).catch(() => {});
+    }
+
     const unsub = subscribeToStoreUpdates(syncData);
     return () => unsub();
   }, []);
@@ -65,6 +96,29 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
       showToastError('خطای اعتبارسنجی', 'لطفاً نام، شماره تماس و موضوع مشاوره را وارد فرمایید.');
       return;
     }
+
+    // Persist consultation request to MySQL database in real-time
+    logReportToMySQL({
+      actionType: 'consultation_request',
+      title: `درخواست رزرو مشاوره: ${formData.topic}`,
+      details: `مشاوره با ${formData.selectedConsultant || 'کارشناس'} به صورت ${
+        formData.consultationType === 'text'
+          ? 'متنی'
+          : formData.consultationType === 'online'
+          ? 'آنلاین تصویری'
+          : 'حضوری'
+      } - زمان انتخابی: ${formData.preferredTime || 'توافقی'}`,
+      userName: formData.name,
+      userContact: formData.phone,
+      metadata: {
+        selectedConsultant: formData.selectedConsultant,
+        consultationType: formData.consultationType,
+        topic: formData.topic,
+        preferredTime: formData.preferredTime
+      },
+      status: 'success'
+    });
+
     setIsBooked(true);
     clearSavedData();
     showToastSuccess('درخواست مشاوره ثبت شد', 'کارشناسان ما به زودی با شما هماهنگ خواهند شد.');
@@ -129,11 +183,14 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
             >
               {/* Photo Box */}
               <div className="w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border-2 border-teal-500/20 shadow-xs flex items-center justify-center p-0.5">
-                <ResponsiveImage
+                <ImageLoader
                   src={currentPhoto}
                   fallbackSrc={defaultAvatar}
                   alt={c.name}
-                  sizes="96px"
+                  type="consultant"
+                  rounded="xl"
+                  aspectRatio="square"
+                  showFormatBadge={true}
                   className="w-full h-full object-cover rounded-xl"
                   containerClassName="w-full h-full rounded-xl"
                   priority={false}

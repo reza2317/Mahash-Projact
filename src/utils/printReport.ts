@@ -257,14 +257,14 @@ export function printTeamReport(report: TeamReport, teamName: string, teamLogo?:
 
   <div class="print-header">
     <div class="print-header-brand">
-      <img src="${mahashLogo}" alt="لوگوی موسسه محاش" class="mahash-logo" />
+      <img loading="lazy" src="${mahashLogo}" alt="لوگوی موسسه محاش" class="mahash-logo" />
       <div class="title-group">
         <h1>مؤسسه توانبخشی و پیشگیری محاش</h1>
         <p>باشگاه جوانان ناشنوا و کم‌شنوا — سامانه بایگانی اسناد و گزارش‌ها</p>
       </div>
     </div>
     <div style="display: flex; align-items: center; gap: 10px;">
-      <img src="${effectiveTeamLogo}" alt="${teamName}" class="team-logo" />
+      <img loading="lazy" src="${effectiveTeamLogo}" alt="${teamName}" class="team-logo" />
       <div style="text-align: left; font-size: 11px;">
         <strong style="color: #0f2f6b; display: block;">${teamName}</strong>
         ${managerName ? `<span style="color: #64748b;">مدیر: ${managerName}</span>` : ''}
@@ -316,7 +316,7 @@ export function printTeamReport(report: TeamReport, teamName: string, teamLogo?:
           .map(
             (att) => `
           <div class="attachment-card">
-            ${att.type === 'image' && att.dataUrl ? `<img src="${att.dataUrl}" class="attachment-img" />` : '<span style="font-size: 20px;">📄</span>'}
+            ${att.type === 'image' && att.dataUrl ? `<img loading="lazy" src="${att.dataUrl}" class="attachment-img" />` : '<span style="font-size: 20px;">📄</span>'}
             <div style="min-width: 0;">
               <strong style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${att.name}</strong>
               <span style="color: #64748b; font-size: 10px;">${att.sizeFormatted} • ${att.extension.toUpperCase()}</span>

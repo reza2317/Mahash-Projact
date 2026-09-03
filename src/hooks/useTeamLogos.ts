@@ -18,6 +18,13 @@ import { compressImageToDataUrl } from '../utils/imageCompressor';
 import { getTeamLogoPlaceholder, MAHESH_LOGO_SVG } from '../utils/assets';
 import { SCORES_DATA, TEAMS_DATA } from '../data/mahashData';
 import { safeSetLocalStorage, safeGetLocalStorage } from '../utils/storage';
+import {
+  saveLogoToFirestore,
+  deleteLogoFromFirestore,
+  getLogoFromFirestore,
+  saveMahashLogoToFirestore,
+  getMahashLogoFromFirestore
+} from '../utils/firestorePersistence';
 
 export interface TeamLogoItem {
   id: string;
@@ -132,8 +139,6 @@ export function useTeamLogos() {
   const [logosMap, setLogosMap] = useState<Record<string, string>>(() => buildDeterministicFallbacks().map);
   const [mahashLogo, setMahashLogoState] = useState<string>(() => {
     try {
-      const validated = validateAndReadLogoKey('mahash_site_logo') || validateAndReadLogoKey('club_emblem_logo');
-      if (validated) return validated;
       return getMahashLogo() || MAHESH_LOGO_SVG;
     } catch (err) {
       console.warn('[useTeamLogos] Storage inaccessible for Mahash logo, using default:', err);
@@ -150,7 +155,7 @@ export function useTeamLogos() {
       const overrides = getTeamOverrides();
       const allTeams = getAllTeams();
       const scores = getAllScores();
-      const validatedMahash = validateAndReadLogoKey('mahash_site_logo') || validateAndReadLogoKey('club_emblem_logo') || getMahashLogo() || MAHESH_LOGO_SVG;
+      const validatedMahash = getMahashLogo() || MAHESH_LOGO_SVG;
 
       const map: Record<string, string> = { ...fallbackMap };
       const list: TeamLogoItem[] = [];
@@ -214,39 +219,33 @@ export function useTeamLogos() {
     }
   }, []);
 
-  // Sync to localStorage reactively whenever logosMap changes and is valid
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    try {
-      Object.entries(logosMap).forEach(([key, val]) => {
-        const logoUrl = String(val || '');
-        if (isValidImageFormat(logoUrl)) {
-          const shortKey = key.replace(/^team-/, '');
-          safeSetLocalStorage(`mahash_team_logo_${shortKey}`, logoUrl);
-        }
-      });
-    } catch (err) {
-      console.warn('[useTeamLogos] Reactive storage write warning:', err);
-    }
-  }, [logosMap]);
-
-  // Sync Mahash logo to storage reactively
-  useEffect(() => {
-    if (mahashLogo && isValidImageFormat(mahashLogo)) {
-      try {
-        safeSetLocalStorage('mahash_site_logo', mahashLogo);
-      } catch (err) {
-        console.warn('[useTeamLogos] Reactive Mahash logo storage write warning:', err);
-      }
-    }
-  }, [mahashLogo]);
-
   useEffect(() => {
     loadAllLogos();
+
+    // Background Firestore hydration: fetch logos from cloud to recover if LocalStorage was cleared
+    const officialSlugs = ['team-thinker', 'team-tomorrow', 'team-angels', 'team-ghorbani', 'team-silence'];
+    Promise.all([
+      getMahashLogoFromFirestore(),
+      ...officialSlugs.map((slug) => getLogoFromFirestore(slug))
+    ]).then(([cloudMahash, ...teamLogos]) => {
+      let hasUpdates = false;
+      if (cloudMahash && isValidImageFormat(cloudMahash)) {
+        setMahashLogoStore(cloudMahash);
+        hasUpdates = true;
+      }
+      officialSlugs.forEach((slug, idx) => {
+        const cloudLogo = teamLogos[idx];
+        if (cloudLogo && isValidImageFormat(cloudLogo)) {
+          saveTeamLogoStore(slug, cloudLogo);
+          hasUpdates = true;
+        }
+      });
+      if (hasUpdates) {
+        triggerGlobalCacheBust();
+        loadAllLogos();
+      }
+    }).catch(() => {});
+
     const unsub = subscribeToStoreUpdates(() => {
       loadAllLogos();
     });
@@ -285,6 +284,8 @@ export function useTeamLogos() {
 
         try {
           saveTeamLogoStore(teamIdOrSlug, finalDataUrl);
+          // Persist directly to Firestore
+          saveLogoToFirestore(teamIdOrSlug, finalDataUrl).catch(() => {});
         } catch (storageErr) {
           console.warn('[useTeamLogos] Storage serialization/quota error during saveTeamLogo:', storageErr);
         }
@@ -304,6 +305,7 @@ export function useTeamLogos() {
     (teamIdOrSlug: string) => {
       try {
         resetTeamLogoStore(teamIdOrSlug);
+        deleteLogoFromFirestore(teamIdOrSlug).catch(() => {});
       } catch (storageErr) {
         console.warn('[useTeamLogos] Error during resetTeamLogo:', storageErr);
       }
@@ -329,6 +331,7 @@ export function useTeamLogos() {
 
         try {
           setMahashLogoStore(finalDataUrl);
+          saveMahashLogoToFirestore(finalDataUrl).catch(() => {});
         } catch (storageErr) {
           console.warn('[useTeamLogos] Storage quota error during setMahashLogo:', storageErr);
         }
@@ -347,6 +350,7 @@ export function useTeamLogos() {
   const resetMahashLogo = useCallback(() => {
     try {
       resetMahashLogoStore();
+      saveMahashLogoToFirestore('').catch(() => {});
     } catch (storageErr) {
       console.warn('[useTeamLogos] Error during resetMahashLogo:', storageErr);
     }

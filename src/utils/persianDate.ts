@@ -40,17 +40,81 @@ export function toPersianDigits(value: string | number): string {
 /**
  * Formats report number without duplicating the word 'گزارش'
  * e.g. "گزارش ۲" -> "گزارش ۲"
+ * "گزارش شماره ۲" -> "گزارش ۲"
  * "گزارش گزارش ۲" -> "گزارش ۲"
  * "۲" -> "گزارش ۲"
+ * "پیام ویدیویی" -> "پیام ویدیویی"
  */
 export function formatReportNumberDisplay(reportNum?: string | number): string {
-  if (!reportNum) return '';
+  if (reportNum === undefined || reportNum === null) return '';
   const str = String(reportNum).trim();
   if (!str) return '';
-  // Strip duplicate leading "گزارش", colons, dashes or whitespace
-  const withoutWord = str.replace(/^(گزارش\s*[:\-\.]*\s*)+/g, '').trim();
-  if (!withoutWord) return 'گزارش';
-  return `گزارش ${toPersianDigits(withoutWord)}`;
+
+  // If pure numbers / digits (e.g. "2" or "۲" or 2)
+  const isPureNumber = /^[0-9۰-۹٠-٩]+$/.test(str);
+  if (isPureNumber) {
+    return `گزارش ${toPersianDigits(str)}`;
+  }
+
+  // If starts with "گزارش" or "گزارش شماره"
+  if (/^گزارش/i.test(str)) {
+    // Strip duplicate leading "گزارش", "شماره", colons, dashes or whitespace
+    const withoutWord = str.replace(/^(?:گزارش\s*(?:شماره\s*)?[:\-\.]*\s*)+/g, '').trim();
+    if (!withoutWord) return 'گزارش';
+    return `گزارش ${toPersianDigits(withoutWord)}`;
+  }
+
+  // If custom title or type (e.g., "پیام ویدئویی", "نشست ۱", "جلسه ویژه")
+  return toPersianDigits(str);
+}
+
+/**
+ * Safely extracts the numeric report sequence number from any report object or string.
+ * Supports Persian, Arabic, and English digits, prefixed with 'گزارش', 'گزارش شماره', or pure numbers.
+ * e.g. "گزارش ۳" -> 3, "گزارش شماره ۴" -> 4, "۲" -> 2, "report-123" -> 123
+ */
+export function extractReportSequenceNumber(reportOrNum?: any): number {
+  if (!reportOrNum) return 0;
+
+  if (typeof reportOrNum === 'number') {
+    return isNaN(reportOrNum) ? 0 : Math.floor(reportOrNum);
+  }
+
+  let targetStr = '';
+  if (typeof reportOrNum === 'object') {
+    if (reportOrNum.reportNum) {
+      targetStr = String(reportOrNum.reportNum);
+    } else if (reportOrNum.title) {
+      targetStr = String(reportOrNum.title);
+    } else if (reportOrNum.id) {
+      targetStr = String(reportOrNum.id);
+    }
+  } else {
+    targetStr = String(reportOrNum);
+  }
+
+  if (!targetStr) return 0;
+
+  // Normalize Persian and Arabic digits to English
+  const normalized = targetStr
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+
+  // 1. Look for explicit pattern "گزارش (شماره) X"
+  const matchGozarish = normalized.match(/گزارش\s*(?:شماره\s*)?(\d+)/i);
+  if (matchGozarish && matchGozarish[1]) {
+    const p = parseInt(matchGozarish[1], 10);
+    if (!isNaN(p)) return p;
+  }
+
+  // 2. Look for any number in string
+  const matchDigits = normalized.match(/\d+/);
+  if (matchDigits) {
+    const p = parseInt(matchDigits[0], 10);
+    if (!isNaN(p)) return p;
+  }
+
+  return 0;
 }
 
 /**

@@ -3,19 +3,30 @@ import { PageId, TeamData, ActivityReport } from '../types';
 import { getTeam, subscribeToStoreUpdates, isAdminAuthenticated, getMemberAvatar } from '../utils/reportsStore';
 import { getTeamLogoPlaceholder } from '../utils/assets';
 import { ResponsiveImage } from '../components/ResponsiveImage';
+import { ImageLoader } from '../components/ImageLoader';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { formatSmartUpdateDate, toPersianDigits, formatReportNumberDisplay } from '../utils/persianDate';
 import { ReportVideoPlayer } from '../components/ReportVideoPlayer';
 import { ReportAttachmentsView } from '../components/ReportAttachmentsView';
 import { PrintReportButton } from '../components/PrintReportButton';
+import { CommentsSection } from '../components/CommentsSection';
 import { FormattedText } from '../components/FormattedText';
+import { ReportVersionHistory } from '../components/ReportVersionHistory';
 import { useNotification } from '../context/NotificationContext';
+import {
+  normalizePersianText,
+  extractKeyPoints,
+  generateExecutiveSummary,
+  generateSubtitleScenario,
+  proofreadAndPolishText
+} from '../utils/persianTextProcessor';
 import {
   Users,
   CheckCircle2,
   Calendar,
   Sparkles,
   Film,
+  FileText,
   Bot,
   Copy,
   Check,
@@ -23,7 +34,8 @@ import {
   Wand2,
   Edit3,
   Send,
-  Sliders
+  Sliders,
+  History
 } from 'lucide-react';
 
 interface TeamDetailPageProps {
@@ -57,6 +69,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
     const initial = getTeam(teamSlug);
     return initial?.reports?.[0]?.id || null;
   });
+  const [versionHistoryReportId, setVersionHistoryReportId] = useState<string | null>(null);
 
   // AI Summary Generator States
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -135,7 +148,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
         transcript: report.transcript,
         subhead: report.subhead,
         status: report.status,
-        hasVideo: Boolean(report.videoSrc && report.videoSrc !== '#'),
+        hasVideo: Boolean(report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '' && report.reportType !== 'text'),
         originalReport: report
       }));
   }, [team, teamSlug, isAdmin]);
@@ -208,13 +221,16 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
     setIsAiLoading(true);
     setAiAssistanceMode(mode);
 
+    const reportText = report.summary || report.title || 'گزارش فعالیت کارگروه تخصصی باشگاه';
+    const tName = team?.name || 'باشگاه جوانan';
+
     try {
       const res = await fetch('/api/gemini/suggest-improvements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reportText: report.summary || report.title,
-          teamName: team?.name,
+          reportText,
+          teamName: tName,
           tone: mode === 'polish' ? 'official' : mode === 'bullets' ? 'educational' : 'brief',
           mode
         })
@@ -229,36 +245,31 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
         }
       }
 
-      // Local structured template
-      let resultText = '';
-      const tName = team?.name || 'باشگاه جوانان';
-      const cleanSummary = report.summary || 'گزارش رسمی فعالیت کارگروه تخصصی باشگاه.';
-      const cleanTitle = report.title || 'گزارش فعالیت';
-      const keyPts = report.keyPoints || [];
+      // Advanced Persian processor fallback
+      const result = proofreadAndPolishText(reportText, {
+        title: report.title,
+        teamName: tName,
+        tone: mode === 'polish' ? 'official' : mode === 'bullets' ? 'educational' : 'brief'
+      });
 
-      if (mode === 'polish') {
-        resultText = `📝 **متن ویراستاری‌شده و بازنویسی رسمی:**\n\n«${cleanTitle}»\n\nدر چارچوب مأموریت‌های تعالی و توانمندسازی ${tName}، این گزارش فعالیت به شرح زیر تدوین و مستند گردیده است:\n\n${cleanSummary}\n\nاجرای این برنامه با مشارکت پرشور اعضای کارگروه و بهره‌گیری از شیوه‌های نوین آموزشی و تسهیلگری به سرانجام رسید و گامی ارزشمند در راستای ارتقای مهارت‌های جمعی و خودباوری جوانان به شمار می‌رود.`;
-      } else if (mode === 'bullets') {
-        resultText = `🎯 **نکات کلیدی و محورهای استخراج‌شده برای ارائه:**\n\n` +
-          `• عنوان محوری: ${cleanTitle}\n` +
-          `• کارگروه مجری: ${tName}\n` +
-          `• دستاورد اصلی: ${cleanSummary.slice(0, 100)}...\n` +
-          (keyPts.length > 0 
-            ? keyPts.map((k) => `• محور اجرایی: ${k}`).join('\n')
-            : `• تمرکز بر توانمندسازی، اشتراک تجارب و رشد تیمی.`);
+      if (mode === 'bullets') {
+        setAiOutputText(
+          `🎯 **محورها و نکات کلیدی استخراج‌شده (${tName}):**\n\n` +
+          result.keyPoints.map((k) => `• ${k}`).join('\n')
+        );
       } else if (mode === 'summary') {
-        resultText = `⚡ **خلاصه سریع و چکیده اجرایی:**\n\n📌 **${cleanTitle}** (${tName})\n${cleanSummary}\n\n✅ تمامی گزارش‌ها با زیرنویس متنی اختصاصی در سامانه باشگاه جوانان محاش در دسترس علاقه‌مندان قرار دارد.`;
+        setAiOutputText(result.executiveSummary);
       } else if (mode === 'subtitles') {
-        resultText = `🎬 **پیش‌نویس سناریو و دیالوگ‌های زیرنویس هماهنگ:**\n\n` +
-          `1. [00:00 - 00:05] گوینده (مدیر تیم): «سلام و درود به همراهان گرامی مؤسسه محاش. ${cleanTitle} تقدیم نگاه شما می‌شود.»\n` +
-          `2. [00:05 - 00:12] راوی (کارشناس): «در این گزارش، ${cleanSummary.slice(0, 80)}...»\n` +
-          `3. [00:12 - 00:18] عضو تیم: «هدف ما توانمندسازی، یادگیری و هم‌افزایی همه‌جانبه اعضاست.»\n` +
-          `4. [00:18 - 00:22] پیام پایانی: «منتظر گزارش‌ها و دستاوردهای بعدی ${tName} باشید.»`;
+        setAiOutputText(result.subtitleScenario);
+      } else {
+        setAiOutputText(result.polishedText);
       }
-
-      setAiOutputText(resultText);
     } catch (e) {
-      setAiOutputText('خطا در پردازش هوش مصنوعی.');
+      const result = proofreadAndPolishText(reportText, {
+        title: report.title,
+        teamName: tName
+      });
+      setAiOutputText(result.polishedText);
     } finally {
       setIsAiLoading(false);
     }
@@ -403,11 +414,16 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
           {/* Visual Logo Card */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 text-center shadow-xs space-y-4">
             <div className="team-logo-responsive mx-auto rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-md p-1 bg-white dark:bg-slate-800">
-              <ResponsiveImage
+              <ImageLoader
                 src={team.logo || getTeamLogoPlaceholder(team.id, team.name)}
                 fallbackSrc={getTeamLogoPlaceholder(team.id, team.name)}
                 alt={team.name}
+                type="team"
+                rounded="full"
+                aspectRatio="square"
+                showFormatBadge={true}
                 className="w-full h-full object-contain rounded-full img-sharp"
+                containerClassName="w-full h-full rounded-full"
                 priority={true}
               />
             </div>
@@ -478,7 +494,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
                   >
                     <div className="w-5 h-5 rounded-full overflow-hidden bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0">
                       {isCustomImg ? (
-                        <img src={avatarSrc} alt={member} className="w-full h-full object-cover" />
+                        <img loading="lazy" src={avatarSrc} alt={member} className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-[10px]">{avatarSrc || '👤'}</span>
                       )}
@@ -534,13 +550,24 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
                         onClick={() => setOpenReportId(isOpen ? null : item.reportId)}
                         className="w-full text-right p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
                       >
-                        <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                           <span className="px-2.5 py-1 bg-[#173b82] text-white text-xs font-black rounded-full shrink-0">
                             {formatReportNumberDisplay(item.reportNum)}
                           </span>
                           <h3 className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 leading-snug">
                             {item.title}
                           </h3>
+                          {item.hasVideo ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <Film className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                              <span>گزارش ویدیویی</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              <FileText className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                              <span>گزارش مستند / متنی</span>
+                            </span>
+                          )}
                           {isLatest && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">
                               <Sparkles className="w-2.5 h-2.5" />
@@ -638,35 +665,71 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
                           {/* Attachments & Files View */}
                           <ReportAttachmentsView report={report} teamName={team.name} reportTitle={item.title} />
 
-                          {/* Print / Archive Action Bar */}
-                          <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+                          {/* Print / Archive / Version History Action Bar */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                             <span className="text-[11px] text-slate-400">
                               شناسه گزارش: <span className="font-mono">{item.reportId}</span>
                             </span>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               {isAdmin && (
-                                <button
-                                  onClick={() => {
-                                    try {
-                                      sessionStorage.setItem('mahash_admin_preselected_team', teamSlug);
-                                    } catch (e) {}
-                                    onNavigate('admin');
-                                  }}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5 text-[#173b82] dark:text-blue-400" />
-                                  <span>ویرایش در مدیریت</span>
-                                </button>
+                                <>
+                                  {/* Visual 'Version History' toggle (Admin Only) */}
+                                  <button
+                                    onClick={() => setVersionHistoryReportId(versionHistoryReportId === report.id ? null : report.id)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                                      versionHistoryReportId === report.id
+                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                        : 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                    }`}
+                                    title="مشاهده تاریخچه نسخه‌ها و مقایسه در دیتابیس MySQL"
+                                  >
+                                    <History className="w-3.5 h-3.5" />
+                                    <span>تاریخچه نسخه‌ها</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      try {
+                                        sessionStorage.setItem('mahash_admin_preselected_team', teamSlug);
+                                      } catch (e) {}
+                                      onNavigate('admin');
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5 text-[#173b82] dark:text-blue-400" />
+                                    <span>ویرایش در مدیریت</span>
+                                  </button>
+
+                                  <PrintReportButton
+                                    report={report}
+                                    teamName={team.name}
+                                    teamLogo={team.logo}
+                                    managerName={team.manager}
+                                    variant="outline"
+                                  />
+                                </>
                               )}
-                              <PrintReportButton
-                                report={report}
-                                teamName={team.name}
-                                teamLogo={team.logo}
-                                managerName={team.manager}
-                                variant="outline"
-                              />
                             </div>
                           </div>
+
+                          {/* Version History Comparison & Restore Panel (Admin Only) */}
+                          {isAdmin && versionHistoryReportId === report.id && (
+                            <div className="pt-2">
+                              <ReportVersionHistory
+                                report={report}
+                                teamName={team.name}
+                                isAdmin={isAdmin}
+                                onVersionRestored={(restored) => {
+                                  const updated = getTeam(teamSlug);
+                                  setTeam(updated);
+                                }}
+                                onClose={() => setVersionHistoryReportId(null)}
+                              />
+                            </div>
+                          )}
+
+                          {/* Report Comments & Opinions Section */}
+                          <CommentsSection reportId={report.id} isAdmin={isAdmin} />
                         </div>
                       )}
                     </div>
