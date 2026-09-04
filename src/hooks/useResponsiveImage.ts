@@ -173,9 +173,6 @@ export function useResponsiveImage({
       if (!active || !isMountedRef.current) return;
 
       const img = new Image();
-      if (resolvedUrl.startsWith('http://') || resolvedUrl.startsWith('https://')) {
-        img.crossOrigin = 'anonymous';
-      }
       img.decoding = 'async';
       img.src = resolvedUrl;
 

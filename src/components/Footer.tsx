@@ -55,34 +55,45 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </h4>
             <div className="flex flex-col gap-2.5 text-sm text-slate-200">
               <button
+                type="button"
                 onClick={() => onNavigate('home')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="صفحه اصلی باشگاه جوانان محاش"
               >
                 باشگاه جوانان محاش
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('membership')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all font-bold text-[#bde9e4]"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all font-bold text-[#bde9e4] cursor-pointer"
+                aria-label="صفحه عضویت در باشگاه محاش"
               >
                 عضویت در محاش
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('consultation')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="رزرو نوبت مشاوره روانشناسی"
               >
                 رزرو مشاوره روانشناسی
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('teams-hub')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="آشنایی با تیم‌های پنج‌گانه باشگاه"
               >
                 تیم‌های پنج‌گانه باشگاه
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('scores')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer flex items-center gap-1"
+                aria-label="مشاهده جدول امتیازات تیم‌های باشگاه"
               >
-                🏆 امتیازات تیم‌ها
+                <span aria-hidden="true">🏆</span>
+                <span>امتیازات تیم‌ها</span>
               </button>
             </div>
           </div>
@@ -94,32 +105,42 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </h4>
             <div className="flex flex-col gap-2.5 text-sm text-slate-200">
               <button
+                type="button"
                 onClick={() => onNavigate('education')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="بخش آموزش و مهارت‌های زندگی"
               >
                 آموزش و مهارت‌های زندگی
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('rehab')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="بخش توانبخشی و گفتاردرمانی"
               >
                 توانبخشی و گفتاردرمانی
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('employment')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="بخش اشتغال و توانمندسازی شغلی"
               >
                 اشتغال و توانمندسازی شغلی
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('marriage')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="بخش مشاوره و خدمات ازدواج"
               >
                 مشاوره و خدمات ازدواج
               </button>
               <button
+                type="button"
                 onClick={() => onNavigate('social-work')}
-                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all"
+                className="text-right hover:text-[#5eead4] hover:translate-x-[-4px] transition-all cursor-pointer"
+                aria-label="بخش مددکاری اجتماعی"
               >
                 مددکاری اجتماعی
               </button>
@@ -133,23 +154,23 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </h4>
             <div className="flex flex-col gap-3 text-xs text-slate-200">
               <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 text-[#5eead4] shrink-0 mt-0.5" />
+                <MapPin className="w-4 h-4 text-[#5eead4] shrink-0 mt-0.5" aria-hidden="true" />
                 <span>تهران، میدان ولیعصر، بلوار کشاورز، خیابان فلسطین، کوچه ذاکری، پلاک ۵</span>
               </div>
               <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-[#5eead4] shrink-0" />
+                <Phone className="w-4 h-4 text-[#5eead4] shrink-0" aria-hidden="true" />
                 <div className="flex flex-wrap gap-2 text-xs">
-                  <a href="tel:+982188892377" className="hover:text-white font-mono" dir="ltr">021-88892377</a>
-                  <span>/</span>
-                  <a href="tel:+989919834720" className="hover:text-white font-mono" dir="ltr">09919834720</a>
+                  <a href="tel:+982188892377" className="hover:text-white font-mono" dir="ltr" aria-label="تماس با تلفن ثابت: ۰۲۱۸۸۸۹۲۳۷۷">021-88892377</a>
+                  <span aria-hidden="true">/</span>
+                  <a href="tel:+989919834720" className="hover:text-white font-mono" dir="ltr" aria-label="تماس با تلفن همراه: ۰۹۹۱۹۸۳۴۷۲۰">09919834720</a>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-[#5eead4] shrink-0" />
-                <a href="mailto:isihi2001@gmail.com" className="hover:text-white font-mono">isihi2001@gmail.com</a>
+                <Mail className="w-4 h-4 text-[#5eead4] shrink-0" aria-hidden="true" />
+                <a href="mailto:isihi2001@gmail.com" className="hover:text-white font-mono" aria-label="ارسال ایمیل به isihi2001@gmail.com">isihi2001@gmail.com</a>
               </div>
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-[#5eead4] shrink-0" />
+                <Clock className="w-4 h-4 text-[#5eead4] shrink-0" aria-hidden="true" />
                 <span>یکشنبه تا پنجشنبه: ۱۰ الی ۱۸</span>
               </div>
             </div>
@@ -163,14 +184,16 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <p className="m-0">© {new Date().getFullYear()} موسسه محاش | تمامی حقوق محفوظ است.</p>
           <div className="flex items-center gap-3">
             <span className="text-slate-400">موسسه حمایت از افراد با افت شنوایی (تأسیس ۱۳۸۰)</span>
-            <span className="text-white/20">|</span>
+            <span className="text-white/20" aria-hidden="true">|</span>
             <button
+              type="button"
               onClick={() => onNavigate('admin')}
               className="text-[#bde9e4]/70 hover:text-white transition flex items-center gap-1 font-medium cursor-pointer"
-              title="ورود"
+              title="ورود به پنل مدیریت"
+              aria-label={isAdmin ? 'ورود به پنل مدیریت سامانه' : 'ورود به بخش مدیریت'}
             >
-              <span>🔐</span>
-              {isAdmin && <span>پنل مدیریت سامانه</span>}
+              <span aria-hidden="true">🔐</span>
+              {isAdmin ? <span>پنل مدیریت سامانه</span> : <span className="sr-only">ورود مدیریت</span>}
             </button>
           </div>
         </div>

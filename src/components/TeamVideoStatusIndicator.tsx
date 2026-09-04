@@ -76,7 +76,7 @@ export const TeamVideoStatusIndicator: React.FC<TeamVideoStatusIndicatorProps> =
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <Database className="w-3.5 h-3.5 text-emerald-600" />
-          <span className="font-bold">ویدیو از کش پایدار محلی (IndexedDB) بارگذاری شد (پنل مدیریت)</span>
+          <span className="font-bold">ویدیو با موفقیت بارگذاری شد</span>
         </div>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
           {formattedSize && (

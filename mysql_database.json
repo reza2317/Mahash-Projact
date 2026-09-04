@@ -1,42 +1,5 @@
 {
-  "wp_posts": [
-    {
-      "id": "custom-rep-report-1788073726384",
-      "title": "گزارش برنامه‌ریزی و راه‌اندازی اپلیکیشن اختصاصی موسسه محاش برای اولین بار",
-      "content": "در این ویدیو، مدیر موسسه حمایت از افراد با افت شنوایی (محاش) ضمن سلام و قدردانی از همراهان، مژده آغاز پروژه طراحی اپلیکیشن را داد و از مخاطبان خواست تا منتظر خبرهای خوب و تکمیلی در این زمینه باشند.",
-      "status": "publish",
-      "post_type": "report",
-      "team_slug": "team-thinker",
-      "video_url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-      "thumbnail_url": "",
-      "category": "گزارش‌های تخصصی",
-      "date": "8 شهریور 1405"
-    },
-    {
-      "id": "custom-rep-report-1788075814775",
-      "title": "کلیپ انمیشین (رؤیایی یک کافه )",
-      "content": "ویدیو انیمه الهام‌بخش درباره ایمان به رؤیا، تلاش و تبدیل رویا به واقعیت\nهمکاری تیم فرشتگان ناشنوایان و تیم مغز متفکر.",
-      "status": "publish",
-      "post_type": "report",
-      "team_slug": "team-thinker",
-      "video_url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-      "thumbnail_url": "",
-      "category": "گزارش‌های تخصصی",
-      "date": "8 شهریور 1405"
-    },
-    {
-      "id": "custom-rep-report-1788075596598",
-      "title": "پیام ویدیویی:شروع برای همکاری و خبرخوب",
-      "content": "نخستین گزارش مستند تیم مغز متفکر در قالب یک پیام ویدیویی رسمی منتشر شده است. در این گزارش، اعضای تیم با هدف ایجاد ارتباط مؤثر، معرفی مسیر همکاری و اعلام خبرهای خوب پیشِ‌رو، پیام خود را به دیگر تیم‌های باشگاه جوانان محاش منتقل کرده‌اند. این فعالیت نقطه شروع ثبت منظم فعالیت‌های تیم در باشگاه محسوب می‌شود و نشان‌دهنده رویکرد مشارکتی مغز متفکر در شبکه تیم‌های محاش است.",
-      "status": "publish",
-      "post_type": "report",
-      "team_slug": "team-thinker",
-      "video_url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-      "thumbnail_url": "",
-      "category": "گزارش‌های تخصصی",
-      "date": "8 شهریور 1405"
-    }
-  ],
+  "wp_posts": [],
   "wp_posts_media": [
     {
       "id": "media-migrated-1788116730767-gqpgv",
@@ -3127,47 +3090,11 @@
     },
     {
       "id": "media-1788063991932-ls9gc",
-      "filename": "file-1788063115012-791223571.mp4",
+      "filename": "mahash-stable-video.mp4",
       "original_name": "file-1788063115012-791223571.mp4",
       "file_size": 2417035,
       "mime_type": "video/mp4",
-      "url": "/uploads/file-1788063115012-791223571.mp4",
-      "uploaded_at": "2026-08-30T04:26:31.932Z"
-    },
-    {
-      "id": "media-1788063991932-s4tbs",
-      "filename": "file-1788063141877-869516181.mp4",
-      "original_name": "file-1788063141877-869516181.mp4",
-      "file_size": 3961248,
-      "mime_type": "video/mp4",
-      "url": "/uploads/file-1788063141877-869516181.mp4",
-      "uploaded_at": "2026-08-30T04:26:31.932Z"
-    },
-    {
-      "id": "media-1788063991932-1x913",
-      "filename": "file-1788063303183-909070848.mp4",
-      "original_name": "file-1788063303183-909070848.mp4",
-      "file_size": 16735995,
-      "mime_type": "video/mp4",
-      "url": "/uploads/file-1788063303183-909070848.mp4",
-      "uploaded_at": "2026-08-30T04:26:31.932Z"
-    },
-    {
-      "id": "media-1788063991932-lsx6e",
-      "filename": "file-1788063327590-917009814.mp4",
-      "original_name": "file-1788063327590-917009814.mp4",
-      "file_size": 1355587,
-      "mime_type": "video/mp4",
-      "url": "/uploads/file-1788063327590-917009814.mp4",
-      "uploaded_at": "2026-08-30T04:26:31.932Z"
-    },
-    {
-      "id": "media-1788063991932-rpnc5",
-      "filename": "file-1788063352946-218736197.mp4",
-      "original_name": "file-1788063352946-218736197.mp4",
-      "file_size": 6802248,
-      "mime_type": "video/mp4",
-      "url": "/uploads/file-1788063352946-218736197.mp4",
+      "url": "/uploads/mahash-stable-video.mp4",
       "uploaded_at": "2026-08-30T04:26:31.932Z"
     },
     {
@@ -3244,264 +3171,228 @@
     },
     {
       "id": "logo-moteffaker",
-      "filename": "logo-team-thinker.png",
+      "filename": "team-bfc199291c.webp",
       "original_name": "Team Logo (moteffaker)",
       "file_size": 15000,
       "mime_type": "image/png",
-      "url": "/uploads/logo-team-thinker.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "url": "/uploads/team-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:17:04.282Z"
+    },
+    {
+      "id": "media-score-angels-f860e0ad8a.webp",
+      "filename": "score-angels-f860e0ad8a.webp",
+      "original_name": "score-angels-f860e0ad8a.webp",
+      "file_size": 14918,
+      "mime_type": "image/webp",
+      "url": "/uploads/score-angels-f860e0ad8a.webp",
+      "uploaded_at": "2026-09-03T08:24:07.373Z"
+    },
+    {
+      "id": "media-score-ghorbani-e5d14eae40.jpg",
+      "filename": "score-ghorbani-e5d14eae40.jpg",
+      "original_name": "score-ghorbani-e5d14eae40.jpg",
+      "file_size": 65684,
+      "mime_type": "image/jpg",
+      "url": "/uploads/score-ghorbani-e5d14eae40.jpg",
+      "uploaded_at": "2026-09-03T08:24:07.373Z"
+    },
+    {
+      "id": "media-score-silence-dc7429cedc.jpg",
+      "filename": "score-silence-dc7429cedc.jpg",
+      "original_name": "score-silence-dc7429cedc.jpg",
+      "file_size": 45657,
+      "mime_type": "image/jpg",
+      "url": "/uploads/score-silence-dc7429cedc.jpg",
+      "uploaded_at": "2026-09-03T08:24:07.373Z"
+    },
+    {
+      "id": "media-score-tomorrow-7c6a293a14.jpg",
+      "filename": "score-tomorrow-7c6a293a14.jpg",
+      "original_name": "score-tomorrow-7c6a293a14.jpg",
+      "file_size": 26179,
+      "mime_type": "image/jpg",
+      "url": "/uploads/score-tomorrow-7c6a293a14.jpg",
+      "uploaded_at": "2026-09-03T08:24:07.374Z"
+    },
+    {
+      "id": "mahash-logo",
+      "filename": "mahash-96747ecd00.webp",
+      "original_name": "Mahash Logo",
+      "file_size": 25000,
+      "mime_type": "image/png",
+      "url": "/uploads/mahash-96747ecd00.webp",
+      "uploaded_at": "2026-09-04T05:17:04.283Z"
+    },
+    {
+      "id": "media-consultant-01916cb489.webp",
+      "filename": "consultant-01916cb489.webp",
+      "original_name": "consultant-01916cb489.webp",
+      "file_size": 14854,
+      "mime_type": "image/webp",
+      "url": "/uploads/consultant-01916cb489.webp",
+      "uploaded_at": "2026-09-03T08:46:10.812Z"
+    },
+    {
+      "id": "media-consultant-284f763688.webp",
+      "filename": "consultant-284f763688.webp",
+      "original_name": "consultant-284f763688.webp",
+      "file_size": 17592,
+      "mime_type": "image/webp",
+      "url": "/uploads/consultant-284f763688.webp",
+      "uploaded_at": "2026-09-03T08:46:10.812Z"
+    },
+    {
+      "id": "media-file-1788427784887-313094976.mp4",
+      "filename": "file-1788427784887-313094976.mp4",
+      "original_name": "file-1788427784887-313094976.mp4",
+      "file_size": 6802248,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788427784887-313094976.mp4",
+      "uploaded_at": "2026-09-03T09:29:47.492Z"
+    },
+    {
+      "id": "media-mahash-2193c09b41.png",
+      "filename": "emblem-2193c09b41.png",
+      "original_name": "mahash-2193c09b41.png",
+      "file_size": 61394,
+      "mime_type": "image/png",
+      "url": "/uploads/emblem-2193c09b41.png",
+      "uploaded_at": "2026-09-04T03:46:26.283Z"
+    },
+    {
+      "id": "media-consultant-4385004063.png",
+      "filename": "consultant-4385004063.png",
+      "original_name": "consultant-4385004063.png",
+      "file_size": 207850,
+      "mime_type": "image/png",
+      "url": "/uploads/consultant-4385004063.png",
+      "uploaded_at": "2026-09-04T03:46:54.660Z"
+    },
+    {
+      "id": "media-consultant-f513d1c735.png",
+      "filename": "consultant-f513d1c735.png",
+      "original_name": "consultant-f513d1c735.png",
+      "file_size": 205146,
+      "mime_type": "image/png",
+      "url": "/uploads/consultant-f513d1c735.png",
+      "uploaded_at": "2026-09-04T03:47:04.565Z"
+    },
+    {
+      "id": "club-emblem",
+      "filename": "emblem-96747ecd00.webp",
+      "original_name": "Club Emblem",
+      "file_size": 25000,
+      "mime_type": "image/png",
+      "url": "/uploads/emblem-96747ecd00.webp",
+      "uploaded_at": "2026-09-04T05:17:04.283Z"
+    },
+    {
+      "id": "media-score-thinker-bfc199291c.webp",
+      "filename": "score-thinker-bfc199291c.webp",
+      "original_name": "score-thinker-bfc199291c.webp",
+      "file_size": 37430,
+      "mime_type": "image/webp",
+      "url": "/uploads/score-thinker-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:09:38.935Z"
+    },
+    {
+      "id": "logo-team-thinker",
+      "filename": "team-bfc199291c.webp",
+      "original_name": "Team Logo (team-thinker)",
+      "file_size": 15000,
+      "mime_type": "image/png",
+      "url": "/uploads/team-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:17:04.282Z"
+    },
+    {
+      "id": "logo-thinker",
+      "filename": "team-bfc199291c.webp",
+      "original_name": "Team Logo (thinker)",
+      "file_size": 15000,
+      "mime_type": "image/png",
+      "url": "/uploads/team-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:17:04.282Z"
     },
     {
       "id": "logo-team-moteffaker",
-      "filename": "logo-team-thinker.png",
+      "filename": "team-bfc199291c.webp",
       "original_name": "Team Logo (team-moteffaker)",
       "file_size": 15000,
       "mime_type": "image/png",
-      "url": "/uploads/logo-team-thinker.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "url": "/uploads/team-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:17:04.282Z"
     },
     {
       "id": "logo-مغز متفکر",
-      "filename": "logo-team-thinker.png",
+      "filename": "team-bfc199291c.webp",
       "original_name": "Team Logo (مغز متفکر)",
       "file_size": 15000,
       "mime_type": "image/png",
-      "url": "/uploads/logo-team-thinker.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "url": "/uploads/team-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:17:04.283Z"
     },
     {
       "id": "logo-اهل تفکر",
-      "filename": "logo-team-thinker.png",
+      "filename": "team-bfc199291c.webp",
       "original_name": "Team Logo (اهل تفکر)",
       "file_size": 15000,
       "mime_type": "image/png",
-      "url": "/uploads/logo-team-thinker.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "url": "/uploads/team-bfc199291c.webp",
+      "uploaded_at": "2026-09-04T05:17:04.283Z"
     },
     {
-      "id": "logo-farda",
-      "filename": "logo-team-tomorrow.jpg",
-      "original_name": "Team Logo (farda)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-tomorrow.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "id": "media-file-1788063115012-791223571.mp4",
+      "filename": "file-1788063115012-791223571.mp4",
+      "original_name": "file-1788063115012-791223571.mp4",
+      "file_size": 1128375,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788063115012-791223571.mp4",
+      "uploaded_at": "2026-09-04T05:15:12.926Z"
     },
     {
-      "id": "logo-team-farda",
-      "filename": "logo-team-tomorrow.jpg",
-      "original_name": "Team Logo (team-farda)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-tomorrow.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "id": "media-file-1788063141877-869516181.mp4",
+      "filename": "file-1788063141877-869516181.mp4",
+      "original_name": "file-1788063141877-869516181.mp4",
+      "file_size": 1128375,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788063141877-869516181.mp4",
+      "uploaded_at": "2026-09-04T05:15:12.926Z"
     },
     {
-      "id": "logo-سازندگان فردا",
-      "filename": "logo-team-tomorrow.jpg",
-      "original_name": "Team Logo (سازندگان فردا)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-tomorrow.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "id": "media-file-1788063303183-909070848.mp4",
+      "filename": "file-1788063303183-909070848.mp4",
+      "original_name": "file-1788063303183-909070848.mp4",
+      "file_size": 1128375,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788063303183-909070848.mp4",
+      "uploaded_at": "2026-09-04T05:15:12.927Z"
     },
     {
-      "id": "logo-باشگاه فردا",
-      "filename": "logo-team-tomorrow.jpg",
-      "original_name": "Team Logo (باشگاه فردا)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-tomorrow.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "id": "media-file-1788063327590-917009814.mp4",
+      "filename": "file-1788063327590-917009814.mp4",
+      "original_name": "file-1788063327590-917009814.mp4",
+      "file_size": 1128375,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788063327590-917009814.mp4",
+      "uploaded_at": "2026-09-04T05:15:12.927Z"
     },
     {
-      "id": "logo-fereshtegan",
-      "filename": "logo-team-angels.png",
-      "original_name": "Team Logo (fereshtegan)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-angels.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
+      "id": "media-file-1788063352946-218736197.mp4",
+      "filename": "file-1788063352946-218736197.mp4",
+      "original_name": "file-1788063352946-218736197.mp4",
+      "file_size": 1128375,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788063352946-218736197.mp4",
+      "uploaded_at": "2026-09-04T05:15:12.927Z"
     },
     {
-      "id": "logo-fereshteha",
-      "filename": "logo-team-angels.png",
-      "original_name": "Team Logo (fereshteha)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-angels.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
-    },
-    {
-      "id": "logo-team-fereshtegan",
-      "filename": "logo-team-angels.png",
-      "original_name": "Team Logo (team-fereshtegan)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-angels.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
-    },
-    {
-      "id": "logo-فرشتگان",
-      "filename": "logo-team-angels.png",
-      "original_name": "Team Logo (فرشتگان)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-angels.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
-    },
-    {
-      "id": "logo-تیم فرشتگان ناشنوایان",
-      "filename": "logo-team-angels.png",
-      "original_name": "Team Logo (تیم فرشتگان ناشنوایان)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-angels.png",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
-    },
-    {
-      "id": "logo-ghorbanikhani",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (ghorbanikhani)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.095Z"
-    },
-    {
-      "id": "logo-ghorbooni",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (ghorbooni)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-khadem",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (khadem)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-khademoshohada",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (khademoshohada)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-team-khadem",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (team-khadem)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-قربانی",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (قربانی)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-قربونی",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (قربونی)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-تیم خادم الشهدا",
-      "filename": "logo-team-ghorbani.jpg",
-      "original_name": "Team Logo (تیم خادم الشهدا)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-ghorbani.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-yavaran",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (yavaran)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-sokoot",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (sokoot)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-avaye-sokoot",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (avaye-sokoot)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-team-yavaran",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (team-yavaran)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-سکوت",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (سکوت)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-آوای سکوت",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (آوای سکوت)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-تیم آوای سکوت",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (تیم آوای سکوت)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
-    },
-    {
-      "id": "logo-یاوران سکوت",
-      "filename": "logo-team-silence.jpg",
-      "original_name": "Team Logo (یاوران سکوت)",
-      "file_size": 15000,
-      "mime_type": "image/png",
-      "url": "/uploads/logo-team-silence.jpg",
-      "uploaded_at": "2026-08-30T19:05:33.096Z"
+      "id": "media-file-1788194454093-106622230.mp4",
+      "filename": "file-1788194454093-106622230.mp4",
+      "original_name": "file-1788194454093-106622230.mp4",
+      "file_size": 1128375,
+      "mime_type": "video/mp4",
+      "url": "/uploads/file-1788194454093-106622230.mp4",
+      "uploaded_at": "2026-09-04T05:15:12.927Z"
     }
   ],
   "wp_comments": [
@@ -3512,6 +3403,140 @@
       "content": "گزارش بسیار عالی و جامع بود. خسته نباشید.",
       "date": "2026-08-30T04:05:13.701Z",
       "status": "approved"
+    }
+  ],
+  "wp_trash": [
+    {
+      "id": "trash-1788498491777",
+      "original_id": "custom-rep-tomorrow-03",
+      "title": "ویدیو آموزشی خودمراقبتی با زیرنویس فارسی",
+      "content": "سومین گزارش تیم باشگاه فردا یک ویدیو آموزشی کاربردی با موضوع «خودمراقبتی» است که بر سلامت جسم و روان و مدیریت استرس جوانان ناشنوا و کم‌شنوا تمرکز دارد.",
+      "post_type": "report",
+      "team_slug": "team-tomorrow",
+      "video_url": "/uploads/file-1788063115012-791223571.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:08:11.777Z"
+    },
+    {
+      "id": "trash-1788498486022",
+      "original_id": "custom-rep-report-1788414281564",
+      "title": "پیام ویدیویی، شروعی برای همکاری و خبرهای خوب",
+      "content": "نخستین گزارش رسمی تیم مغز متفکر در قالب یک پیام ویدیویی کوتاه منتشر شد. در این ویدیو، آغاز پروژه طراحی انیمیشن و دعوت به همکاری میان کلیه تیم‌های باشگاه جوانان محاش با پیام مشترک رشد همگانی و منتظر خبرهای خوب اعلام شده است.",
+      "post_type": "report",
+      "team_slug": "team-thinker",
+      "video_url": "/uploads/file-1788194454093-106622230.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:08:06.022Z"
+    },
+    {
+      "id": "trash-1788498480750",
+      "original_id": "custom-rep-report-1788414757247",
+      "title": "ویدیو انیمه \"رویایی یک کافه\"(همکاری مشترک با تیم فرشتگان ناشنوایان)",
+      "content": "ویدیو انیمه انگیزشـی و داستانی با موضوع ایمان به رویاها، مواجهه با چالش‌ها و پشتکار برای راه‌اندازی کافه رویایی — تولید شده با همکاری مشترک تیم‌های «فرشتگان ناشنوایان» و «مغز متفکر».",
+      "post_type": "report",
+      "team_slug": "team-thinker",
+      "video_url": "/uploads/file-1788063352946-218736197.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:08:00.750Z"
+    },
+    {
+      "id": "trash-1788498478013",
+      "original_id": "custom-rep-report-1788415821547",
+      "title": "معرفی اعضای پرانرژی و هنرمند تیم فرشتگان ناشنوایان، تجلی خودباوری و نشاط جمعی",
+      "content": "در این گزارش ویدیویی صمیمانه و پرانرژی، اعضای پرتلاش تیم فرشتگان ناشنوایان با در دست داشتن کاراکترها و طرح‌های چهره اختصاصی خود، به معرفی فردی، بیان ویژگی‌های مثبت شخصیتی، استعدادها و علایق خود می‌پردازند.",
+      "post_type": "report",
+      "team_slug": "team-angels",
+      "video_url": "/uploads/file-1788063303183-909070848.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:58.013Z"
+    },
+    {
+      "id": "trash-1788498470726",
+      "original_id": "custom-rep-report-1788380971690",
+      "title": "گزارش برنامه‌ریزی و راه‌اندازی اپلیکیشن اختصاصی موسسه محاش",
+      "content": "در این ویدیو، مدیر موسسه حمایت از افراد با افت شنوایی (محاش) ضمن سلام و قدردانی از همراهان، مژده آغاز پروژه طراحی اپلیکیشن را داد و از مخاطبان خواست تا منتظر خبرهای خوب و تکمیلی در این زمینه باشند.",
+      "post_type": "report",
+      "team_slug": "team-thinker",
+      "video_url": "/uploads/file-1788432339777-803065269.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:50.726Z"
+    },
+    {
+      "id": "trash-1788498468375",
+      "original_id": "custom-rep-thinker-01",
+      "title": "پیام ویدیویی؛ شروعی برای همکاری و خبرهای خوب",
+      "content": "نخستین گزارش رسمی تیم مغز متفکر در قالب یک پیام ویدیویی کوتاه منتشر شد. در این ویدیو، آغاز پروژه طراحی انیمیشن و دعوت به همکاری میان کلیه تیم‌های باشگاه جوانان محاش با پیام مشترک رشد همگانی و منتظر خبرهای خوب اعلام شده است.",
+      "post_type": "report",
+      "team_slug": "team-thinker",
+      "video_url": "/uploads/file-1788063327590-917009814.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:48.375Z"
+    },
+    {
+      "id": "trash-1788498465482",
+      "original_id": "custom-rep-thinker-02",
+      "title": "ویدیو انیمه «رؤیای یک کافه» (همکاری مشترک با فرشتگان ناشنوایان)",
+      "content": "ویدیو انیمه انگیزشـی و داستانی با موضوع ایمان به رویاها، مواجهه با چالش‌ها و پشتکار برای راه‌اندازی کافه رویایی — تولید شده با همکاری مشترک تیم‌های «فرشتگان ناشنوایان» و «مغز متفکر».",
+      "post_type": "report",
+      "team_slug": "team-thinker",
+      "video_url": "/uploads/file-1788063352946-218736197.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:45.483Z"
+    },
+    {
+      "id": "trash-1788498464046",
+      "original_id": "custom-rep-report-1788415621673",
+      "title": "پیام ویدویی انگیرشی \"رویایی کافه\"(پروژه مشترک)",
+      "content": "گزارش ویدیویی انگیزشی با موضوع باور به هدف‌ها، پشتکار و ایستادگی در برابر چالش‌ها برای رسیدن به موفقیت — اجرا شده با همکاری تیم فرشتگان ناشنوایان و تیم مغز متفکر.",
+      "post_type": "report",
+      "team_slug": "team-angels",
+      "video_url": "/uploads/file-1788063352946-218736197.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:44.046Z"
+    },
+    {
+      "id": "trash-1788498458397",
+      "original_id": "custom-rep-report-1788415737865",
+      "title": "مسیر یک رویا، از اشتیاق کودکی تا فتح سکوی قهرمانی",
+      "content": "روایتی انگیزشی و عمیق از سیر تحول یک قهرمان؛ داستانی که نشان می‌دهد موفقیت سهم کسانی است که از شکست‌ها درس می‌گیرند، با پشتکار و تمرینات سخت ادامه می‌دهند و رؤیاهای کودکی خود را به حقیقت تبدیل می‌کنند.",
+      "post_type": "report",
+      "team_slug": "team-angels",
+      "video_url": "/uploads/file-1788063141877-869516181.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:38.397Z"
+    },
+    {
+      "id": "trash-1788498450312",
+      "original_id": "custom-rep-angels-01",
+      "title": "پیام ویدیویی انگیزشی «رؤیای یک کافه» (پروژه مشترک)",
+      "content": "گزارش ویدیویی انگیزشی با موضوع باور به هدف‌ها، پشتکار و ایستادگی در برابر چالش‌ها برای رسیدن به موفقیت — اجرا شده با همکاری تیم فرشتگان ناشنوایان و تیم مغز متفکر.",
+      "post_type": "report",
+      "team_slug": "team-angels",
+      "video_url": "/uploads/file-1788063352946-218736197.mp4",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:30.312Z"
+    },
+    {
+      "id": "trash-1788498435491",
+      "original_id": "custom-rep-tomorrow-02",
+      "title": "اینفوگرافی تمام ۶ جلسه آموزشی و تیمی",
+      "content": "گزارش تصویری گام‌به‌گام از جلسات برگزارشده باشگاه فردا شامل آشنایی اولیه، کار تیمی، خودمراقبتی و جمع‌بندی آموخته‌ها.",
+      "post_type": "report",
+      "team_slug": "team-tomorrow",
+      "video_url": "",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:15.491Z"
+    },
+    {
+      "id": "trash-1788498428090",
+      "original_id": "custom-rep-tomorrow-01",
+      "title": "گزارش کامل فعالیت‌ها (فایل سند مستند)",
+      "content": "نخستین گزارش رسمی تیم باشگاه فردا در قالب یک سند کامل منتشر شده است. این سند شامل خلاصه مسیر تشکیل تیم، اهداف آموزشی و توانمندسازی، چارچوب ۶ جلسه برگزارشده و دستاوردهای اعضا است.",
+      "post_type": "report",
+      "team_slug": "team-tomorrow",
+      "video_url": "",
+      "thumbnail_url": "",
+      "deleted_at": "2026-09-04T05:07:08.090Z"
     }
   ],
   "wp_options": {

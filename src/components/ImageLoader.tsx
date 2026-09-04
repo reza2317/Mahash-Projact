@@ -58,6 +58,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
     normalizedSrc &&
       (normalizedSrc.startsWith('data:') ||
         normalizedSrc.startsWith('blob:') ||
+        normalizedSrc.startsWith('<svg') ||
         normalizedSrc.startsWith('/'))
   );
 
@@ -72,7 +73,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
 
   const [isLoaded, setIsLoaded] = useState<boolean>(isInitiallyCached || priority);
   const [hasError, setHasError] = useState<boolean>(false);
-  const [isInView, setIsInView] = useState<boolean>(priority || isInitiallyCached);
+  const [isInView, setIsInView] = useState<boolean>(priority || isInitiallyCached || isDataOrBlob);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync when src or fallback changes
@@ -99,6 +100,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
     if (isDataOrBlob) {
       memoryImageCache.set(normalizedSrc, normalizedSrc);
       setIsLoaded(true);
+      setIsInView(true);
     } else if (!priority) {
       setIsLoaded(false);
     }
@@ -141,9 +143,6 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
 
     let isMounted = true;
     const img = new Image();
-    if (normalizedSrc.startsWith('http://') || normalizedSrc.startsWith('https://')) {
-      img.crossOrigin = 'anonymous';
-    }
     img.decoding = 'async';
     img.src = normalizedWebp || normalizedSrc;
 
@@ -158,10 +157,11 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
 
     img.onerror = () => {
       if (!isMounted) return;
-      setHasError(true);
-      if (normalizedFallback) {
+      if (normalizedFallback && currentSrc !== normalizedFallback) {
         setCurrentSrc(normalizedFallback);
         setIsLoaded(true);
+      } else {
+        setHasError(true);
       }
       onImageError?.();
     };
@@ -169,7 +169,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isInView, normalizedSrc, normalizedWebp, normalizedFallback, isDataOrBlob, onImageLoad, onImageError]);
+  }, [isInView, normalizedSrc, normalizedWebp, normalizedFallback, currentSrc, isDataOrBlob, onImageLoad, onImageError]);
 
   const aspectClass =
     aspectRatio === 'square'
@@ -236,6 +236,25 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
             className={`transition-opacity duration-300 ${
               isLoaded ? 'opacity-100' : 'opacity-0'
             } ${className}`}
+            onLoad={(e) => {
+              if (normalizedSrc && currentSrc) {
+                memoryImageCache.set(normalizedSrc, currentSrc);
+              }
+              setIsLoaded(true);
+              setHasError(false);
+              onImageLoad?.();
+              imgProps.onLoad?.(e);
+            }}
+            onError={(e) => {
+              if (normalizedFallback && currentSrc !== normalizedFallback) {
+                setCurrentSrc(normalizedFallback);
+                setIsLoaded(true);
+              } else {
+                setHasError(true);
+              }
+              onImageError?.();
+              imgProps.onError?.(e);
+            }}
             {...imgProps}
           />
         </picture>

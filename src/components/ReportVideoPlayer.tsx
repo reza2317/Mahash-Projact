@@ -58,13 +58,9 @@ interface ReportVideoPlayerProps {
 export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
   report,
   teamName,
-  teamSlug = 'default',
-  onNavigateToAdmin
+  teamSlug = 'default'
 }) => {
   const isAdmin = isAdminAuthenticated();
-
-  // Removed hardcoded restriction so Report 2 in Team Thinker is open and playable for all public users
-  const isRestrictedToAdmin = false;
 
   // Local state for transcript / subtitles to allow real-time AI updates
   const [currentTranscript, setCurrentTranscript] = useState(report.transcript || []);
@@ -121,7 +117,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
     setVideoFit,
     setShowSubtitles,
     toggleFullscreen,
-    retryLoad
+    retryLoad,
+    retryWithProxy,
+    restoreStableVideo
   } = useIsolatedTeamVideo({
     teamSlug,
     teamName,
@@ -143,8 +141,6 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
   // Keyboard shortcuts (Escape, F, Space, Arrow keys)
   useEffect(() => {
-    if (isRestrictedToAdmin) return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isFullscreen) {
         toggleFullscreen();
@@ -166,7 +162,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen, toggleFullscreen, togglePlay, volume, changeVolume, isRestrictedToAdmin]);
+  }, [isFullscreen, toggleFullscreen, togglePlay, volume, changeVolume]);
 
   // Lock body scroll during fullscreen
   useEffect(() => {
@@ -314,46 +310,6 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
   const scenes = currentTranscript;
 
-  // If this is Team Thinker Report 2 and user is NOT an admin, display the admin restriction box
-  if (isRestrictedToAdmin) {
-    return (
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-xl">
-        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mx-auto flex items-center justify-center shadow-inner">
-          <Lock className="w-8 h-8" />
-        </div>
-        <div className="space-y-2 max-w-md mx-auto">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-400/10 text-amber-300 border border-amber-400/20 rounded-full text-xs font-bold">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            ویژه پنل مدیریت باشگاه
-          </span>
-          <h3 className="text-lg font-black text-white">
-            پخش رسمی ویدیوی {report.reportNum} ({teamName})
-          </h3>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            کادر پخش رسمی ویدیوی گزارش ۲ (تیم مغز متفکر) برای عموم غیرفعال است و دسترسی به آن تنها پس از ورود به پنل مدیریت امکان‌پذیر می‌باشد.
-          </p>
-        </div>
-
-        <div className="pt-2 flex justify-center">
-          <button
-            onClick={() => {
-              if (onNavigateToAdmin) {
-                onNavigateToAdmin();
-              } else {
-                window.location.hash = '#admin';
-                window.dispatchEvent(new HashChangeEvent('hashchange'));
-              }
-            }}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-bold text-xs shadow-lg transition cursor-pointer"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>ورود به پنل مدیریت برای مشاهده ویدیو</span>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
       {/* 1. Precise Loading / Cache / Error Status Indicator on Top of Video */}
@@ -389,34 +345,31 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             {isFullscreen ? (
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleFullscreen();
                 }}
                 className="px-2.5 py-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-lg cursor-pointer"
                 title="خروج از حالت تمام‌صفحه"
+                aria-label="خروج از حالت تمام‌صفحه ویدیو"
               >
-                <Minimize2 className="w-3.5 h-3.5" />
+                <Minimize2 className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>خروج از تمام‌صفحه</span>
               </button>
             ) : (
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" aria-hidden="true" />
             )}
             <span className="text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 drop-shadow truncate">
-              <Film className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden xs:inline" />
+              <Film className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden xs:inline" aria-hidden="true" />
               <span className="truncate">{report.title}</span>
             </span>
-            {isAdmin && (
-              <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-amber-400" />
-                <span className="hidden sm:inline">دسترسی ادمین</span>
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* Direct Share Button in Top Bar */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 handleDirectShare();
@@ -427,13 +380,15 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   : 'bg-black/60 border-white/20 text-slate-300 hover:text-white hover:bg-black/80'
               }`}
               title="اشتراک‌گذاری مستقیم لینک ویدیو"
+              aria-label="اشتراک‌گذاری مستقیم پیوند ویدیو"
             >
-              {copiedShareLink ? <Check className="w-3 h-3 text-white" /> : <Share2 className="w-3 h-3" />}
+              {copiedShareLink ? <Check className="w-3 h-3 text-white" aria-hidden="true" /> : <Share2 className="w-3 h-3" aria-hidden="true" />}
               <span>{copiedShareLink ? 'لینک کپی شد' : 'اشتراک'}</span>
             </button>
 
             {/* Aspect / Full Screen Zoom Toggle Button */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setVideoFit((prev) => (prev === 'contain' ? 'cover' : 'contain'));
@@ -444,25 +399,28 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   : 'bg-black/60 border-white/20 text-slate-300 hover:text-white'
               }`}
               title="تغییر نحوه نمایش و کادربندی ویدیو"
+              aria-label={`تغییر کادربندی ویدیو (حالت فعلی: ${videoFit === 'cover' ? 'پوشش کامل' : 'تناسب استاندارد'})`}
             >
-              <Scaling className="w-3 h-3" />
+              <Scaling className="w-3 h-3" aria-hidden="true" />
               <span className="hidden sm:inline">{videoFit === 'cover' ? 'پوشش ۱۰۰٪' : 'تناسب استاندارد'}</span>
             </button>
 
             {/* Direct Fullscreen Button */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 toggleFullscreen();
               }}
               className="p-1 sm:p-1.5 bg-black/60 hover:bg-black/90 text-white rounded-lg border border-white/20 transition cursor-pointer"
               title={isFullscreen ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه (F)'}
+              aria-label={isFullscreen ? 'خروج از حالت تمام‌صفحه ویدیو' : 'نمایش تمام‌صفحه ویدیو'}
             >
-              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" aria-hidden="true" /> : <Maximize2 className="w-3.5 h-3.5" aria-hidden="true" />}
             </button>
 
-            <span className="text-[9px] sm:text-[10px] text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-bold hidden xs:flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="text-[9px] sm:text-[10px] text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-bold hidden xs:flex items-center gap-1" aria-label={`کیفیت ویدیو ${quality}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
               <span>{quality}</span>
             </span>
 
@@ -470,8 +428,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             <span
               className="text-[9px] sm:text-[10px] text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30 font-bold hidden sm:flex items-center gap-1 shadow-sm"
               title="تعداد بازدیدهای این گزارش و ویدیو"
+              aria-label={`تعداد ${toPersianDigits(viewCount)} بازدید ثبت شده`}
             >
-              <Eye className="w-3 h-3 text-sky-400" />
+              <Eye className="w-3 h-3 text-sky-400" aria-hidden="true" />
               <span>{toPersianDigits(viewCount)} بازدید</span>
             </span>
           </div>
@@ -489,7 +448,6 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               ref={videoRef}
               id={domId}
               key={effectiveVideoSrc}
-              src={effectiveVideoSrc}
               poster={report.posterSrc}
               className={`block select-none pointer-events-none transition-all ${
                 isFullscreen
@@ -504,6 +462,20 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               preload="metadata"
               crossOrigin="anonymous"
             >
+              {/* Primary format source */}
+              <source
+                src={effectiveVideoSrc}
+                type={effectiveVideoSrc.endsWith('.webm') ? 'video/webm' : 'video/mp4'}
+              />
+              {/* Fallback format source (WebM / MP4) */}
+              {effectiveVideoSrc.endsWith('.mp4') && (
+                <source src={effectiveVideoSrc.replace(/\.mp4$/i, '.webm')} type="video/webm" />
+              )}
+              {effectiveVideoSrc.endsWith('.webm') && (
+                <source src={effectiveVideoSrc.replace(/\.webm$/i, '.mp4')} type="video/mp4" />
+              )}
+              {/* Fail-safe high-availability stable video */}
+              <source src="/uploads/mahash-stable-video.mp4" type="video/mp4" />
               {(vttBlobUrl || report.vttUrl) && (
                 <track
                   kind="subtitles"
@@ -555,10 +527,10 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             </div>
           )}
 
-          {/* Playback Error Overlay with clear diagnostic UI */}
+          {/* Playback Error Overlay with clear diagnostic & recovery UI */}
           {status === 'error' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 text-white z-25 p-5 text-center gap-3.5 backdrop-blur-sm">
-              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500 shadow-lg">
                 <AlertTriangle className="w-6 h-6 animate-pulse" />
               </div>
               <div className="space-y-1 max-w-md">
@@ -566,21 +538,47 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   عدم امکان پخش فایل ویدیویی
                 </h4>
                 <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
-                  {errorMessage || 'فایل ویدیویی در دسترس نیست، مخدوش شده یا فرمت آن توسط مرورگر پشتیبانی نمی‌شود.'}
+                  {errorMessage || 'فایل ویدیویی روی هاست موقت منقضی شده یا دسترسی به سرور با اختلال مواجه شده است.'}
                 </p>
               </div>
               
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1 max-w-lg">
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    retryLoad();
+                    retryLoad(true);
                   }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:scale-105 active:scale-95"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>تلاش مجدد خودکار</span>
+                  <span>تلاش مجدد اتصال</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    retryWithProxy();
+                  }}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                  aria-label="تلاش برای پخش از طریق پروکسی استریم سرور"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>پخش از پروکسی استریم سرور</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    restoreStableVideo();
+                  }}
+                  className="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                  aria-label="بازیابی و بارگذاری فایل ویدیوی پایدار رسمی"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
+                  <span>بازیابی ویدیوی پایدار</span>
                 </button>
               </div>
             </div>
@@ -590,13 +588,15 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
           {!isPlaying && !isLoadingResource && status !== 'error' && effectiveVideoSrc && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] transition-all z-20">
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   togglePlay();
                 }}
                 className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-blue-600/95 hover:bg-blue-500 text-white flex items-center justify-center shadow-2xl transition transform hover:scale-110 cursor-pointer ring-4 ring-white/30"
+                aria-label="شروع پخش ویدیو"
               >
-                <Play className="w-7 h-7 sm:w-10 sm:h-10 ml-0.5 sm:ml-1 fill-current" />
+                <Play className="w-7 h-7 sm:w-10 sm:h-10 ml-0.5 sm:ml-1 fill-current" aria-hidden="true" />
               </button>
             </div>
           )}
@@ -604,7 +604,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
           {/* Dynamic Synchronized Subtitles Overlay */}
           {showSubtitles && activeScene && (
             <div className={`absolute ${isFullscreen ? 'bottom-16 sm:bottom-20' : 'bottom-12 sm:bottom-16'} inset-x-2 sm:inset-x-4 pointer-events-none text-center z-20`}>
-              <div className="inline-block bg-black/85 text-white text-[11px] sm:text-sm md:text-base font-bold px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-xl sm:rounded-2xl border border-white/20 backdrop-blur-md shadow-2xl leading-snug sm:leading-relaxed max-w-xl animate-fadeIn">
+              <div className="inline-block bg-black/85 text-white text-[11px] sm:text-sm md:text-base font-bold px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-xl sm:rounded-2xl border border-white/20 backdrop-blur-md shadow-2xl leading-snug sm:leading-relaxed max-w-xl animate-fadeIn" role="status" aria-live="polite">
                 «{activeScene.text}»
               </div>
             </div>
@@ -618,6 +618,8 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
           } bg-gradient-to-t from-black/95 via-black/80 to-transparent space-y-1.5 sm:space-y-2 transition-opacity duration-300 ${
             isHovered || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
+          role="region"
+          aria-label="کنترل‌های پخش ویدیو"
         >
           {/* Progress Timeline Slider */}
           <div className="flex items-center gap-2 group/timeline">
@@ -629,6 +631,11 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               value={currentTime}
               onChange={(e) => seek(parseFloat(e.target.value))}
               className="w-full h-1.5 sm:h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:h-2.5 transition-all"
+              aria-label="نوار پیشرفت زمان پخش ویدیو"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(duration || 20)}
+              aria-valuenow={Math.round(currentTime)}
+              aria-valuetext={`${formatTime(currentTime)} از ${formatTime(duration || 20)}`}
             />
           </div>
 
@@ -637,47 +644,60 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             {/* Left Controls: Play, Skip, Volume, Time */}
             <div className="flex items-center gap-1.5 sm:gap-2.5">
               <button
+                type="button"
                 onClick={togglePlay}
                 className="p-1.5 sm:p-2 bg-white/10 hover:bg-white/20 rounded-lg sm:rounded-xl transition cursor-pointer text-white"
                 title={isPlaying ? 'توقف' : 'پخش'}
+                aria-label={isPlaying ? 'توقف پخش ویدیو' : 'پخش ویدیو'}
+                aria-pressed={isPlaying}
               >
-                {isPlaying ? <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                {isPlaying ? <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" /> : <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" aria-hidden="true" />}
               </button>
 
               <button
+                type="button"
                 onClick={() => skipSeconds(-5)}
                 className="p-1 sm:p-1.5 hover:bg-white/10 rounded-lg transition cursor-pointer text-slate-300 hover:text-white hidden xs:flex"
                 title="۵ ثانیه قبل"
+                aria-label="۵ ثانیه عقب رفتن در ویدیو"
               >
-                <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" />
               </button>
 
               <button
+                type="button"
                 onClick={() => skipSeconds(5)}
                 className="p-1 sm:p-1.5 hover:bg-white/10 rounded-lg transition cursor-pointer text-slate-300 hover:text-white hidden xs:flex"
                 title="۵ ثانیه بعد"
+                aria-label="۵ ثانیه جلو رفتن در ویدیو"
               >
-                <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" />
               </button>
 
               <button
+                type="button"
                 onClick={() => seek(0)}
                 className="p-1 sm:p-1.5 hover:bg-white/10 rounded-lg transition cursor-pointer text-slate-400 hover:text-white hidden md:flex"
                 title="شروع مجدد از ابتدا"
+                aria-label="شروع مجدد ویدیو از ابتدا"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
 
               {/* Volume Control */}
               <div className="hidden sm:flex items-center gap-1.5 group/vol">
                 <button
+                  type="button"
                   onClick={toggleMute}
                   className="p-1.5 hover:bg-white/10 rounded-lg transition cursor-pointer text-slate-300 hover:text-white"
+                  aria-label={isMuted || volume === 0 ? 'فعال کردن صدای ویدیو' : 'بی‌صدا کردن ویدیو'}
+                  title={isMuted ? 'فعال کردن صدا' : 'بی‌صدا'}
+                  aria-pressed={isMuted}
                 >
                   {isMuted || volume === 0 ? (
-                    <VolumeX className="w-4 h-4 text-rose-400" />
+                    <VolumeX className="w-4 h-4 text-rose-400" aria-hidden="true" />
                   ) : (
-                    <Volume2 className="w-4 h-4" />
+                    <Volume2 className="w-4 h-4" aria-hidden="true" />
                   )}
                 </button>
                 <input
@@ -688,13 +708,18 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   value={isMuted ? 0 : volume}
                   onChange={(e) => changeVolume(parseFloat(e.target.value))}
                   className="w-12 sm:w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                  aria-label="میزان بلندی صدای ویدیو"
+                  aria-valuenow={Math.round((isMuted ? 0 : volume) * 100)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuetext={`${Math.round((isMuted ? 0 : volume) * 100)} درصد`}
                 />
               </div>
 
               {/* Time display */}
-              <div className="text-[10px] sm:text-[11px] text-slate-300 font-mono pr-0.5">
+              <div className="text-[10px] sm:text-[11px] text-slate-300 font-mono pr-0.5" aria-label={`زمان سپری‌شده: ${formatTime(currentTime)} از ${formatTime(duration || 20)}`}>
                 <span>{formatTime(currentTime)}</span>
-                <span className="mx-0.5 sm:mx-1 text-slate-500">/</span>
+                <span className="mx-0.5 sm:mx-1 text-slate-500" aria-hidden="true">/</span>
                 <span>{formatTime(duration || 20)}</span>
               </div>
             </div>
@@ -704,6 +729,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               {/* Subtitles Toggle */}
               {scenes.length > 0 && (
                 <button
+                  type="button"
                   onClick={() => setShowSubtitles(!showSubtitles)}
                   className={`px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
                     showSubtitles
@@ -711,8 +737,10 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                       : 'text-slate-400 hover:text-white bg-white/5'
                   }`}
                   title={showSubtitles ? 'خاموش کردن زیرنویس فارسی' : 'فعال‌سازی زیرنویس فارسی'}
+                  aria-label={showSubtitles ? 'خاموش کردن زیرنویس هماهنگ برای ناشنوایان' : 'فعال‌سازی زیرنویس هماهنگ برای ناشنوایان'}
+                  aria-pressed={showSubtitles}
                 >
-                  <Subtitles className="w-3.5 h-3.5" />
+                  <Subtitles className="w-3.5 h-3.5" aria-hidden="true" />
                   <span className="hidden md:inline">{showSubtitles ? 'زیرنویس: روشن' : 'زیرنویس: خاموش'}</span>
                 </button>
               )}
@@ -720,6 +748,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
               {/* Settings Dropdown (Speed & Quality) */}
               <div className="relative">
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowSettingsMenu(!showSettingsMenu);
@@ -730,18 +759,23 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                       : 'hover:bg-white/10 text-slate-300 hover:text-white'
                   }`}
                   title="تنظیمات سرعت و کیفیت"
+                  aria-label="تنظیمات سرعت پخش و کیفیت ویدیو"
+                  aria-expanded={showSettingsMenu}
+                  aria-haspopup="menu"
                 >
-                  <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" />
                 </button>
 
                 {showSettingsMenu && (
                   <div
                     onClick={(e) => e.stopPropagation()}
                     className="absolute bottom-full mb-2 left-0 rtl:left-0 rtl:right-auto ltr:right-0 ltr:left-auto w-44 sm:w-48 bg-slate-900/95 border border-slate-700/80 rounded-2xl p-2.5 sm:p-3 shadow-2xl text-xs space-y-2 z-50 backdrop-blur-2xl animate-fadeIn"
+                    role="menu"
+                    aria-label="منوی تنظیمات ویدیو"
                   >
-                    <div className="font-bold text-slate-200 pb-1 border-b border-slate-800 flex items-center justify-between">
+                    <div className="font-bold text-slate-200 pb-1 border-b border-slate-800 flex items-center justify-between" role="presentation">
                       <div className="flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-blue-400" />
+                        <Sliders className="w-3.5 h-3.5 text-blue-400" aria-hidden="true" />
                         <span>سرعت پخش</span>
                       </div>
                       <span className="text-[10px] text-blue-400 font-mono font-bold">{playbackRate}x</span>
@@ -750,21 +784,25 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                       {[0.75, 1, 1.25, 1.5].map((rate) => (
                         <button
                           key={rate}
+                          type="button"
+                          role="menuitem"
                           onClick={() => changePlaybackRate(rate)}
                           className={`py-1 rounded-lg text-center font-bold transition cursor-pointer text-[10px] sm:text-[11px] ${
                             playbackRate === rate
                               ? 'bg-blue-600 text-white shadow-sm'
                               : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
                           }`}
+                          aria-label={`تنظیم سرعت پخش روی ${rate} برابر`}
+                          aria-checked={playbackRate === rate}
                         >
                           {rate}x
                         </button>
                       ))}
                     </div>
 
-                    <div className="font-bold text-slate-200 pt-1 pb-1 border-b border-slate-800 flex items-center justify-between">
+                    <div className="font-bold text-slate-200 pt-1 pb-1 border-b border-slate-800 flex items-center justify-between" role="presentation">
                       <div className="flex items-center gap-1.5">
-                        <Scaling className="w-3.5 h-3.5 text-emerald-400" />
+                        <Scaling className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
                         <span>پوشش صفحه</span>
                       </div>
                       <span className="text-[10px] text-emerald-400 font-bold">
@@ -773,6 +811,8 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                     </div>
                     <div className="grid grid-cols-2 gap-1">
                       <button
+                        type="button"
+                        role="menuitem"
                         onClick={() => {
                           setVideoFit('contain');
                           setShowSettingsMenu(false);
@@ -782,10 +822,14 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                             ? 'bg-blue-600 text-white shadow-sm'
                             : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
                         }`}
+                        aria-label="انتخاب تناسب استاندارد کادر ویدیو"
+                        aria-checked={videoFit === 'contain'}
                       >
                         تناسب استاندارد
                       </button>
                       <button
+                        type="button"
+                        role="menuitem"
                         onClick={() => {
                           setVideoFit('cover');
                           setShowSettingsMenu(false);
@@ -795,12 +839,14 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                             ? 'bg-blue-600 text-white shadow-sm'
                             : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
                         }`}
+                        aria-label="انتخاب پوشش کامل کادر ویدیو"
+                        aria-checked={videoFit === 'cover'}
                       >
                         تمام‌صفحه
                       </button>
                     </div>
 
-                    <div className="font-bold text-slate-200 pt-1 pb-1 border-b border-slate-800 flex items-center justify-between">
+                    <div className="font-bold text-slate-200 pt-1 pb-1 border-b border-slate-800 flex items-center justify-between" role="presentation">
                       <span>کیفیت پخش</span>
                       <span className="text-[10px] text-emerald-400 font-bold">{quality}</span>
                     </div>
@@ -808,6 +854,8 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                       {(['1080p', '720p', '480p'] as const).map((q) => (
                         <button
                           key={q}
+                          type="button"
+                          role="menuitem"
                           onClick={() => {
                             setQuality(q);
                             setShowSettingsMenu(false);
@@ -817,6 +865,8 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                               ? 'bg-emerald-600 text-white shadow-sm'
                               : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
                           }`}
+                          aria-label={`تغییر کیفیت ویدیو به ${q}`}
+                          aria-checked={quality === q}
                         >
                           {q}
                         </button>
@@ -828,11 +878,14 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
               {/* Fullscreen Button */}
               <button
+                type="button"
                 onClick={toggleFullscreen}
                 className="p-1 sm:p-1.5 hover:bg-white/10 rounded-lg transition cursor-pointer text-slate-300 hover:text-white"
                 title="تمام‌صفحه (F)"
+                aria-label={isFullscreen ? 'خروج از تمام‌صفحه' : 'نمایش تمام‌صفحه ویدیو'}
+                aria-pressed={isFullscreen}
               >
-                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" aria-hidden="true" />}
               </button>
             </div>
           </div>
@@ -875,6 +928,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             {/* Direct Share Button */}
             <button
+              type="button"
               onClick={handleDirectShare}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border shadow-sm ${
                 copiedShareLink
@@ -882,15 +936,16 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
               }`}
               title="اشتراک‌گذاری مستقیم گزارش ویدیویی یا کپی لینک"
+              aria-label="اشتراک‌گذاری یا کپی پیوند گزارش ویدیویی"
             >
               {copiedShareLink ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-white" />
+                  <Check className="w-3.5 h-3.5 text-white" aria-hidden="true" />
                   <span>لینک ویدیوی گزارش کپی شد</span>
                 </>
               ) : (
                 <>
-                  <Share2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <Share2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
                   <span>اشتراک‌گذاری ویدیو</span>
                 </>
               )}
@@ -899,20 +954,23 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             {/* AI Speech-to-Text Subtitle Generator Button (Admin Only) */}
             {isAdmin && (
               <button
+                type="button"
                 onClick={handleGenerateAiSubtitles}
                 disabled={isGeneratingSubtitles}
                 className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
                 title="تولید خودکار و همگام‌سازی زیرنویس با هوش مصنوعی برای کاربران دارای افت شنوایی (ویژه مدیران)"
+                aria-label="تولید خودکار و همگام‌سازی زیرنویس با هوش مصنوعی برای کاربران دارای افت شنوایی"
+                aria-busy={isGeneratingSubtitles}
               >
                 {isGeneratingSubtitles ? (
                   <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                     <span>در حال استخراج گفتار با AI...</span>
                   </>
                 ) : (
                   <>
-                    <Ear className="w-3.5 h-3.5 text-purple-200" />
-                    <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                    <Ear className="w-3.5 h-3.5 text-purple-200" aria-hidden="true" />
+                    <Wand2 className="w-3.5 h-3.5 text-amber-300" aria-hidden="true" />
                     <span>تولید زیرنویس هوش مصنوعی</span>
                   </>
                 )}
@@ -922,13 +980,16 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
             {/* Transcript Drawer Toggle */}
             {scenes.length > 0 && (
               <button
+                type="button"
                 onClick={() => setShowTranscriptDrawer(!showTranscriptDrawer)}
                 className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                 title="نمایش فهرست کامل متن گفتار و سکانس‌های زمانی"
+                aria-label="نمایش یا پنهان‌سازی فهرست کامل متن گفتار و زیرنویس‌های سکانس‌ها"
+                aria-expanded={showTranscriptDrawer}
               >
-                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
                 <span>متن گفتار ({toPersianDigits(scenes.length)} فراز)</span>
-                {showTranscriptDrawer ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {showTranscriptDrawer ? <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />}
               </button>
             )}
           </div>
@@ -938,11 +999,11 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
         <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-0.5 rounded-lg font-medium flex items-center gap-1">
-              <Radio className="w-3 h-3 text-sky-500" />
+              <Radio className="w-3 h-3 text-sky-500" aria-hidden="true" />
               <span>پخش پایدار 1080p Full HD</span>
             </span>
             <span className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-0.5 rounded-lg font-medium flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <Ear className="w-3 h-3" />
+              <Ear className="w-3 h-3" aria-hidden="true" />
               <span>سازگار با استانداردهای دسترس‌پذیری ناشنوایان</span>
             </span>
           </div>
@@ -956,10 +1017,10 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
       {/* Interactive Speech & Subtitles Transcript Drawer */}
       {showTranscriptDrawer && scenes.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg space-y-3 animate-in fade-in">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-lg space-y-3 animate-in fade-in" role="region" aria-label="بخش متن کامل گفتار و زیرنویس‌ها">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-purple-50 dark:bg-purple-950/80 text-purple-600 flex items-center justify-center">
+              <div className="w-7 h-7 rounded-xl bg-purple-50 dark:bg-purple-950/80 text-purple-600 flex items-center justify-center" aria-hidden="true">
                 <Ear className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
@@ -974,18 +1035,21 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => {
                   const vtt = report.vttContent || generateWebVttFromScenes(scenes, report.title);
                   downloadVttFile(`subtitles-${report.reportNum || report.id}`, vtt);
                 }}
                 className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-blue-200 dark:border-blue-800"
                 title="دانلود فایل زیرنویس استاندارد VTT برای استفاده در سایر پلیرها"
+                aria-label="دانلود فایل زیرنویس استاندارد VTT"
               >
-                <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
                 <span>دانلود VTT</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   const fullText = scenes.map((s) => `[${s.time || formatTime(s.seconds)}] ${s.speaker ? s.speaker + ': ' : ''}${s.text}`).join('\n\n');
                   navigator.clipboard.writeText(fullText);
@@ -994,14 +1058,15 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                 }}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-700"
                 title="کپی متن کامل گفتار در کلیپ‌بورد"
+                aria-label="کپی متن کامل گفتار و گفتگوها در کلیپ‌بورد"
               >
-                <Copy className="w-3.5 h-3.5 text-blue-600" />
+                <Copy className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
                 <span>کپی متن</span>
               </button>
             </div>
           </div>
 
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1" role="feed" aria-label="فهرست فرازهای گفتار ویدیو">
             {scenes.map((scene, idx) => {
               const isCurrent = currentTime >= scene.seconds && (!scene.endSeconds || currentTime <= scene.endSeconds);
               return (
@@ -1015,6 +1080,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   }`}
                 >
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       seek(scene.seconds);
@@ -1024,8 +1090,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                         ? 'bg-blue-600 text-white shadow-sm'
                         : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
                     }`}
+                    aria-label={`پرش به زمان ${scene.time || formatTime(scene.seconds)}${scene.speaker ? ` - گفتگوی ${scene.speaker}` : ''}`}
                   >
-                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <Play className="w-2.5 h-2.5 fill-current" aria-hidden="true" />
                     <span>{scene.time || formatTime(scene.seconds)}</span>
                   </button>
 

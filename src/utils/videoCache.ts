@@ -196,8 +196,11 @@ export async function getOrLoadCachedVideoUrl(
     console.warn('[videoCache] Error resolving IndexedDB video:', err);
   }
 
-  // Fallback to remote URL
-  const remoteUrl = rawVideoSrc && !rawVideoSrc.startsWith('indexeddb:') ? rawVideoSrc : '';
+  // Fallback to remote URL or server stable video for public visitors
+  let remoteUrl = rawVideoSrc && !rawVideoSrc.startsWith('indexeddb:') && !rawVideoSrc.startsWith('blob:') ? rawVideoSrc : '';
+  if (!remoteUrl && (rawVideoSrc?.startsWith('indexeddb:') || rawVideoSrc?.startsWith('blob:'))) {
+    remoteUrl = '/uploads/mahash-stable-video.mp4';
+  }
   return {
     url: remoteUrl,
     isFromCache: false

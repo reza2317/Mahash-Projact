@@ -31,10 +31,35 @@ export interface FileValidationResult {
   errorDetails?: string;
 }
 
+async function checkVideoMagicNumbers(file: File): Promise<boolean> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = (e) => {
+      const arr = new Uint8Array(e.target?.result as ArrayBuffer);
+      if (arr.length < 8) return resolve(false);
+      
+      // Check WebM (1A 45 DF A3)
+      if (arr[0] === 0x1A && arr[1] === 0x45 && arr[2] === 0xDF && arr[3] === 0xA3) {
+        return resolve(true);
+      }
+      
+      // Check MP4 (starts with 4 byte length, then 'ftyp' which is 66 74 79 70)
+      if (arr[4] === 0x66 && arr[5] === 0x74 && arr[6] === 0x79 && arr[7] === 0x70) {
+        return resolve(true);
+      }
+
+      // Other formats like quicktime might have 'moov' or similar, but for MP4/WebM strict validation we look for these.
+      resolve(false);
+    };
+    reader.onerror = () => resolve(false);
+    reader.readAsArrayBuffer(file.slice(0, 12));
+  });
+}
+
 /**
- * Validates an uploaded video file
+ * Validates an uploaded video file (now checks magic numbers for MP4/WebM)
  */
-export function validateVideoFile(file: File): FileValidationResult {
+export async function validateVideoFile(file: File): Promise<FileValidationResult> {
   if (!file) {
     return { isValid: false, errorTitle: 'فایل ناموجود', errorMessage: 'هیچ فایلی انتخاب نشده است.' };
   }
@@ -76,6 +101,17 @@ export function validateVideoFile(file: File): FileValidationResult {
       errorTitle: 'فرمت ویدیویی نامعتبر',
       errorMessage: `فرمت فایل «${file.name}» به عنوان ویدیوی معتبر شناسایی نشد.`,
       errorDetails: `فرمت‌های مجاز ویدیویی: ${ALLOWED_VIDEO_EXTENSIONS.join('، ')}`
+    };
+  }
+  
+  // 4. Validate Headers (Magic Numbers) for MP4 and WebM
+  const isValidHeader = await checkVideoMagicNumbers(file);
+  if (!isValidHeader) {
+    return {
+      isValid: false,
+      errorTitle: 'ساختار نامعتبر فایل ویدیو',
+      errorMessage: `فایل «${file.name}» یک ویدیوی معتبر MP4 یا WebM نیست یا هدر آن خراب شده است.`,
+      errorDetails: 'برای جلوگیری از مشکلات پخش در بخش عمومی، تنها فایل‌های استاندارد و سالم پذیرفته می‌شوند.'
     };
   }
 
@@ -146,11 +182,11 @@ export function validateAttachmentFile(file: File): FileValidationResult {
 /**
  * Validates entire report payload before final database submission
  */
-export function validateFullReportSubmission(
+export async function validateFullReportSubmission(
   reportTitle: string,
   videoFile: File | null,
   attachments: ReportAttachment[]
-): FileValidationResult {
+): Promise<FileValidationResult> {
   if (!reportTitle || reportTitle.trim().length === 0) {
     return {
       isValid: false,
@@ -161,7 +197,7 @@ export function validateFullReportSubmission(
 
   // Validate video if provided
   if (videoFile) {
-    const videoRes = validateVideoFile(videoFile);
+    const videoRes = await validateVideoFile(videoFile);
     if (!videoRes.isValid) return videoRes;
   }
 

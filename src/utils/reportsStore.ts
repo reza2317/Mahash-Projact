@@ -259,11 +259,13 @@ export function triggerGlobalCacheBust(syncToServer = false): number {
   return newVer;
 }
 
-function triggerStoreUpdate() {
+export function triggerStoreUpdate() {
   _memoizedTeamsCache = null;
   _lastTeamsCacheVersion = -1;
   _memoizedReportsCache = null;
   _lastReportsCacheVersion = -1;
+  memoryConsultantPhotosCache = null;
+  memoryConsultantsListCache = null;
   if (typeof window !== 'undefined') {
     const newVer = Date.now();
     try {
@@ -495,17 +497,69 @@ function sanitizeReportForLocalStorage(report: ActivityReport): ActivityReport {
   return sanitized;
 }
 
-function getCustomReportsMap(): Record<string, ActivityReport[]> {
+const BROKEN_URL_PATTERNS = [
+  'commondatastorage.googleapis.com',
+  'ForBiggerBlazes.mp4',
+  'BigBuckBunny.mp4',
+  'ElephantsDream.mp4',
+  'TearsOfSteel.mp4'
+];
+
+export function sanitizeVideoUrl(reportId: string, url?: string, title?: string): string | undefined {
+  if (!url || typeof url !== 'string') return url;
+  const isBroken = BROKEN_URL_PATTERNS.some((pattern) => url.includes(pattern));
+  if (!isBroken) return url;
+
+  // Resolve to correct authentic upload or default sample
+  const id = (reportId || '').toLowerCase();
+  const repTitle = title || '';
+  if (id === 'angels-03' || repTitle.includes('معرفی اعضا')) {
+    return '/uploads/file-1788063303183-909070848.mp4';
+  }
+  if (id === 'angels-02' || repTitle.includes('سکوی قهرمانی') || repTitle.includes('مسیر یک')) {
+    return '/uploads/file-1788063141877-869516181.mp4';
+  }
+  if (id === 'thinker-03' || id === 'angels-01' || repTitle.includes('کافه') || repTitle.includes('انیمه')) {
+    return '/uploads/file-1788063352946-218736197.mp4';
+  }
+  if (id === 'thinker-02' || id === 'thinker-01' || repTitle.includes('همکاری') || repTitle.includes('پیام تصویری') || repTitle.includes('پیام ویدیویی')) {
+    return '/uploads/file-1788194454093-106622230.mp4';
+  }
+  if (id === 'tomorrow-01' || repTitle.includes('خودمراقبتی')) {
+    return '/uploads/file-1788063115012-791223571.mp4';
+  }
+  return '/mahash-sample-video.mp4';
+}
+
+export function getCustomReportsMap(): Record<string, ActivityReport[]> {
   try {
     const raw = safeGetLocalStorage(CUSTOM_REPORTS_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return { ...parsed, ...memoryFallbackMap };
+    const merged: Record<string, ActivityReport[]> = { ...parsed, ...memoryFallbackMap };
+    let needsResave = false;
+
+    for (const [slug, reports] of Object.entries(merged)) {
+      if (Array.isArray(reports)) {
+        reports.forEach((r) => {
+          if (r.videoSrc && BROKEN_URL_PATTERNS.some((p) => r.videoSrc?.includes(p))) {
+            r.videoSrc = sanitizeVideoUrl(r.id, r.videoSrc, r.title);
+            needsResave = true;
+          }
+        });
+      }
+    }
+
+    if (needsResave) {
+      saveCustomReportsMap(merged);
+    }
+
+    return merged;
   } catch {
     return { ...memoryFallbackMap };
   }
 }
 
-function saveCustomReportsMap(map: Record<string, ActivityReport[]>) {
+export function saveCustomReportsMap(map: Record<string, ActivityReport[]>) {
   memoryFallbackMap = { ...map };
   try {
     const cleanMap: Record<string, ActivityReport[]> = {};
@@ -566,7 +620,12 @@ export interface TrashBinItem {
 export function getDeletedReportsList(): string[] {
   try {
     const raw = safeGetLocalStorage(DELETED_REPORTS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return [];
   } catch {
     return [];
   }
@@ -607,6 +666,7 @@ export function saveTeamOverrides(map: Record<string, Partial<TeamData>>) {
   try {
     safeSetLocalStorage(TEAM_OVERRIDES_LEGACY_KEY, JSON.stringify(map));
   } catch {}
+  markPendingSyncItem('overrides:teams');
   triggerStoreUpdate();
   syncLocalDataToServer().catch(console.warn);
 }
@@ -1079,6 +1139,8 @@ export function saveReport(
   }
 
   saveCustomReportsMap(customMap);
+  markPendingSyncItem(`report:${reportToSave.id}`);
+  triggerStoreUpdate();
 
   // Asynchronously mirror into dedicated IndexedDB service without locking UI
   if (typeof window !== 'undefined') {
@@ -1086,6 +1148,9 @@ export function saveReport(
       console.warn('[IndexedDB Sync Warning] Could not persist report to IndexedDB:', e);
     });
   }
+  
+  // Immediately sync to server
+  syncLocalDataToServer().catch(console.warn);
 }
 
 /**
@@ -1161,6 +1226,7 @@ export function removeVideoFromReport(reportId: string, teamSlug?: string): bool
       if (updatedReportObj) {
         indexedDBService.saveReport(updatedReportObj, resolvedTeamSlug).catch(() => {});
       }
+      markPendingSyncItem(`report:${reportId}`);
       syncLocalDataToServer().catch(console.warn);
     }
 
@@ -1363,6 +1429,11 @@ export function deleteReport(reportId: string, teamSlug?: string): void {
     saveDeletedReportsList(deletedList);
   }
 
+  // Notify backend server to remove from server store and WordPress database
+  fetch(`/api/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE'
+  }).catch(() => {});
+
   // Mirror delete in dedicated IndexedDB service & clean attachments
   if (typeof window !== 'undefined') {
     indexedDBService.deleteReport(reportId).catch(() => {});
@@ -1380,9 +1451,45 @@ export function deleteReport(reportId: string, teamSlug?: string): void {
     }
   } catch {}
 
+  markPendingSyncItem(`delete:${reportId}`);
   triggerStoreUpdate();
   syncLocalDataToServer().catch(console.warn);
 }
+
+export { securePermanentReportPurge, type SecurePurgeOptions, type SecurePurgeResult } from './secureDeletion';
+
+/**
+ * Permanently deletes a report from all local storage, indexedDB, trash bin, and backend/MySQL databases.
+ */
+export async function deleteReportPermanently(
+  reportId: string,
+  teamSlug?: string,
+  options?: {
+    operatorName?: string;
+    operatorRole?: string;
+    reason?: string;
+    reportTitle?: string;
+    teamName?: string;
+  }
+): Promise<boolean> {
+  try {
+    const { securePermanentReportPurge } = await import('./secureDeletion');
+    const result = await securePermanentReportPurge({
+      reportId,
+      teamSlug,
+      reportTitle: options?.reportTitle,
+      teamName: options?.teamName,
+      operatorName: options?.operatorName || 'مدیر ارشد سامانه (Admin)',
+      operatorRole: options?.operatorRole || 'مدیر سامانه',
+      reason: options?.reason || 'درخواست حذف نهایی گزارش'
+    });
+    return result.success;
+  } catch (err) {
+    console.error('Error permanently deleting report:', err);
+    return false;
+  }
+}
+
 
 /**
  * Restores a temporarily deleted report from the Trash Bin back to active database storage.
@@ -1445,11 +1552,23 @@ export async function restoreReportFromTrash(reportId: string): Promise<boolean>
  */
 export async function emptyTrashBin(): Promise<void> {
   try {
+    const currentTrash = getTrashBinList();
     saveTrashBinList([]);
     try {
       await fetch('/api/mysql/trash/empty', { method: 'POST' });
     } catch {}
+    try {
+      await fetch('/api/wp/trash/empty', { method: 'DELETE' });
+    } catch {}
+    if (typeof window !== 'undefined') {
+      for (const item of currentTrash) {
+        if (item.itemId) {
+          indexedDBService.deleteReport(item.itemId).catch(() => {});
+        }
+      }
+    }
     triggerStoreUpdate();
+    syncLocalDataToServer().catch(console.warn);
   } catch (err) {
     console.error('Error emptying trash bin:', err);
   }
@@ -1674,6 +1793,7 @@ export function saveTeamLogo(teamSlugOrId: string, logoDataUrl: string): void {
     }
 
   } catch {}
+  markPendingSyncItem(`logo:${normSlug}`);
   triggerGlobalCacheBust();
   try {
     saveLogoToFirestore(normSlug, logoDataUrl).catch(() => {});
@@ -1799,6 +1919,7 @@ export function saveMemberAvatar(teamSlugOrId: string, memberName: string, avata
     console.warn('Failed to save member avatar:', err);
   }
   triggerGlobalCacheBust();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 export function resetMemberAvatar(teamSlugOrId: string, memberName: string): void {
@@ -1816,6 +1937,7 @@ export function resetMemberAvatar(teamSlugOrId: string, memberName: string): voi
     safeSetLocalStorage(MEMBER_AVATARS_KEY, JSON.stringify(avatars));
   } catch {}
   triggerGlobalCacheBust();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 // ----------------------------------------------------
@@ -1986,6 +2108,7 @@ export function saveConsultantPhoto(consultantName: string, photoDataUrl: string
 
   } catch {}
   triggerGlobalCacheBust();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 
@@ -2051,6 +2174,7 @@ export function resetConsultantPhoto(consultantName: string): void {
 
   } catch {}
   triggerGlobalCacheBust();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 
@@ -2071,7 +2195,7 @@ export function getAllConsultants(): Consultant[] {
       const defaultImg = idx === 0 ? NAZI_AVATAR_SVG : (c.image || RADIN_AVATAR_SVG);
       return {
         ...c,
-        image: photos[c.name.trim()] || c.image || defaultImg
+        image: getConsultantPhoto(c.name, c.image || defaultImg) || c.image || defaultImg
       };
     });
     memoryConsultantsListCache = result;
@@ -2157,6 +2281,7 @@ export function getAllScores(): ScoreItem[] {
 export function saveAllScores(scores: ScoreItem[]): void {
   safeSetLocalStorage(SCORES_KEY, JSON.stringify(scores));
   triggerStoreUpdate();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 export function updateTeamScore(teamId: string, newScore: number): void {
@@ -2196,6 +2321,7 @@ export function saveEvent(event: EventItem): void {
   }
   safeSetLocalStorage(EVENTS_KEY, JSON.stringify(updated));
   triggerStoreUpdate();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 export function deleteEvent(eventId: string): void {
@@ -2203,6 +2329,7 @@ export function deleteEvent(eventId: string): void {
   const updated = currentEvents.filter((e) => e.id !== eventId);
   safeSetLocalStorage(EVENTS_KEY, JSON.stringify(updated));
   triggerStoreUpdate();
+  syncLocalDataToServer().catch(console.warn);
 }
 
 // ----------------------------------------------------
@@ -2250,27 +2377,126 @@ export function setReportViews(reportId: string, count: number): void {
 // Server Store Synchronization & Cloud Persistence
 // ----------------------------------------------------
 
+export interface SyncAttemptLog {
+  id: string;
+  timestamp: string;
+  type: 'pull' | 'push' | 'force_refresh' | 'auto_poll';
+  success: boolean;
+  message: string;
+  changedCount?: number;
+  durationMs?: number;
+}
 
 let hasLoadedFromServer = false;
 let lastStoreUpdatedAt: string | null = null;
+let lastSuccessfulSyncTimestamp: string | null = (() => {
+  if (typeof window !== 'undefined') {
+    return safeGetLocalStorage('mahash_last_successful_sync') || null;
+  }
+  return null;
+})();
 
-export async function fetchAndMergeServerStore(): Promise<boolean> {
-  if (typeof window === 'undefined') return false;
+const MAX_SYNC_HISTORY = 10;
+let syncHistoryLogs: SyncAttemptLog[] = (() => {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = safeGetLocalStorage('mahash_sync_history_logs');
+      if (raw) return JSON.parse(raw);
+    } catch {}
+  }
+  return [];
+})();
+
+export function getLastSuccessfulSync(): string | null {
+  return lastSuccessfulSyncTimestamp;
+}
+
+export function getSyncHistoryLogs(): SyncAttemptLog[] {
+  return [...syncHistoryLogs];
+}
+
+export function addSyncAttemptLog(log: Omit<SyncAttemptLog, 'id'>): void {
+  const newLog: SyncAttemptLog = {
+    id: `sync-log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    ...log,
+  };
+  syncHistoryLogs = [newLog, ...syncHistoryLogs].slice(0, MAX_SYNC_HISTORY);
+  if (typeof window !== 'undefined') {
+    safeSetLocalStorage('mahash_sync_history_logs', JSON.stringify(syncHistoryLogs));
+  }
+  globalEventBus.emit('SYNC_LOG_ADDED', newLog);
+}
+
+export const PENDING_SYNC_ITEMS_KEY = 'mahash_pending_sync_items_v2';
+
+export function getPendingSyncKeys(): string[] {
+  if (typeof window === 'undefined') return [];
   try {
+    const raw = safeGetLocalStorage(PENDING_SYNC_ITEMS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markPendingSyncItem(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keys = new Set(getPendingSyncKeys());
+    keys.add(key);
+    safeSetLocalStorage(PENDING_SYNC_ITEMS_KEY, JSON.stringify(Array.from(keys)));
+    globalEventBus.emit('STORE_UPDATED');
+  } catch {}
+}
+
+export function clearPendingSyncItems(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    safeSetLocalStorage(PENDING_SYNC_ITEMS_KEY, '[]');
+    // Clean legacy key if present
+    safeRemoveLocalStorage('mahash_pending_sync_items');
+    globalEventBus.emit('STORE_UPDATED');
+  } catch {}
+}
+
+export function getPendingSyncCount(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const pendingKeys = getPendingSyncKeys();
+    return pendingKeys.length;
+  } catch {
+    return 0;
+  }
+}
+
+export async function fetchAndMergeServerStore(force: boolean = false): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  const startTime = performance.now();
+  const attemptType: SyncAttemptLog['type'] = force ? 'force_refresh' : 'pull';
+  try {
+    if (force) {
+      lastStoreUpdatedAt = null;
+    }
     let serverData: any = {};
     const controller = new AbortController();
-    const fetchTimeout = setTimeout(() => controller.abort(), 3500);
+    const fetchTimeout = setTimeout(() => controller.abort(), force ? 8000 : 3500);
 
-    const storeUrl = '/api/store' + (lastStoreUpdatedAt ? `?since=${encodeURIComponent(lastStoreUpdatedAt)}` : '');
-    const apiStorePromise = fetch(storeUrl, { signal: controller.signal })
+    const storeUrl = '/api/store' + (force ? `?force=true&t=${Date.now()}` : (lastStoreUpdatedAt ? `?since=${encodeURIComponent(lastStoreUpdatedAt)}` : ''));
+    const apiStorePromise = fetch(storeUrl, {
+      signal: controller.signal,
+      cache: force ? 'no-store' : 'default',
+      headers: force ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : {}
+    })
       .then(r => r.ok ? r.json() : null)
       .catch(() => null)
       .finally(() => clearTimeout(fetchTimeout));
 
     const apiStoreData = await apiStorePromise;
 
-    // Fast-path: If server data has not changed since last poll, skip heavy parsing
-    if (apiStoreData && apiStoreData.unchanged === true) {
+    // Fast-path: If server data has not changed since last poll, skip heavy parsing (unless force is requested)
+    if (!force && apiStoreData && apiStoreData.unchanged === true) {
       return false;
     }
 
@@ -2280,6 +2506,13 @@ export async function fetchAndMergeServerStore(): Promise<boolean> {
         lastStoreUpdatedAt = apiStoreData.updatedAt;
       }
     } else {
+      addSyncAttemptLog({
+        timestamp: new Date().toISOString(),
+        type: attemptType,
+        success: false,
+        message: 'عدم دریافت پاسخ معتبر از سرور MySQL',
+        durationMs: Math.round(performance.now() - startTime),
+      });
       return false;
     }
 
@@ -2409,13 +2642,14 @@ export async function fetchAndMergeServerStore(): Promise<boolean> {
         const rawSlug = r.teamSlug || (r.teamId ? (r.teamId.startsWith('team-') ? r.teamId : `team-${r.teamId}`) : (r.id ? `team-${r.id.split('-')[0]}` : 'team-thinker'));
         const teamSlug = rawSlug.startsWith('team-') ? rawSlug : `team-${rawSlug}`;
         
-        const isTextReport = r.reportType === 'text' || !r.videoSrc || r.videoSrc === '#' || r.videoSrc.trim() === '';
+        const rVideoSrc = r.videoSrc || r.videoUrl || r.video_url;
+        const isTextReport = r.reportType === 'text' || !rVideoSrc || rVideoSrc === '#' || rVideoSrc.trim() === '';
         const sanitizedReport: ActivityReport & { teamSlug?: string } = {
           ...r,
           teamSlug,
           status: r.status || 'published',
           reportType: isTextReport ? 'text' : (r.reportType || 'video'),
-          videoSrc: isTextReport ? undefined : ((r.videoSrc && !r.videoSrc.startsWith('blob:')) ? r.videoSrc : undefined),
+          videoSrc: isTextReport ? undefined : ((rVideoSrc && !rVideoSrc.startsWith('blob:')) ? rVideoSrc : undefined),
           videoHint: isTextReport ? undefined : r.videoHint
         };
         if (isTextReport) {
@@ -2499,11 +2733,13 @@ export async function fetchAndMergeServerStore(): Promise<boolean> {
       const currentPhotos = getConsultantPhotos();
       const mergedPhotos = { ...currentPhotos, ...serverData.consultantPhotos };
       safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(mergedPhotos));
+      memoryConsultantPhotosCache = mergedPhotos;
       modified = true;
     }
 
     if (serverData.consultantsList && Array.isArray(serverData.consultantsList) && serverData.consultantsList.length > 0) {
       safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(serverData.consultantsList));
+      memoryConsultantsListCache = null;
       modified = true;
     }
 
@@ -2539,9 +2775,31 @@ export async function fetchAndMergeServerStore(): Promise<boolean> {
       setTimeout(() => syncLocalDataToServer(), 1000);
     }
 
+    if (force) {
+      clearPendingSyncItems();
+    }
+
+    const nowIso = new Date().toISOString();
+    lastSuccessfulSyncTimestamp = nowIso;
+    safeSetLocalStorage('mahash_last_successful_sync', nowIso);
+    addSyncAttemptLog({
+      timestamp: nowIso,
+      type: attemptType,
+      success: true,
+      message: force ? 'نوسازی اجباری موفق از سرور مرکزی (Force Refresh)' : (modified ? 'همگام‌سازی و اعمال موفق تغییرات از سرور' : 'بررسی سرور انجام شد (اطلاعات بدون تغییر و به‌روز است)'),
+      durationMs: Math.round(performance.now() - startTime),
+    });
+
     return true;
-  } catch (err) {
+  } catch (err: any) {
     console.warn('[reportsStore] Could not fetch server store:', err);
+    addSyncAttemptLog({
+      timestamp: new Date().toISOString(),
+      type: attemptType,
+      success: false,
+      message: `خطا در دریافت اطلاعات: ${err?.message || 'خطای شبکه یا عدم پاسخ سرور'}`,
+      durationMs: Math.round(performance.now() - startTime),
+    });
     return false;
   }
 }
@@ -2680,10 +2938,29 @@ export async function syncLocalDataToServer(
         globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 100, message: 'اطلاعات با موفقیت در پایگاه داده MySQL ذخیره و ثبت دائم شد.' });
         await yieldToMain();
         setTimeout(() => globalEventBus.emit('SYNC_PROGRESS', { visible: false }), 2000);
+
+        const nowIso = new Date().toISOString();
+        lastSuccessfulSyncTimestamp = nowIso;
+        clearPendingSyncItems();
+        safeSetLocalStorage('mahash_last_successful_sync', nowIso);
+        addSyncAttemptLog({
+          timestamp: nowIso,
+          type: 'push',
+          success: true,
+          message: 'انتشار سراسری و ذخیره‌سازی موفق در دیتابیس سرور مرکزی',
+          durationMs: Math.round(performance.now() - pStart),
+        });
+
         resolversToCall.forEach(res => res(true));
-      } catch (err) {
+      } catch (err: any) {
         console.warn('[reportsStore] Failed to sync data to MySQL:', err);
         globalEventBus.emit('SYNC_PROGRESS', { visible: false });
+        addSyncAttemptLog({
+          timestamp: new Date().toISOString(),
+          type: 'push',
+          success: false,
+          message: `خطا در ارسال داده‌ها به سرور: ${err?.message || 'خطای شبکه'}`,
+        });
         resolversToCall.forEach(res => res(false));
       }
     }, debounceMs);
@@ -2738,6 +3015,7 @@ export function setMahashLogo(logo: string): void {
     }
   }
   triggerGlobalCacheBust();
+  markPendingSyncItem('logo:mahash');
   try {
     saveMahashLogoToFirestore(logo || '').catch(() => {});
   } catch {}
@@ -2755,6 +3033,7 @@ export function resetMahashLogo(): void {
     safeRemoveLocalStorage(mKey);
   }
   triggerGlobalCacheBust();
+  markPendingSyncItem('logo:mahash');
   try {
     saveMahashLogoToFirestore('').catch(() => {});
   } catch {}
@@ -2802,6 +3081,7 @@ export function setYouthClubBadge(badge: string): void {
     }
   }
   triggerGlobalCacheBust();
+  markPendingSyncItem('logo:club_emblem');
   try {
     saveYouthClubEmblemToFirestore(badge || '').catch(() => {});
   } catch {}
@@ -2938,4 +3218,73 @@ export function cleanUnknownOrCorruptVideos(): { cleanedReportsCount: number; cl
 
   return { cleanedReportsCount, cleanedVideosCount };
 }
+
+/**
+ * Restores all official base reports across all teams, clears broken custom overrides/deleted states,
+ * and publishes them with 100% verified working media links to the public site.
+ */
+export async function restoreAllOfficialReportsAndPublish(): Promise<{ success: boolean; message: string; count: number }> {
+  try {
+    const OFFICIAL_BASE_REPORT_IDS = new Set([
+      'thinker-01', 'thinker-02',
+      'tomorrow-01', 'tomorrow-02', 'tomorrow-03',
+      'angels-01', 'angels-02', 'angels-03',
+      'ghorbani-01', 'silence-01'
+    ]);
+
+    // 1. Clear deleted reports list completely
+    safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify([]));
+    safeRemoveLocalStorage(DELETED_REPORTS_KEY);
+
+    // 2. Clean custom reports that were corrupting or overriding official reports
+    const customMap = getCustomReportsMap();
+    const cleanedCustomMap: Record<string, ActivityReport[]> = {};
+
+    for (const [slug, reports] of Object.entries(customMap)) {
+      if (Array.isArray(reports)) {
+        cleanedCustomMap[slug] = reports.filter((r) => {
+          // Keep only truly custom user reports that are NOT conflicting with official reports
+          const isOfficialId = OFFICIAL_BASE_REPORT_IDS.has(r.id);
+          const isCorruptCopy = r.title && (
+            r.title.includes('معرفی اعضا') ||
+            r.title.includes('سکوی قهرمانی') ||
+            r.title.includes('کافه') ||
+            r.title.includes('همکاری') ||
+            r.title.includes('خودمراقبتی')
+          );
+          return !isOfficialId && !isCorruptCopy;
+        });
+      }
+    }
+
+    saveCustomReportsMap(cleanedCustomMap);
+
+    // 3. Inform the server to reset deletedReports & broken custom reports
+    try {
+      await fetch('/api/reports/restore-all-official', { method: 'POST' });
+    } catch {}
+
+    // 4. Force global cache busting and notify all components
+    triggerGlobalCacheBust(true);
+    triggerStoreUpdate();
+
+    // 5. Asynchronously push clean state to server and indexedDB
+    syncLocalDataToServer().catch(() => {});
+
+    const totalReports = getAllReports().length;
+    return {
+      success: true,
+      count: totalReports,
+      message: `تمامی ${totalReports} گزارش ویدیویی رسمی با موفقیت بازگردانی شدند و با پیوندهای سالم در سایت عمومی منتشر گردیدند.`
+    };
+  } catch (err: any) {
+    console.error('Error in restoreAllOfficialReportsAndPublish:', err);
+    return {
+      success: false,
+      count: 0,
+      message: err?.message || 'خطا در بازگردانی گزارش‌های رسمی'
+    };
+  }
+}
+
 

@@ -25,7 +25,7 @@ import {
   SiteAuditReport,
   printAuditReportToConsole
 } from '../../utils/routeAndAssetTester';
-import { getAllReports, getAllTeams } from '../../utils/reportsStore';
+import { getAllReports, getAllTeams, restoreAllOfficialReportsAndPublish } from '../../utils/reportsStore';
 import { toPersianDigits } from '../../utils/persianDate';
 import {
   Activity,
@@ -293,6 +293,21 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
     }
   };
 
+  // Restore and publish all official reports
+  const handleRestoreAllOfficialAndPublish = async () => {
+    setIsAutoRepairing(true);
+    try {
+      const res = await restoreAllOfficialReportsAndPublish();
+      showToast(res.message, 'success');
+      await handleRunMediaHealthCheck(true);
+      await handleRunAudit();
+    } catch (err: any) {
+      showToast('خطا در بازگردانی: ' + (err?.message || 'نامشخص'), 'error');
+    } finally {
+      setIsAutoRepairing(false);
+    }
+  };
+
   // Download diagnostic text log
   const handleDownloadLog = () => {
     if (!auditReport) return;
@@ -395,6 +410,17 @@ export const IntegrityAuditorTab: React.FC<IntegrityAuditorTabProps> = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Restore and Publish All Official Reports Button */}
+            <button
+              onClick={handleRestoreAllOfficialAndPublish}
+              disabled={isAutoRepairing || isAuditing}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-teal-600/20 cursor-pointer disabled:opacity-50"
+              title="بازگردانی کلیه گزارش‌های ویدیویی رسمی با پیوندهای سالم، حذف اضافات و انتشار سراسری در وبسایت"
+            >
+              <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${isAutoRepairing ? 'animate-spin' : ''}`} />
+              <span>✨ بازگردانی و انتشار گزارش‌های ویدیویی سالم در سایت عمومی</span>
+            </button>
+
             {/* Dictionary Auto-Fix All Button */}
             <button
               onClick={handleAutoFixAllWithDict}

@@ -532,9 +532,6 @@ export const MySQLLiveLogsMonitor: React.FC<MySQLLiveLogsMonitorProps> = () => {
 
   // Handle clear all logs
   const handleClearAll = async () => {
-    if (!window.confirm('آیا از پاک‌سازی تمامی لاگ‌های ثبت‌شده در دیتابیس اطمینان دارید؟ این عملیات غیرقابل بازگشت است.')) {
-      return;
-    }
     const ok = await clearAllMySQLLogs();
     if (ok) {
       setLogs([]);

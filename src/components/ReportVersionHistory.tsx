@@ -89,10 +89,6 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
   const selectedVersion = versions.find((v) => v.id === selectedVersionId) || versions[0] || null;
 
   const handleRestoreVersion = async (version: ReportVersion) => {
-    if (!confirm(`آیا از بازگردانی اطلاعات گزارش به نسخه ${version.version_number} اطمینان دارید؟ نسخه جدیدی برای ثبت این بازگشت در MySQL ایجاد خواهد شد.`)) {
-      return;
-    }
-
     setRestoring(true);
     try {
       const res = await fetch(`/api/mysql/reports/${report.id}/restore-version`, {
@@ -151,46 +147,53 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
 
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => setCompareMode(!compareMode)}
+            aria-label={compareMode ? 'تغییر به حالت نمایش تکی' : 'تغییر به حالت مقایسه دو نسخه'}
+            aria-pressed={compareMode}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
               compareMode
                 ? 'bg-indigo-600 text-white'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
-            <ArrowRightLeft className="w-3.5 h-3.5" />
+            <ArrowRightLeft className="w-3.5 h-3.5" aria-hidden="true" />
             <span>{compareMode ? 'حالت مقایسه فعال' : 'نمایش تکی'}</span>
           </button>
 
           <button
+            type="button"
             onClick={fetchVersions}
             disabled={loading}
-            className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition cursor-pointer"
+            aria-label="بروزرسانی تاریخچه نسخه‌ها از MySQL"
+            className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition cursor-pointer disabled:opacity-50"
             title="بروزرسانی نسخه‌ها از MySQL"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
           </button>
 
           {onClose && (
             <button
+              type="button"
               onClick={onClose}
+              aria-label="بستن پنجره تاریخچه نسخه‌ها"
               className="p-2 bg-slate-100 hover:bg-rose-100 hover:text-rose-600 dark:bg-slate-800 dark:hover:bg-rose-950/60 dark:hover:text-rose-400 text-slate-400 rounded-xl transition cursor-pointer"
               title="بستن تاریخچه"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4" aria-hidden="true" />
             </button>
           )}
         </div>
       </div>
 
       {loading ? (
-        <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
-          <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+        <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400" role="status" aria-live="polite">
+          <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" aria-hidden="true" />
           <span className="text-xs font-bold">در حال واکشی تاریخچه نسخه‌ها از جدول mahash_report_versions در MySQL...</span>
         </div>
       ) : versions.length === 0 ? (
         <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-          <Database className="w-8 h-8 mx-auto text-slate-400 mb-2" />
+          <Database className="w-8 h-8 mx-auto text-slate-400 mb-2" aria-hidden="true" />
           <p className="text-xs text-slate-500 font-medium">
             هنوز نسخه‌ای در جدول تاریخچه MySQL برای این گزارش ثبت نشده است. با اولین ویرایش نسخه جدید ذخیره می‌گردد.
           </p>
@@ -204,7 +207,7 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
               <span className="font-mono text-[10px] text-slate-400">MySQL InnoDB</span>
             </h4>
 
-            <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1" role="list" aria-label="فهرست نسخه‌های ثبت شده گزارش">
               {versions.map((ver, idx) => {
                 const isSelected = selectedVersion?.id === ver.id;
                 const isLatest = idx === 0;
@@ -212,8 +215,18 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
                 return (
                   <div
                     key={ver.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedVersionId(ver.id)}
-                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-right space-y-2 ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedVersionId(ver.id);
+                      }
+                    }}
+                    aria-label={`انتخاب نسخه شماره ${ver.version_number}${isLatest ? ' (آخرین نسخه)' : ''}، ثبت در تاریخ ${ver.created_at ? new Date(ver.created_at).toLocaleDateString('fa-IR') : ''}`}
+                    aria-pressed={isSelected}
+                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-right space-y-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                       isSelected
                         ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 shadow-sm'
                         : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
@@ -236,7 +249,7 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
                       </div>
 
                       <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
+                        <Clock className="w-3 h-3" aria-hidden="true" />
                         <span>{ver.created_at ? new Date(ver.created_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                       </span>
                     </div>
@@ -256,7 +269,7 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
 
                     {ver.video_url && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400">
-                        <Film className="w-3 h-3" />
+                        <Film className="w-3 h-3" aria-hidden="true" />
                         <span>دارای ویدیوی پیوست</span>
                       </span>
                     )}
@@ -288,11 +301,13 @@ export const ReportVersionHistory: React.FC<ReportVersionHistoryProps> = ({
 
                   {isAdmin && (
                     <button
+                      type="button"
                       onClick={() => handleRestoreVersion(selectedVersion)}
                       disabled={restoring}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-sm cursor-pointer"
+                      aria-label={`بازیابی اطلاعات گزارش به نسخه شماره ${selectedVersion.version_number}`}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
                     >
-                      <RotateCcw className={`w-3.5 h-3.5 ${restoring ? 'animate-spin' : ''}`} />
+                      <RotateCcw className={`w-3.5 h-3.5 ${restoring ? 'animate-spin' : ''}`} aria-hidden="true" />
                       <span>{restoring ? 'در حال بازیابی...' : 'بازیابی به این نسخه'}</span>
                     </button>
                   )}

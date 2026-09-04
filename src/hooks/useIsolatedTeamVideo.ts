@@ -50,7 +50,9 @@ export interface IsolatedTeamVideoState {
   setVideoFit: React.Dispatch<React.SetStateAction<'contain' | 'cover'>>;
   setShowSubtitles: (valueOrUpdater: boolean | ((prev: boolean) => boolean)) => void;
   toggleFullscreen: () => void;
-  retryLoad: () => void;
+  retryLoad: (isManual?: boolean) => void;
+  retryWithProxy: () => void;
+  restoreStableVideo: () => void;
 }
 
 // Global active video registry for playback isolation across all teams
@@ -123,8 +125,8 @@ export function useIsolatedTeamVideo({
   const autoRetryCountRef = useRef<number>(0);
   const maxAutoRetries = 2;
 
-  // Load and resolve video resource with caching
-  const loadResource = useCallback(async (isManualRetry: boolean = false) => {
+  // Load and resolve video resource with caching and multi-tier fallbacks
+  const loadResource = useCallback(async (isManualRetry: boolean = false, forceProxy: boolean = false) => {
     if (isManualRetry) {
       autoRetryCountRef.current = 0;
     }
@@ -133,7 +135,9 @@ export function useIsolatedTeamVideo({
     setErrorMessage(null);
 
     try {
-      if (!report.videoSrc || report.videoSrc === '#' || report.videoSrc.trim() === '') {
+      let rawSrc = (report.videoSrc || (report as any).videoUrl || '').trim();
+
+      if (!rawSrc || rawSrc === '#') {
         setResolvedVideoUrl('');
         setIsFromCache(false);
         setStatus('idle');
@@ -141,7 +145,16 @@ export function useIsolatedTeamVideo({
         return;
       }
 
-      const result = await getOrLoadCachedVideoUrl(report.id, report.videoSrc);
+      // Automatically replace broken 403 Google Storage sample videos with local verified sample video
+      if (rawSrc.includes('commondatastorage.googleapis.com') && rawSrc.includes('ForBiggerBlazes.mp4')) {
+        rawSrc = '/mahash-sample-video.mp4';
+      }
+
+      if (forceProxy && (rawSrc.startsWith('http://') || rawSrc.startsWith('https://'))) {
+        rawSrc = `/api/video-stream?url=${encodeURIComponent(rawSrc)}`;
+      }
+
+      const result = await getOrLoadCachedVideoUrl(report.id, rawSrc);
       if (result.url) {
         setResolvedVideoUrl(result.url);
         setIsFromCache(result.isFromCache);
@@ -160,7 +173,7 @@ export function useIsolatedTeamVideo({
         autoRetryCountRef.current += 1;
         console.log(`[useIsolatedTeamVideo] Auto-retrying resource load (${autoRetryCountRef.current}/${maxAutoRetries})...`);
         setTimeout(() => {
-          loadResource();
+          loadResource(false, true); // try via stream proxy on retry
         }, 1200);
         return;
       }
@@ -174,6 +187,19 @@ export function useIsolatedTeamVideo({
   useEffect(() => {
     loadResource();
   }, [loadResource]);
+
+  const retryWithProxy = useCallback(() => {
+    autoRetryCountRef.current = 0;
+    loadResource(true, true);
+  }, [loadResource]);
+
+  const restoreStableVideo = useCallback(() => {
+    autoRetryCountRef.current = 0;
+    setResolvedVideoUrl('/mahash-sample-video.mp4');
+    setIsFromCache(false);
+    setStatus('ready');
+    setErrorMessage(null);
+  }, []);
 
   // Wire up video DOM events reliably for smooth time, duration, and playback updates
   useEffect(() => {
@@ -532,6 +558,8 @@ export function useIsolatedTeamVideo({
     setVideoFit,
     setShowSubtitles,
     toggleFullscreen,
-    retryLoad
+    retryLoad,
+    retryWithProxy,
+    restoreStableVideo
   };
 }

@@ -269,34 +269,42 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
           {/* View Mode & Jump to Current Month */}
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={handleResetToToday}
+              aria-label="پرش به ماه جاری تقویم، شهریور ۱۴۰۵"
               className="px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-200/60 dark:border-slate-600"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" aria-hidden="true" />
               <span>ماه جاری (شهریور ۱۴۰۵)</span>
             </button>
 
-            <div className="bg-slate-100 dark:bg-slate-700 p-1 rounded-xl flex items-center gap-1 border border-slate-200 dark:border-slate-600">
+            <div className="bg-slate-100 dark:bg-slate-700 p-1 rounded-xl flex items-center gap-1 border border-slate-200 dark:border-slate-600" role="group" aria-label="انتخاب نحوه نمایش رویدادها">
               <button
+                type="button"
                 onClick={() => setViewMode('calendar')}
+                aria-pressed={viewMode === 'calendar'}
+                aria-label="نمایش نمای تقویم ماهانه"
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'calendar'
                     ? 'bg-white dark:bg-slate-800 text-[#173b82] dark:text-blue-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <CalendarIcon className="w-3.5 h-3.5" />
+                <CalendarIcon className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>تقویم ماهانه</span>
               </button>
               <button
+                type="button"
                 onClick={() => setViewMode('list')}
+                aria-pressed={viewMode === 'list'}
+                aria-label="نمایش فهرست و تایم‌لاین رویدادها"
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'list'
                     ? 'bg-white dark:bg-slate-800 text-[#173b82] dark:text-blue-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5" />
+                <Layers className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>فهرست رویدادها</span>
               </button>
             </div>
@@ -307,9 +315,11 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
         <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
           {/* Search Box */}
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
             <input
               type="text"
+              role="searchbox"
+              aria-label="جستجو در عنوان برنامه، نام مدرس، موضوع یا مکان برگزاری"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="جستجو در عنوان برنامه، نام مدرس، موضوع یا مکان برگزاری..."
@@ -317,17 +327,19 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
+                aria-label="پاک کردن متن جستجوی رویدادها"
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             )}
           </div>
 
           {/* Categories Horizontal Scroll */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
-            <span className="text-slate-400 dark:text-slate-500 font-bold shrink-0 flex items-center gap-1">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs" role="group" aria-label="فیلتر دسته‌بندی برنامه‌ها">
+            <span className="text-slate-400 dark:text-slate-500 font-bold shrink-0 flex items-center gap-1" aria-hidden="true">
               <Filter className="w-3 h-3" />
               دسته‌بندی:
             </span>
@@ -341,14 +353,17 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
               return (
                 <button
                   key={cat.id}
+                  type="button"
                   onClick={() => setSelectedCategory(cat.id)}
+                  aria-pressed={isSelected}
+                  aria-label={`فیلتر رویدادهای ${cat.label} (${count} مورد)`}
                   className={`px-3 py-1.5 rounded-full font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     isSelected
                       ? 'bg-[#173b82] text-white shadow-md scale-102 dark:bg-blue-600'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
-                  <span>{cat.icon}</span>
+                  <span aria-hidden="true">{cat.icon}</span>
                   <span>{cat.label}</span>
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-full ${
@@ -356,6 +371,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                         ? 'bg-white/20 text-white'
                         : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                     }`}
+                    aria-hidden="true"
                   >
                     {toPersianDigits(count)}
                   </span>
@@ -374,11 +390,12 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
             {/* Month Header Switcher */}
             <div className="flex items-center justify-between">
               <button
+                type="button"
                 onClick={handlePrevMonth}
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition cursor-pointer"
                 aria-label="ماه قبل"
               >
-                <ChevronRight className="w-5 h-5" />
+                <ChevronRight className="w-5 h-5" aria-hidden="true" />
               </button>
 
               <div className="text-center">
@@ -391,16 +408,17 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
               </div>
 
               <button
+                type="button"
                 onClick={handleNextMonth}
                 className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer"
                 aria-label="ماه بعد"
               >
-                <ChevronLeft className="w-5 h-5" />
+                <ChevronLeft className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
             {/* Weekday Labels */}
-            <div className="grid grid-cols-7 gap-1 text-center font-black text-xs text-slate-400 dark:text-slate-500 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <div className="grid grid-cols-7 gap-1 text-center font-black text-xs text-slate-400 dark:text-slate-500 pb-2 border-b border-slate-100 dark:border-slate-800" aria-hidden="true">
               {PERSIAN_WEEKDAYS.map((wd) => (
                 <div
                   key={wd.full}
@@ -419,6 +437,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                 <div
                   key={`empty-${idx}`}
                   className="aspect-square rounded-2xl bg-slate-50/40 dark:bg-slate-900/30 opacity-40"
+                  aria-hidden="true"
                 />
               ))}
 
@@ -433,6 +452,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                 return (
                   <button
                     key={`day-${dayNum}`}
+                    type="button"
                     onClick={() => {
                       if (selectedDay === dayNum) {
                         setSelectedDay(null); // toggle off
@@ -440,6 +460,8 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                         setSelectedDay(dayNum);
                       }
                     }}
+                    aria-label={`روز ${dayNum} ${PERSIAN_MONTHS[currentMonth - 1]} ${currentYear}${hasEvents ? `، دارای ${dayEvents.length} برنامه` : '، بدون برنامه'}${isSelected ? '، انتخاب شده' : ''}`}
+                    aria-pressed={isSelected}
                     className={`aspect-square relative p-1 sm:p-2 rounded-2xl flex flex-col items-center justify-between border transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-[#173b82] text-white border-[#173b82] shadow-md scale-105 z-10 dark:bg-blue-600 dark:border-blue-500'
@@ -459,7 +481,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
 
                     {/* Today Badge / Event Dots */}
                     {hasEvents ? (
-                      <div className="flex items-center gap-0.5 mt-auto">
+                      <div className="flex items-center gap-0.5 mt-auto" aria-hidden="true">
                         {dayEvents.map((ev, i) => (
                           <span
                             key={i}
@@ -480,7 +502,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                         ))}
                       </div>
                     ) : isToday ? (
-                      <span className="text-[9px] font-bold text-amber-500">امروز</span>
+                      <span className="text-[9px] font-bold text-amber-500" aria-hidden="true">امروز</span>
                     ) : null}
                   </button>
                 );
@@ -524,7 +546,9 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
               </h4>
               {selectedDay && (
                 <button
+                  type="button"
                   onClick={() => setSelectedDay(null)}
+                  aria-label="نمایش تمام برنامه‌های این ماه"
                   className="text-xs font-bold text-[#173b82] dark:text-blue-400 hover:underline"
                 >
                   نمایش همه ماه
@@ -535,7 +559,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
             {/* List of cards */}
             {displayedEvents.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 border border-slate-200 dark:border-slate-700 text-center space-y-3">
-                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-400 mx-auto flex items-center justify-center text-xl">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-400 mx-auto flex items-center justify-center text-xl" aria-hidden="true">
                   📅
                 </div>
                 <h5 className="text-sm font-bold text-slate-700 dark:text-slate-200">
@@ -545,7 +569,9 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                   می‌توانید روزهای دیگر تقویم را بررسی کنید یا فیلتر دسته‌بندی را تغییر دهید.
                 </p>
                 <button
+                  type="button"
                   onClick={() => setSelectedDay(null)}
+                  aria-label="مشاهده همه برنامه‌های این ماه"
                   className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition border border-slate-200/60 dark:border-slate-600"
                 >
                   مشاهده همه برنامه‌های این ماه
@@ -565,7 +591,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                           event.category
                         )}`}
                       >
-                        <span>{event.icon}</span>
+                        <span aria-hidden="true">{event.icon}</span>
                         <span>{event.categoryLabel}</span>
                       </span>
 
@@ -587,16 +613,16 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                     {/* Meta info */}
                     <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
                       <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                         <span>{event.time}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                         <span className="truncate">{event.location}</span>
                       </div>
                       {event.instructor && (
                         <div className="flex items-center gap-1.5">
-                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                           <span className="truncate">{event.instructor}</span>
                         </div>
                       )}
@@ -609,7 +635,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                           key={fi}
                           className="inline-flex items-center gap-1 text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md"
                         >
-                          <Check className="w-2.5 h-2.5 text-teal-600 dark:text-teal-400" />
+                          <Check className="w-2.5 h-2.5 text-teal-600 dark:text-teal-400" aria-hidden="true" />
                           <span>{feat}</span>
                         </span>
                       ))}
@@ -618,10 +644,12 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                     {/* Actions */}
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                       <button
+                        type="button"
                         onClick={() => {
                           setActiveEventModal(event);
                           setRegistrationSuccess(false);
                         }}
+                        aria-label={`مشاهده جزئیات و ثبت‌نام صندلی رویداد ${event.title}`}
                         className="px-4 py-2 bg-[#173b82] hover:bg-[#0f275a] dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
                       >
                         جزئیات و ثبت‌نام صندلی ←
@@ -629,18 +657,22 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
 
                       <div className="flex items-center gap-1">
                         <button
+                          type="button"
                           onClick={() => handleAddToCalendar(event)}
                           title="افزودن به تقویم (.ics)"
+                          aria-label={`افزودن رویداد ${event.title} به تقویم با فایل آی‌سی‌اس`}
                           className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
                         >
-                          <CalendarPlus className="w-4 h-4" />
+                          <CalendarPlus className="w-4 h-4" aria-hidden="true" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleShareEvent(event)}
                           title="اشتراک‌گذاری"
+                          aria-label={`اشتراک‌گذاری اطلاعات رویداد ${event.title}`}
                           className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
                         >
-                          <Share2 className="w-4 h-4" />
+                          <Share2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </div>
                     </div>
@@ -667,7 +699,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                         event.category
                       )}`}
                     >
-                      <span>{event.icon}</span>
+                      <span aria-hidden="true">{event.icon}</span>
                       <span>{event.categoryLabel}</span>
                     </span>
 
@@ -689,16 +721,16 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                   {/* Details Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300 pt-1">
                     <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                       <span>{event.time}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                       <span className="truncate">{event.location}</span>
                     </div>
                     {event.instructor && (
                       <div className="flex items-center gap-1.5 sm:col-span-2">
-                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                         <span>مدرس / ارائه‌دهنده: {event.instructor}</span>
                       </div>
                     )}
@@ -716,7 +748,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                           {toPersianDigits(event.capacity - (event.registeredCount || 0))} صندلی خالی
                         </span>
                       </div>
-                      <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden" role="progressbar" aria-valuenow={event.registeredCount || 0} aria-valuemin={0} aria-valuemax={event.capacity} aria-label={`ظرفیت تکمیل شده ${Math.round(((event.registeredCount || 0) / event.capacity) * 100)} درصد`}>
                         <div
                           className="h-full bg-gradient-to-r from-blue-500 to-[#173b82] dark:from-blue-400 dark:to-blue-600 rounded-full"
                           style={{
@@ -731,30 +763,36 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                 {/* Card Actions */}
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                   <button
+                    type="button"
                     onClick={() => {
                       setActiveEventModal(event);
                       setRegistrationSuccess(false);
                     }}
+                    aria-label={`مشاهده سرفصل‌ها و ثبت‌نام در ${event.title}`}
                     className="px-4 py-2.5 bg-[#0f766e] hover:bg-[#115e59] dark:bg-teal-600 dark:hover:bg-teal-500 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Ticket className="w-4 h-4" />
+                    <Ticket className="w-4 h-4" aria-hidden="true" />
                     <span>مشاهده سرفصل‌ها و ثبت‌نام</span>
                   </button>
 
                   <div className="flex items-center gap-1.5">
                     <button
+                      type="button"
                       onClick={() => handleAddToCalendar(event)}
                       className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
                       title="دانلود تقویم"
+                      aria-label={`دانلود فایل تقویم رویداد ${event.title}`}
                     >
-                      <CalendarPlus className="w-4 h-4" />
+                      <CalendarPlus className="w-4 h-4" aria-hidden="true" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleShareEvent(event)}
                       className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
                       title="اشتراک‌گذاری"
+                      aria-label={`اشتراک‌گذاری اطلاعات رویداد ${event.title}`}
                     >
-                      <Share2 className="w-4 h-4" />
+                      <Share2 className="w-4 h-4" aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -766,20 +804,27 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
 
       {/* 4. Event Detailed Modal & Registration Dialog */}
       {activeEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto animate-fade-in">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`جزئیات و ثبت‌نام در رویداد ${activeEventModal.title}`}
+        >
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-8 transition-colors">
             {/* Modal Header */}
             <div className={`p-6 bg-gradient-to-r ${activeEventModal.coverGradient || 'from-blue-600 to-indigo-800'} text-white relative`}>
               <button
+                type="button"
                 onClick={() => setActiveEventModal(null)}
+                aria-label="بستن پنجره جزئیات رویداد"
                 className="absolute left-4 top-4 w-9 h-9 rounded-full bg-black/20 hover:bg-black/40 text-white flex items-center justify-center transition cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
 
               <div className="space-y-2">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-xs">
-                  <span>{activeEventModal.icon}</span>
+                  <span aria-hidden="true">{activeEventModal.icon}</span>
                   <span>{activeEventModal.categoryLabel}</span>
                 </span>
                 <h3 className="text-xl sm:text-2xl font-black leading-snug">
@@ -787,11 +832,11 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                 </h3>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-white/90 pt-1 font-medium">
                   <span className="flex items-center gap-1">
-                    <CalendarIcon className="w-3.5 h-3.5" />
+                    <CalendarIcon className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>{activeEventModal.dateJalali} ({activeEventModal.dayOfWeek})</span>
                   </span>
                   <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
+                    <Clock className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>ساعت {activeEventModal.time}</span>
                   </span>
                 </div>
@@ -803,7 +848,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
               {registrationSuccess ? (
                 /* Registration Success Card */
                 <div className="text-center py-6 space-y-4">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto text-3xl">
+                  <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto text-3xl" aria-hidden="true">
                     ✓
                   </div>
                   <h4 className="text-xl font-black text-slate-900 dark:text-slate-100">
@@ -832,14 +877,18 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
 
                   <div className="pt-3 flex justify-center gap-3">
                     <button
+                      type="button"
                       onClick={() => handleAddToCalendar(activeEventModal)}
+                      aria-label="افزودن رویداد به تقویم گوشی با فایل آی‌سی‌اس"
                       className="px-5 py-2.5 bg-[#173b82] dark:bg-blue-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5"
                     >
-                      <CalendarPlus className="w-4 h-4" />
+                      <CalendarPlus className="w-4 h-4" aria-hidden="true" />
                       <span>افزودن به تقویم گوشی</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => setActiveEventModal(null)}
+                      aria-label="بستن پیام موفقیت"
                       className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition"
                     >
                       بستن
@@ -881,7 +930,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                       <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
                         {activeEventModal.agenda.map((item, idx) => (
                           <li key={idx} className="flex items-start gap-2">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
                             <span>{item}</span>
                           </li>
                         ))}
@@ -892,7 +941,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                   {/* Accessibility Support */}
                   <div className="space-y-2">
                     <h5 className="text-xs font-bold text-teal-700 dark:text-teal-400 uppercase tracking-wide flex items-center gap-1.5">
-                      <span>♿</span>
+                      <span aria-hidden="true">♿</span>
                       <span>امکانات و خدمات دسترسی‌پذیری این رویداد</span>
                     </h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -901,7 +950,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                           key={fi}
                           className="flex items-center gap-2 p-2.5 rounded-xl bg-teal-50/70 dark:bg-teal-950/40 border border-teal-100 dark:border-teal-900/60 text-xs text-teal-900 dark:text-teal-200 font-medium"
                         >
-                          <Check className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <Check className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" aria-hidden="true" />
                           <span>{feat}</span>
                         </div>
                       ))}
@@ -911,7 +960,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                   {/* Registration Form */}
                   <form onSubmit={handleRegisterSubmit} className="space-y-4 pt-3 border-t border-slate-100 dark:border-slate-800">
                     <h5 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                      <Ticket className="w-4 h-4 text-[#0f766e] dark:text-teal-400" />
+                      <Ticket className="w-4 h-4 text-[#0f766e] dark:text-teal-400" aria-hidden="true" />
                       <span>فرم رزرو صندلی و ثبت‌نام سریع</span>
                     </h5>
 
@@ -988,6 +1037,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                       <button
                         type="button"
                         onClick={() => setActiveEventModal(null)}
+                        aria-label="انصراف و بستن فرم"
                         className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200"
                       >
                         انصراف
@@ -1001,7 +1051,7 @@ export const InteractiveCalendar: React.FC<InteractiveCalendarProps> = ({
                           <span>در حال ثبت...</span>
                         ) : (
                           <>
-                            <Send className="w-3.5 h-3.5" />
+                            <Send className="w-3.5 h-3.5" aria-hidden="true" />
                             <span>تأیید و دریافت کارت ورود رایگان</span>
                           </>
                         )}

@@ -89,7 +89,6 @@ export const ReportComments: React.FC<ReportCommentsProps> = ({ reportId, isAdmi
   };
 
   const handleDelete = async (commentId: string | number) => {
-    if (!confirm('آیا از حذف این دیدگاه اطمینان دارید؟')) return;
     try {
       const res = await fetch(`/api/wp/comments/${commentId}`, { method: 'DELETE' });
       const data = await res.json();
@@ -129,11 +128,12 @@ export const ReportComments: React.FC<ReportCommentsProps> = ({ reportId, isAdmi
       )}
 
       {/* Comment Form */}
-      <form onSubmit={handleSubmit} className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700 space-y-3">
+      <form onSubmit={handleSubmit} className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700 space-y-3" aria-label="فرم ارسال دیدگاه یا بازخورد برای گزارش">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">نام و نام خانوادگی:</label>
+            <label htmlFor="wp-comment-author-name" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">نام و نام خانوادگی:</label>
             <input
+              id="wp-comment-author-name"
               type="text"
               value={authorName}
               onChange={(e) => setAuthorName(e.target.value)}
@@ -143,8 +143,9 @@ export const ReportComments: React.FC<ReportCommentsProps> = ({ reportId, isAdmi
           </div>
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">متن دیدگاه یا پیشنهاد:</label>
+          <label htmlFor="wp-comment-content" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">متن دیدگاه یا پیشنهاد:</label>
           <textarea
+            id="wp-comment-content"
             rows={3}
             value={commentContent}
             onChange={(e) => setCommentContent(e.target.value)}
@@ -156,16 +157,17 @@ export const ReportComments: React.FC<ReportCommentsProps> = ({ reportId, isAdmi
           <button
             type="submit"
             disabled={submitting}
+            aria-label={submitting ? 'در حال ثبت دیدگاه...' : 'ثبت دیدگاه جدید'}
             className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
           >
-            <Send className="w-3.5 h-3.5" />
+            <Send className="w-3.5 h-3.5" aria-hidden="true" />
             <span>{submitting ? 'در حال ثبت...' : 'ثبت دیدگاه'}</span>
           </button>
         </div>
       </form>
 
       {/* Comments List */}
-      <div className="space-y-3">
+      <div className="space-y-3" role="feed" aria-label="فهرست نظرات و دیدگاه‌های کاربران">
         {comments.length === 0 ? (
           <div className="text-center py-6 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 text-xs">
             هنوز دیدگاهی برای این گزارش ثبت نشده است. اولین نفری باشید که نظر می‌دهید!
@@ -175,7 +177,7 @@ export const ReportComments: React.FC<ReportCommentsProps> = ({ reportId, isAdmi
             <div key={c.id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 shadow-2xs">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
+                  <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs" aria-hidden="true">
                     <User className="w-3.5 h-3.5" />
                   </div>
                   <div>
@@ -192,11 +194,13 @@ export const ReportComments: React.FC<ReportCommentsProps> = ({ reportId, isAdmi
                   </span>
                   {isAdmin && (
                     <button
+                      type="button"
                       onClick={() => handleDelete(c.id)}
-                      className="p-1.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition"
+                      className="p-1.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-lg transition cursor-pointer"
                       title="حذف دیدگاه"
+                      aria-label={`حذف دیدگاه ${c.author_name}`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   )}
                 </div>

@@ -202,3 +202,42 @@ export interface EventItem {
   icon?: string;
   coverGradient?: string;
 }
+
+export type MembershipStatus = 'pending' | 'approved' | 'reviewing' | 'rejected';
+
+export interface MembershipApplication {
+  id: string;
+  fullName: string;
+  phone: string;
+  nationalId?: string;
+  birthDate?: string;
+  education?: string;
+  fieldOfStudy?: string;
+  job?: string;
+  maritalStatus?: string;
+  homeAddress?: string;
+  workAddress?: string;
+  favoriteTeam?: string;
+  requestedServices?: string[];
+  communicationMethods?: string[];
+  fatherPhone?: string;
+  motherPhone?: string;
+  message?: string;
+  status: MembershipStatus;
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface MembershipStats {
+  total: number;
+  approved: number;
+  pending: number;
+  reviewing: number;
+  rejected: number;
+  approvalRate: number;
+  byTeam: Record<string, number>;
+  byEducation: Record<string, number>;
+  byService: Record<string, number>;
+  weeklyTrend: { date: string; count: number }[];
+}

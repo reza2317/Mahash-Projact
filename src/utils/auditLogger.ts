@@ -1,11 +1,14 @@
 // Audit Logger utility for Mahash Admin Operations
-import { getSmartCurrentDate, toPersianDigits } from './persianDate';
+import { getSmartCurrentDate, toPersianDigits, gregorianToJalali } from './persianDate';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from './storage';
 
 export type AuditActionType =
   | 'CREATE_REPORT'
   | 'UPDATE_REPORT'
   | 'DELETE_REPORT'
+  | 'PERMANENT_DELETE_REPORT'
+  | 'RESTORE_REPORT'
+  | 'EMPTY_TRASH'
   | 'UPLOAD_VIDEO'
   | 'DELETE_VIDEO'
   | 'UPLOAD_ATTACHMENT'
@@ -33,7 +36,41 @@ export interface AuditLogEntry {
 }
 
 const AUDIT_LOGS_KEY = 'mahash_audit_logs_v1';
-const MAX_LOGS = 60;
+const MAX_LOGS = 120;
+
+export async function fetchAuditLogs(): Promise<AuditLogEntry[]> {
+  if (typeof window === 'undefined') return [];
+  try {
+    const res = await fetch('/api/mysql/logs');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.logs)) {
+        return data.logs.map((row: any) => {
+          // Map MySQL mahash_activity_logs to AuditLogEntry format
+          const date = new Date(row.created_at);
+          const j = gregorianToJalali(date);
+          const pDate = `${j.day} ${j.monthName} ${j.year}`;
+          const pTime = `${toPersianDigits(String(date.getHours()).padStart(2, '0'))}:${toPersianDigits(String(date.getMinutes()).padStart(2, '0'))}:${toPersianDigits(String(date.getSeconds()).padStart(2, '0'))}`;
+          return {
+            id: row.id,
+            timestamp: date.getTime(),
+            persianDate: pDate,
+            persianTime: pTime,
+            actionType: row.action_type as AuditActionType,
+            title: row.title,
+            description: row.details,
+            teamSlug: row.team_slug,
+            actor: row.user_name || 'سیستم',
+            details: row.metadata
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch audit logs from MySQL, falling back to local', err);
+  }
+  return getAuditLogs();
+}
 
 export function getAuditLogs(): AuditLogEntry[] {
   if (typeof window === 'undefined') return [];
@@ -46,6 +83,16 @@ export function getAuditLogs(): AuditLogEntry[] {
     console.error('Error reading audit logs:', err);
     return getDefaultAuditLogs();
   }
+}
+
+export function getDeletionAuditLogs(): AuditLogEntry[] {
+  const all = getAuditLogs();
+  return all.filter(
+    (log) =>
+      log.actionType === 'DELETE_REPORT' ||
+      log.actionType === 'PERMANENT_DELETE_REPORT' ||
+      log.actionType === 'EMPTY_TRASH'
+  );
 }
 
 export function logAuditEvent(
@@ -99,6 +146,27 @@ export function clearAuditLogs(): void {
   window.dispatchEvent(new CustomEvent('mahash_audit_logged'));
 }
 
+export function exportAuditLogsJson(): string {
+  const logs = getAuditLogs();
+  return JSON.stringify(logs, null, 2);
+}
+
+export function exportAuditLogsCsv(): string {
+  const logs = getAuditLogs();
+  const headers = ['شناسه', 'تاریخ شمسی', 'ساعت', 'نوع عملیات', 'عنوان', 'اپراتور/مدیر', 'تیم', 'توضیحات'];
+  const rows = logs.map((l) => [
+    l.id,
+    l.persianDate,
+    l.persianTime,
+    l.actionType,
+    `"${(l.title || '').replace(/"/g, '""')}"`,
+    `"${(l.actor || '').replace(/"/g, '""')}"`,
+    l.teamSlug || '',
+    `"${(l.description || '').replace(/"/g, '""')}"`
+  ]);
+  return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+}
+
 function getDefaultAuditLogs(): AuditLogEntry[] {
   return [
     {
@@ -133,3 +201,4 @@ function getDefaultAuditLogs(): AuditLogEntry[] {
     }
   ];
 }
+

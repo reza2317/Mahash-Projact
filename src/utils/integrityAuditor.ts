@@ -63,7 +63,7 @@ export interface AuditSummaryReport {
   durationMs: number;
 }
 
-export const DEFAULT_STABLE_SAMPLE_VIDEO = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+export const DEFAULT_STABLE_SAMPLE_VIDEO = '/mahash-sample-video.mp4';
 export const DEFAULT_FALLBACK_POSTER = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&q=80';
 
 // Minimal valid PDF data URI for repairing missing/broken document attachments
@@ -165,6 +165,27 @@ async function probeImage(urlOrData: string, timeoutMs: number = 3000): Promise<
     }
     const approxBytes = Math.round((urlOrData.length * 3) / 4);
     return { ok: true, message: 'تصویر درون‌حافظه‌ای Base64 سالم', sizeBytes: approxBytes };
+  }
+
+  // Probe local / relative paths via server API if needed
+  if (urlOrData.startsWith('/') || urlOrData.startsWith('./')) {
+    try {
+      const probeRes = await fetch(`/api/health/probe-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlOrData })
+      });
+      if (probeRes.ok) {
+        const pData = await probeRes.json();
+        if (pData && pData.ok) {
+          return {
+            ok: true,
+            message: pData.statusText || 'فایل محلی معتبر و موجود است',
+            sizeBytes: pData.sizeBytes
+          };
+        }
+      }
+    } catch {}
   }
 
   return new Promise((resolve) => {
@@ -539,25 +560,30 @@ export function repairVideoWithStableSample(reportId: string, teamSlug?: string)
     ? effectiveSlug
     : (TEAMS_DATA[`team-${effectiveSlug}`] ? `team-${effectiveSlug}` : effectiveSlug);
 
-  // If this is thinker-02 / anime "رؤیای یک کافه", use the verified uploaded anime video
-  const isAnimeCafeReport =
-    reportId === 'thinker-02' ||
-    (targetReport.title && targetReport.title.includes('رؤیای یک کافه'));
+  // Look up in KNOWN_MEDIA_MAPPINGS first
+  const dictEntry =
+    KNOWN_MEDIA_MAPPINGS[reportId] ||
+    (targetReport.title?.includes('معرفی اعضا') ? KNOWN_MEDIA_MAPPINGS['angels-03'] : undefined) ||
+    (targetReport.title?.includes('سکوی قهرمانی') || targetReport.title?.includes('مسیر یک') ? KNOWN_MEDIA_MAPPINGS['angels-02'] : undefined) ||
+    (targetReport.title?.includes('کافه') || targetReport.title?.includes('انیمه') ? KNOWN_MEDIA_MAPPINGS['thinker-03'] : undefined) ||
+    (targetReport.title?.includes('همکاری') || targetReport.title?.includes('پیام تصویری') ? KNOWN_MEDIA_MAPPINGS['thinker-02'] : undefined) ||
+    (targetReport.title?.includes('خودمراقبتی') ? KNOWN_MEDIA_MAPPINGS['tomorrow-01'] : undefined) ||
+    (effectiveSlug ? KNOWN_MEDIA_MAPPINGS[effectiveSlug] : undefined);
 
-  const chosenVideoSrc = isAnimeCafeReport
-    ? '/uploads/file-1788063352946-218736197.mp4'
-    : DEFAULT_STABLE_SAMPLE_VIDEO;
+  const chosenVideoSrc = dictEntry?.video || DEFAULT_STABLE_SAMPLE_VIDEO;
+  const chosenPosterSrc = dictEntry?.poster || targetReport.posterSrc;
 
   const updatedReport: ActivityReport = {
     ...targetReport,
     videoSrc: chosenVideoSrc,
+    ...(chosenPosterSrc ? { posterSrc: chosenPosterSrc } : {}),
     reportType: targetReport.reportType === 'text' ? 'hybrid' : (targetReport.reportType || 'video'),
     status: targetReport.status || 'published',
     updatedAt: Date.now()
   };
 
   saveReport(updatedReport, normalizedSlug);
-  triggerGlobalCacheBust();
+  triggerGlobalCacheBust(true);
   return true;
 }
 
@@ -931,56 +957,97 @@ export const KNOWN_MEDIA_MAPPINGS: Record<
     description: string;
   }
 > = {
-  'thinker-02': {
+  'thinker-03': {
     video: '/uploads/file-1788063352946-218736197.mp4',
-    poster: '/uploads/file-1788195560361-77992681.png',
+    poster: '/uploads/score-thinker-bfc199291c.webp',
     description: 'ویدیو انیمه «رؤیای یک کافه» (تیم مغز متفکر و فرشتگان ناشنوایان)'
+  },
+  'thinker-02': {
+    video: '/uploads/file-1788194454093-106622230.mp4',
+    poster: '/uploads/score-thinker-bfc199291c.webp',
+    description: 'پیام ویدیویی، شروعی برای همکاری و خبرهای خوب'
   },
   'thinker-01': {
     video: '/uploads/file-1788194454093-106622230.mp4',
-    poster: '/uploads/file-1788195571270-94157318.png',
+    poster: '/uploads/score-thinker-bfc199291c.webp',
     description: 'پیام تصویری آغاز فعالیت و ارتباط میان تیم‌های باشگاه محاش'
   },
   'tomorrow-01': {
-    video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    poster: '/uploads/file-1788195562738-869945127.png',
+    video: '/uploads/file-1788063115012-791223571.mp4',
+    poster: '/uploads/score-tomorrow-7c6a293a14.jpg',
     description: 'ویدیو آموزشی خودمراقبتی برای اعضای باشگاه فردا'
+  },
+  'tomorrow-02': {
+    video: '/uploads/file-1788063115012-791223571.mp4',
+    poster: '/uploads/score-tomorrow-7c6a293a14.jpg',
+    description: 'کارگاه خلاقیت و نوآوری اعضای باشگاه فردا'
+  },
+  'tomorrow-03': {
+    video: '/uploads/file-1788063115012-791223571.mp4',
+    poster: '/uploads/score-tomorrow-7c6a293a14.jpg',
+    description: 'پروژه مشترک و تعامل تیمی باشگاه فردا'
+  },
+  'angels-03': {
+    video: '/uploads/file-1788063303183-909070848.mp4',
+    poster: '/uploads/score-angels-f860e0ad8a.webp',
+    description: 'معرفی اعضای پرانرژی و هنرمند تیم فرشتگان ناشنوایان'
+  },
+  'angels-02': {
+    video: '/uploads/file-1788063141877-869516181.mp4',
+    poster: '/uploads/score-angels-f860e0ad8a.webp',
+    description: 'مسیر یک رویا، از اشتیاق کودکی تا فتح سکوی قهرمانی'
   },
   'angels-01': {
     video: '/uploads/file-1788063352946-218736197.mp4',
-    poster: '/uploads/file-1788195560361-77992681.png',
-    description: 'گزارش ویدیویی الهام‌بخش تیم فرشتگان ناشنوایان'
+    poster: '/uploads/score-angels-f860e0ad8a.webp',
+    description: 'پیام ویدیویی انگیزشی «رویای یک کافه» (پروژه مشترک)'
   },
   'growth-01': {
-    video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    video: '/uploads/mahash-stable-video.mp4',
+    poster: '/uploads/score-thinker-bfc199291c.webp',
     description: 'گزارش مهارتی تیم مسیر رشد'
   },
   'samim-01': {
-    video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    video: '/uploads/mahash-stable-video.mp4',
+    poster: '/uploads/score-tomorrow-7c6a293a14.jpg',
     description: 'گزارش توانمندسازی تیم طنین صمیمیت'
   },
+  'ghorbani-01': {
+    video: '/uploads/mahash-stable-video.mp4',
+    poster: '/uploads/score-ghorbani-e5d14eae40.jpg',
+    description: 'گزارش فعالیت تیم شهید ابراهیم هادی'
+  },
+  'silence-01': {
+    video: '/uploads/mahash-stable-video.mp4',
+    poster: '/uploads/score-silence-dc7429cedc.jpg',
+    description: 'گزارش فعالیت تیم طنین سکوت'
+  },
   'team-thinker': {
-    logo: '/uploads/team-06753ed8f1.webp',
+    logo: '/uploads/team-bfc199291c.webp',
     description: 'نشان تیم مغز متفکر'
   },
   'team-angels': {
-    logo: '/uploads/team-148bf9f91c.webp',
+    logo: '/uploads/score-angels-f860e0ad8a.webp',
     description: 'نشان تیم فرشتگان ناشنوایان'
   },
   'team-tomorrow': {
-    logo: '/uploads/team-161663af08.webp',
+    logo: '/uploads/score-tomorrow-7c6a293a14.jpg',
     description: 'نشان تیم باشگاه فردا'
   },
-  'team-growth': {
-    logo: '/uploads/team-39dade2348.webp',
-    description: 'نشان تیم مسیر رشد'
+  'team-ghorbani': {
+    logo: '/uploads/score-ghorbani-e5d14eae40.jpg',
+    description: 'نشان تیم شهید ابراهیم هادی'
   },
-  'team-samim': {
-    logo: '/uploads/team-b1f6222417.webp',
-    description: 'نشان تیم طنین صمیمیت'
+  'team-silence': {
+    logo: '/uploads/score-silence-dc7429cedc.jpg',
+    description: 'نشان تیم آوای سکوت'
+  },
+  'mahash-logo': {
+    logo: '/uploads/mahash-96747ecd00.webp',
+    description: 'لوگوی رسمی موسسه محاش'
   },
   'mahash-emblem': {
-    logo: '/uploads/emblem-4e4a2a0bf5.webp',
+    logo: '/uploads/emblem-96747ecd00.webp',
     description: 'نشان رسمی موسسه محاش'
   }
 };

@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PageId, TeamData, ActivityReport } from '../types';
-import { getTeam, subscribeToStoreUpdates, isAdminAuthenticated, getMemberAvatar } from '../utils/reportsStore';
+import { getTeam, subscribeToStoreUpdates, isAdminAuthenticated } from '../utils/reportsStore';
+import {
+  TeamVideoResourceItem,
+  getOptimizedTeamVideos,
+  getOptimizedTeamMembers,
+  getCachedVideoMetrics,
+  fetchCachedMySQLVideos,
+  OptimizedTeamMember
+} from '../utils/mysqlQueryOptimizer';
 import { getTeamLogoPlaceholder } from '../utils/assets';
 import { ResponsiveImage } from '../components/ResponsiveImage';
 import { ImageLoader } from '../components/ImageLoader';
@@ -43,24 +51,7 @@ interface TeamDetailPageProps {
   onNavigate: (page: PageId) => void;
 }
 
-export interface TeamVideoResourceItem {
-  id: string;
-  reportId: string;
-  reportNum: string;
-  title: string;
-  teamSlug: string;
-  teamName: string;
-  videoSrc: string;
-  posterSrc?: string;
-  date: string;
-  summary: string;
-  keyPoints?: string[];
-  transcript?: any[];
-  subhead?: string;
-  status?: string;
-  hasVideo: boolean;
-  originalReport: ActivityReport;
-}
+export type { TeamVideoResourceItem };
 
 export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavigate }) => {
   const [team, setTeam] = useState<TeamData | undefined>(() => getTeam(teamSlug));
@@ -128,30 +119,27 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
     return () => unsub();
   }, [teamSlug]);
 
-  // Structured transformation from raw report arrays to defined video resource objects with team metadata
+  // Optimized heavy video resources query with memoized caching
   const teamVideoResources = useMemo<TeamVideoResourceItem[]>(() => {
     if (!team || !team.reports) return [];
-    return (team.reports || [])
-      .filter((r) => isAdmin || r.status !== 'draft')
-      .map((report) => ({
-        id: `${teamSlug}_${report.id}`,
-        reportId: report.id,
-        reportNum: report.reportNum,
-        title: report.title,
-        teamSlug: teamSlug,
-        teamName: team.name,
-        videoSrc: report.videoSrc || '',
-        posterSrc: report.posterSrc,
-        date: report.date,
-        summary: report.summary,
-        keyPoints: report.keyPoints,
-        transcript: report.transcript,
-        subhead: report.subhead,
-        status: report.status,
-        hasVideo: Boolean(report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '' && report.reportType !== 'text'),
-        originalReport: report
-      }));
+    return getOptimizedTeamVideos(teamSlug, team.reports, isAdmin, team.name);
   }, [team, teamSlug, isAdmin]);
+
+  // Pre-calculate memoized video metrics for fast rendering
+  const videoMetrics = useMemo(() => {
+    return getCachedVideoMetrics(teamSlug, team?.reports || [], isAdmin);
+  }, [teamSlug, team?.reports, isAdmin]);
+
+  // Optimized memoized team members list with pre-resolved avatars
+  const optimizedMembers = useMemo<OptimizedTeamMember[]>(() => {
+    if (!team || !team.members) return [];
+    return getOptimizedTeamMembers(teamSlug, team.members);
+  }, [team?.members, teamSlug]);
+
+  // Pre-fetch indexed MySQL video data in the background to warm up cache
+  useEffect(() => {
+    fetchCachedMySQLVideos({ teamSlug, publicOnly: !isAdmin }).catch(() => {});
+  }, [teamSlug, isAdmin]);
 
   // Smart API Summary Generator using Server-Side Gemini endpoint
   const handleGenerateSummary = async () => {
@@ -483,26 +471,21 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {team.members.map((member, i) => {
-                const avatarSrc = getMemberAvatar(teamSlug, member);
-                const isCustomImg = avatarSrc && (avatarSrc.startsWith('data:image') || avatarSrc.startsWith('http') || avatarSrc.startsWith('/'));
-
-                return (
-                  <div
-                    key={i}
-                    className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 pl-3 pr-1.5 py-1 rounded-full font-medium"
-                  >
-                    <div className="w-5 h-5 rounded-full overflow-hidden bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0">
-                      {isCustomImg ? (
-                        <img loading="lazy" src={avatarSrc} alt={member} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-[10px]">{avatarSrc || '👤'}</span>
-                      )}
-                    </div>
-                    <span>{member}</span>
+              {optimizedMembers.map((member, i) => (
+                <div
+                  key={i}
+                  className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 pl-3 pr-1.5 py-1 rounded-full font-medium"
+                >
+                  <div className="w-5 h-5 rounded-full overflow-hidden bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0">
+                    {member.isCustomImg ? (
+                      <img loading="lazy" src={member.avatarSrc} alt={member.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[10px]">{member.avatarSrc || '👤'}</span>
+                    )}
                   </div>
-                );
-              })}
+                  <span>{member.name}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

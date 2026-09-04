@@ -5,10 +5,10 @@
  * Cache-First for static media assets with background refresh
  */
 
-const STATIC_CACHE = 'mahash-static-v2';
-const RUNTIME_CACHE = 'mahash-runtime-v2';
-const MEDIA_CACHE = 'mahash-media-v2';
-const API_CACHE = 'mahash-api-v2';
+const STATIC_CACHE = 'mahash-static-v2.1';
+const RUNTIME_CACHE = 'mahash-runtime-v2.1';
+const MEDIA_CACHE = 'mahash-media-v2.1';
+const API_CACHE = 'mahash-api-v2.1';
 
 const CURRENT_CACHES = [STATIC_CACHE, RUNTIME_CACHE, MEDIA_CACHE, API_CACHE];
 

@@ -245,7 +245,6 @@ export const WordPressCMSPanel: React.FC = () => {
   };
 
   const handleDeleteMedia = async (id: string | number) => {
-    if (!confirm('آیا از حذف این فایل رسانه از جدول MySQL اطمینان دارید؟')) return;
     try {
       await fetch(`/api/wp/media/${id}`, { method: 'DELETE' });
       await fetchWpData();
@@ -287,7 +286,6 @@ export const WordPressCMSPanel: React.FC = () => {
   };
 
   const handleDeletePost = async (id: string | number) => {
-    if (!confirm('آیا از حذف این نوشته از جدول wp_posts اطمینان دارید؟')) return;
     try {
       await fetch(`/api/wp/posts/${id}`, { method: 'DELETE' });
       await fetchWpData();
@@ -299,7 +297,6 @@ export const WordPressCMSPanel: React.FC = () => {
   };
 
   const handleDeleteComment = async (id: string | number) => {
-    if (!confirm('آیا از حذف این دیدگاه از جدول wp_comments اطمینان دارید؟')) return;
     try {
       await fetch(`/api/wp/comments/${id}`, { method: 'DELETE' });
       await fetchWpData();

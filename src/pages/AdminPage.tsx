@@ -3,10 +3,12 @@ import { MonthlyReports } from '../components/MonthlyReports';
 import { WordPressCMSPanel } from '../components/WordPressCMSPanel';
 import { MySQLAdminDashboard } from '../components/MySQLAdminDashboard';
 import { MySQLLiveLogsMonitor } from '../components/admin/MySQLLiveLogsMonitor';
+import { AuditLogsTab } from '../components/admin/AuditLogsTab';
 import { SyncLogger } from '../components/admin/SyncLogger';
 import { WordPressService } from '../services/WordPressService';
 import { useNotification } from '../context/NotificationContext';
 import { logReportToMySQL, fetchMySQLLogs, archiveAndClearLogsAPI, MySQLLogItem } from '../utils/mysqlLogger';
+import { securePermanentReportPurge } from '../utils/secureDeletion';
 import DatePicker, { DateObject } from 'react-multi-date-picker';
 import persian from 'react-date-object/calendars/persian';
 import persian_fa from 'react-date-object/locales/persian_fa';
@@ -17,6 +19,7 @@ import {
   getAllReports,
   saveReport,
   deleteReport,
+  deleteReportPermanently,
   removeVideoFromReport,
   getNextReportNumberForTeam,
   getSavedDrafts,
@@ -58,6 +61,7 @@ import {
   triggerGlobalCacheBust,
   syncLocalDataToServer,
   fetchAndMergeServerStore,
+  restoreAllOfficialReportsAndPublish,
   getMemberAvatars,
   getMemberAvatar,
   saveMemberAvatar,
@@ -71,14 +75,22 @@ import {
   updateConsultantInfo,
   addConsultant,
   deleteConsultant,
-  isCustomImageDataUrlOrUrl
+  isCustomImageDataUrlOrUrl,
+  getPendingSyncCount,
+  clearPendingSyncItems,
+  getLastSuccessfulSync,
+  getSyncHistoryLogs,
+  SyncAttemptLog
 } from '../utils/reportsStore';
+import { RecentSyncLogs } from '../components/admin/RecentSyncLogs';
 import { VideoRemovalConfirmModal } from '../components/VideoRemovalConfirmModal';
 import { OrphanMediaRepairUtility } from '../components/OrphanMediaRepairUtility';
 import { VideoGalleryView } from '../components/VideoGalleryView';
 import { SyncStatusBadge } from '../components/SyncStatusBadge';
 import { AdminLogoManager } from '../components/admin/AdminLogoManager';
 import { MediaContentManager } from '../components/admin/MediaContentManager';
+import { MySQLVideoManager } from '../components/admin/MySQLVideoManager';
+import { MembershipsManagementDashboard } from '../components/admin/MembershipsManagementDashboard';
 import {
   saveMahashLogoToFirestore,
   saveYouthClubEmblemToFirestore,
@@ -144,7 +156,7 @@ import {
   Eye,
   EyeOff,
   LogOut,
-  Upload,
+  Upload, CloudUpload,
   Video,
   FileText,
   Users,
@@ -197,6 +209,7 @@ import {
   Archive,
   Zap,
   ShieldAlert,
+  Shield,
   CheckSquare,
   Layers
 } from 'lucide-react';
@@ -227,12 +240,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [recoverySuccess, setRecoverySuccess] = useState<boolean>(false);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs'>('create');
-  const [mysqlHealthStatus, setMysqlHealthStatus] = useState<{ connected: boolean; host?: string; database?: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'members_dashboard' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'video_manager' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs' | 'audit_logs'>('create');
+  const [mysqlHealthStatus, setMysqlHealthStatus] = useState<{ connected: boolean; host?: string; database?: string; timestamp?: string } | null>(null);
 
   const [isSyncingServer, setIsSyncingServer] = useState(false);
+  const [isForceRefreshing, setIsForceRefreshing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncMessage, setSyncMessage] = useState('');
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => getPendingSyncCount());
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => getLastSuccessfulSync());
+  const [syncLogsList, setSyncLogsList] = useState<SyncAttemptLog[]>(() => getSyncHistoryLogs());
+  const [showForceRefreshConfirmModal, setShowForceRefreshConfirmModal] = useState<boolean>(false);
+
+  // Sync state updater
+  useEffect(() => {
+    const updateSyncIndicators = () => {
+      setPendingSyncCount(getPendingSyncCount());
+      setLastSyncTime(getLastSuccessfulSync());
+      setSyncLogsList(getSyncHistoryLogs());
+    };
+
+    updateSyncIndicators();
+    const unsub = subscribeToStoreUpdates(updateSyncIndicators);
+    const interval = setInterval(updateSyncIndicators, 3000);
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const checkMysqlHealth = async () => {
@@ -245,6 +280,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       }
     };
     checkMysqlHealth();
+    const interval = setInterval(checkMysqlHealth, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   // Video preservation & removal confirmation state
@@ -271,6 +308,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [reportViews, setReportViewsState] = useState<Record<string, number>>(() => getAllReportViews());
   const [storageStats, setStorageStats] = useState<{ count: number; totalSizeBytes: number }>({ count: 0, totalSizeBytes: 0 });
   const [cachedVideos, setCachedVideos] = useState<any[]>([]);
+  const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
 
   // Logos and Circular Badges Management State
   const [mahashLogoSrc, setMahashLogoSrc] = useState<string>(() => getMahashLogo());
@@ -500,6 +538,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     title: string;
     teamName?: string;
   } | null>(null);
+  const [deleteConfirmAck, setDeleteConfirmAck] = useState<boolean>(false);
+  const [deleteOperatorName, setDeleteOperatorName] = useState<string>('مدیر ارشد سامانه (Admin)');
+  const [deleteReason, setDeleteReason] = useState<string>('درخواست حذف نهایی توسط مدیر');
+  const [deleteReasonCustom, setDeleteReasonCustom] = useState<string>('');
   const [eventToDelete, setEventToDelete] = useState<{
     id: string;
     title: string;
@@ -569,6 +611,57 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   };
 
   // Run script to clean corrupt/unknown video entries
+  
+  const handleTransferToMySQL = async (video: any) => {
+    try {
+      setUploadingVideoId(video.reportId);
+      
+      const formData = new FormData();
+      formData.append('file', video.blob, video.name || 'video.mp4');
+
+      const res = await fetch('/api/upload-file', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) throw new Error('خطا در آپلود ویدیو به سرور');
+      const data = await res.json();
+      
+      if (data.success && data.url) {
+        // Update report to use remote URL
+        const allReps = getAllReports();
+        const report = allReps.find((r: any) => r.id === video.reportId);
+        
+        if (report) {
+          const updatedReport = { ...report, videoUrl: data.url };
+          delete updatedReport.videoSrc; // Remove local URL
+          saveReport(updatedReport, updatedReport.teamSlug);
+          
+          // Re-sync allReports state
+          setAllReports(getAllReports());
+        }
+
+        // Delete from local IndexedDB cache
+        await deleteVideoFromCache(video.reportId);
+        
+        // Refresh UI
+        const list = await getAllCachedVideos();
+        setCachedVideos(list);
+        const stats = await getStorageStats();
+        setStorageStats(stats);
+        
+        showToast('ویدیو با موفقیت به سرور MySQL منتقل شد.');
+      } else {
+        throw new Error(data.error || 'خطای نامشخص در آپلود');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast(`خطا در انتقال: ${err.message}`, 'error');
+    } finally {
+      setUploadingVideoId(null);
+    }
+  };
+
   const handleRunVideoCleanup = () => {
     const result = cleanUnknownOrCorruptVideos();
     triggerGlobalCacheBust();
@@ -884,12 +977,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   };
 
   // Handle Video Selection with Advanced Validation
-  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Advanced Validation (MIME type, extension, size limit)
-    const validation = validateVideoFile(file);
+    // Advanced Validation (MIME type, extension, size limit, and header magic numbers)
+    const validation = await validateVideoFile(file);
     if (!validation.isValid) {
       showToast(validation.errorMessage || 'فایل ویدیویی انتخاب شده نامعتبر است.', 'error');
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1170,7 +1263,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
 
     // 1. Advanced Full Report Submission Validation
-    const validation = validateFullReportSubmission(reportTitle, videoFile, attachments);
+    const validation = await validateFullReportSubmission(reportTitle, videoFile, attachments);
     if (!validation.isValid) {
       showToast(validation.errorMessage || 'لطفاً خطاهای فرم را برطرف نمایید.', 'error');
       return;
@@ -1466,6 +1559,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Delete Report Handlers
   const handleOpenDeleteReportModal = (reportId: string, teamSlug: string, title: string, teamName?: string) => {
     setReportToDelete({ id: reportId, teamSlug, title, teamName });
+    setDeleteConfirmAck(false);
+    setDeleteOperatorName(adminUsername ? `مدیر (${adminUsername})` : 'مدیر ارشد سامانه (Admin)');
+    setDeleteReason('درخواست حذف نهایی توسط مدیر');
+    setDeleteReasonCustom('');
   };
 
   const handleConfirmDeleteReport = async () => {
@@ -1474,44 +1571,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     try {
       const targetId = reportToDelete.id;
       const targetSlug = reportToDelete.teamSlug;
+      const finalReason = deleteReason === 'other' ? (deleteReasonCustom.trim() || 'سایر دلایل') : deleteReason;
+      const finalOperator = deleteOperatorName.trim() || 'مدیر ارشد سامانه (Admin)';
 
-      // 1. Delete from store
-      deleteReport(targetId, targetSlug);
-
-      // Log deletion to MySQL
-      logReportToMySQL({
-        actionType: 'report_delete',
-        title: `حذف گزارش: ${reportToDelete.title}`,
-        details: `تیم: ${reportToDelete.teamName || targetSlug || 'نامشخص'} | شناسه: ${targetId}`,
-        userName: 'مدیر سامانه',
-        teamSlug: targetSlug,
+      // 1. Permanently purge report from all databases, caches, and server storage with audit logging
+      const purgeResult = await securePermanentReportPurge({
         reportId: targetId,
-        status: 'warning'
+        teamSlug: targetSlug,
+        reportTitle: reportToDelete.title,
+        teamName: reportToDelete.teamName,
+        operatorName: finalOperator,
+        operatorRole: 'مدیر سامانه',
+        reason: finalReason,
+        purgeMedia: true
       });
-
-      // 2. Clean binary caches from IndexedDB
-      await Promise.allSettled([
-        deleteVideoFromCache(targetId),
-        deleteAllAttachmentsForReport(targetId)
-      ]);
 
       triggerGlobalCacheBust();
 
-      // 3. Immediately refresh state & cache
+      // 2. Immediately refresh state & cache
       setAllReports(getAllReports());
       setTeams(getAllTeams());
       setReportViewsState(getAllReportViews());
 
-      // 4. Dispatch global update
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('mahash_store_updated', { detail: { deletedId: targetId } }));
-      }
-
-      showToast(`گزارش «${reportToDelete.title}» با موفقیت حذف و حافظه کش بازنشانی گردید.`);
+      showToast(
+        `گزارش «${reportToDelete.title}» به صورت قطعی و امن پاکسازی گردید و در لاگ نظارتی (Audit Log) ثبت شد.`,
+        'success'
+      );
       setReportToDelete(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting report:', err);
-      showToast('خطا در حذف گزارش.', 'error');
+      showToast(`خطا در حذف گزارش: ${err?.message || 'خطای سرور'}`, 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -1796,6 +1885,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       showToast('خطا در اتصال به سرور', 'error');
     } finally {
       setIsSyncingServer(false);
+    }
+  };
+
+  const executeForceRefresh = async () => {
+    setIsForceRefreshing(true);
+    try {
+      const ok = await fetchAndMergeServerStore(true);
+      if (ok) {
+        clearPendingSyncItems();
+        const msg = 'آخرین اطلاعات و گزارش‌ها با موفقیت از سرور دریافت و نوسازی اجباری (Force Refresh) انجام شد.';
+        showToast(msg);
+        maintenanceSuccess('نوسازی اجباری و دریافت آخرین اطلاعات', msg);
+      } else {
+        showToast('خطا در دریافت آخرین اطلاعات از سرور یا ارتباط برقرار نشد.', 'error');
+      }
+    } catch (err: any) {
+      showToast(`خطا در نوسازی اجباری از سرور: ${err?.message || 'نامشخص'}`, 'error');
+    } finally {
+      setIsForceRefreshing(false);
+      setShowForceRefreshConfirmModal(false);
+      setPendingSyncCount(getPendingSyncCount());
+      setLastSyncTime(getLastSuccessfulSync());
+      setSyncLogsList(getSyncHistoryLogs());
+    }
+  };
+
+  const handleForceRefresh = () => {
+    const pending = getPendingSyncCount();
+    if (pending > 0) {
+      setShowForceRefreshConfirmModal(true);
+    } else {
+      executeForceRefresh();
     }
   };
 
@@ -2277,12 +2398,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* MySQL Health Indicator Badge */}
-            <div className="flex items-center gap-2 bg-black/30 px-3.5 py-2 rounded-xl border border-white/10 text-xs">
+            {/* MySQL System Health Indicator Badge */}
+            <div className="flex items-center gap-2 bg-black/30 px-3.5 py-1.5 rounded-xl border border-white/10 text-xs">
               <span className={`w-2.5 h-2.5 rounded-full ${mysqlHealthStatus?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-              <span className="text-white font-medium">
-                {mysqlHealthStatus?.connected ? `MySQL متصل (${mysqlHealthStatus.database || 'mahash_db'})` : 'MySQL قطع (پشتیبان محلی)'}
-              </span>
+              <div className="flex flex-col">
+                <span className="text-white font-medium">
+                  {mysqlHealthStatus?.connected ? `Live: متصل (${mysqlHealthStatus.database || 'mahash_db'})` : 'Disconnected (قطع)'}
+                </span>
+                {mysqlHealthStatus?.timestamp && (
+                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                    آخرین بررسی: {new Date(mysqlHealthStatus.timestamp).toLocaleTimeString('fa-IR')}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Real-time System Notification Badge (Task 4) */}
@@ -2384,6 +2512,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 onClick={handleSyncToServer}
                 disabled={isSyncingServer}
                 title="ارسال و ذخیره‌سازی دائمی تمامی لوگوها و گزارش‌ها در سرور مرکزی تا در تمام سیستم‌ها و دامنه عمومی دقیقاً یکسان نمایش داده شود"
+                aria-label="انتشار سراسری تغییرات و لوگوها در پایگاه داده سرور مرکزی"
                 className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 cursor-pointer disabled:opacity-50 relative overflow-hidden"
               >
                 {isSyncingServer && (
@@ -2397,11 +2526,49 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               </button>
             </div>
 
+            <div className="relative inline-flex items-center">
+              <button
+                type="button"
+                onClick={handleForceRefresh}
+                disabled={isForceRefreshing || isSyncingServer}
+                title={`نوسازی اجباری اطلاعات: فراخوانی مستقیم fetchAndMergeServerStore و بارگیری تازه‌ترین نسخه از سرور${lastSyncTime ? `\nآخرین همگام‌سازی موفق: ${new Date(lastSyncTime).toLocaleTimeString('fa-IR')} (${new Date(lastSyncTime).toLocaleDateString('fa-IR')})` : ''}`}
+                aria-label="نوسازی اجباری و دریافت آخرین نسخه اطلاعات از سرور مرکزی"
+                className="px-3.5 py-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-sky-400/30 cursor-pointer disabled:opacity-50 active:scale-95 shadow-sm relative"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isForceRefreshing ? 'animate-spin text-sky-300' : 'text-sky-300'}`} />
+                <span>{isForceRefreshing ? 'در حال نوسازی...' : '🔄 نوسازی اجباری (Force Refresh)'}</span>
+                
+                {/* Pending Unsynced Badge */}
+                {pendingSyncCount > 0 && (
+                  <span
+                    className="mr-1 px-1.5 py-0.2 bg-amber-500 text-slate-950 font-black rounded-full text-[10px] leading-tight shadow-md border border-amber-300 animate-pulse"
+                    title={`${toPersianDigits(pendingSyncCount)} تغییر ذخیره‌نشده روی سرور`}
+                    aria-label={`${toPersianDigits(pendingSyncCount)} مورد تغییر ذخیره‌نشده روی سرور`}
+                  >
+                    {toPersianDigits(pendingSyncCount)}
+                  </span>
+                )}
+              </button>
+
+              {/* Visual Indicator of Last Successful Sync Timestamp */}
+              {lastSyncTime && (
+                <span 
+                  className="hidden xl:inline-flex items-center gap-1 text-[11px] text-sky-300/80 mr-2 bg-sky-950/40 border border-sky-800/40 px-2 py-1 rounded-lg font-mono"
+                  title="زمان دقیق آخرین اتصال و همگام‌سازی موفق با سرور مرکزی"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span className="text-[10px] text-slate-400">آخرین همگام‌سازی:</span>
+                  <span className="font-bold text-sky-200" dir="ltr">{new Date(lastSyncTime).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}</span>
+                </span>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={handlePullFromServer}
-              disabled={isSyncingServer}
+              disabled={isSyncingServer || isForceRefreshing}
               title="دریافت آخرین لوگوها و اطلاعات از سرور"
+              aria-label="بروزرسانی و دریافت آخرین اطلاعات از سرور مرکزی"
               className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-white/10 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className="w-3 h-3" />
@@ -2412,6 +2579,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               type="button"
               onClick={handleRunVideoCleanup}
               title="بررسی و حذف خودکار ویدیوهای معیوب یا پیوندهای ناشناخته برای تمیزسازی پنل تیم‌ها"
+              aria-label="بررسی و پاکسازی ویدیوهای معیوب یا نامعتبر"
               className="px-3.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-amber-400/30 cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -2420,6 +2588,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
             <button
               onClick={() => onNavigate('home')}
+              aria-label="مشاهده سایت اصلی باشگاه جوانان محاش"
               className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-white/10 cursor-pointer"
             >
               <ExternalLink className="w-3.5 h-3.5" />
@@ -2428,6 +2597,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
             <button
               onClick={handleLogout}
+              aria-label="خروج از پنل مدیریت"
               className="px-3.5 py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-rose-400/30 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -2608,30 +2778,73 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             </div>
             <span className="text-[10px] text-indigo-400/80">درخواست‌های اولویت‌دار</span>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('members_dashboard')}
+            className="bg-purple-950/40 hover:bg-purple-950/60 p-3 rounded-2xl border border-purple-500/30 text-right cursor-pointer transition transform hover:scale-[1.02] active:scale-[0.98]"
+            aria-label="ورود به داشبورد جامع اعضا و پایش فعالیت‌های باشگاه"
+          >
+            <div className="flex items-center justify-between text-purple-300 text-[11px] font-bold">
+              <span>داشبورد اعضا و فعالیت‌ها</span>
+              <Users className="w-3.5 h-3.5 text-purple-400" />
+            </div>
+            <div className="text-xl font-black text-purple-200 font-mono mt-0.5 flex items-center justify-between">
+              <span>مدیریت متقاضیان</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-300 font-bold">ورود 👥</span>
+            </div>
+            <span className="text-[10px] text-purple-300/80">پایش تیم‌ها و درخواست‌ها</span>
+          </button>
         </div>
       </div>
 
       {/* Tabs Navigation */}
-      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-1.5 overflow-x-auto text-xs font-bold">
+      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-1.5 overflow-x-auto text-xs font-bold" role="tablist" aria-label="تب‌های پنل مدیریت محاش">
         <button
+          id="admin-tab-members-dashboard"
+          role="tab"
+          aria-selected={activeTab === 'members_dashboard'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('members_dashboard')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'members_dashboard'
+              ? 'bg-gradient-to-l from-indigo-700 via-blue-700 to-emerald-700 text-white shadow-sm ring-2 ring-indigo-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="داشبورد جامع اعضا، مدیریت درخواست‌های عضویت و پایش فعالیت‌ها"
+        >
+          <Users className="w-4 h-4 text-emerald-400" />
+          <span>👥 داشبورد جامع اعضا و پایش فعالیت‌ها</span>
+        </button>
+        <button
+          id="admin-tab-create"
+          role="tab"
+          aria-selected={activeTab === 'create'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('create')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'create'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="ثبت گزارش یا ویدیوی جدید"
         >
           <PlusCircle className="w-4 h-4" />
           <span>{editingReportId ? 'ویرایش گزارش جاری' : '➕ ثبت گزارش و ویدیوی جدید'}</span>
         </button>
 
         <button
+          id="admin-tab-reports"
+          role="tab"
+          aria-selected={activeTab === 'reports'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('reports')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'reports'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label={`مشاهده لیست گزارش‌های منتشرشده (${allReports.length} مورد)`}
         >
           <Film className="w-4 h-4" />
           <span>لیست گزارش‌های منتشرشده ({allReports.length})</span>
@@ -2639,6 +2852,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
         <button
           id="admin-tab-drafts"
+          role="tab"
+          aria-selected={activeTab === 'drafts'}
+          aria-controls="admin-panel-content"
           onClick={() => {
             setSavedDraftsList(getSavedDrafts());
             setActiveTab('drafts');
@@ -2648,6 +2864,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="مشاهده و مدیریت پیش‌نویس‌ها"
         >
           <FileText className="w-4 h-4 text-amber-400" />
           <span>پیش‌نویس‌ها</span>
@@ -2660,12 +2877,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
         <button
           id="admin-tab-repair"
+          role="tab"
+          aria-selected={activeTab === 'repair'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('repair')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'repair'
               ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="تعمیر رسانه‌ها و آزادسازی حافظه"
         >
           <Wrench className="w-4 h-4 text-indigo-400" />
           <span>🔧 تعمیر رسانه‌ها و آزادسازی حافظه</span>
@@ -2673,168 +2894,271 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
         <button
           id="admin-tab-gallery"
+          role="tab"
+          aria-selected={activeTab === 'gallery'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('gallery')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'gallery'
               ? 'bg-cyan-700 text-white shadow-sm ring-2 ring-cyan-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="نگارخانه ویدیوهای باشگاه"
         >
           <Film className="w-4 h-4 text-cyan-400" />
           <span>🎬 نگارخانه ویدیوها</span>
         </button>
 
         <button
+          id="admin-tab-analytics"
+          role="tab"
+          aria-selected={activeTab === 'analytics'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('analytics')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'analytics'
               ? 'bg-[#173b82] text-white shadow-sm ring-2 ring-sky-400/30'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="آمار و تحلیل بازدید ویدیوها"
         >
           <TrendingUp className="w-4 h-4 text-sky-400" />
           <span>آمار و تحلیل بازدید ویدیوها ({toPersianDigits(totalViewsCount)})</span>
         </button>
 
         <button
+          id="admin-tab-monthly"
+          role="tab"
+          aria-selected={activeTab === 'monthly'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('monthly')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'monthly'
               ? 'bg-[#173b82] text-white shadow-sm ring-2 ring-sky-400/30'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="گزارش‌های ماهانه موسسه"
         >
           <Calendar className="w-4 h-4 text-indigo-400" />
           <span>گزارش‌های ماهانه</span>
         </button>
 
         <button
+          id="admin-tab-teams"
+          role="tab"
+          aria-selected={activeTab === 'teams'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('teams')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'teams'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="مدیریت تیم‌ها و اعضای باشگاه"
         >
           <Users className="w-4 h-4" />
           <span>مدیریت تیم‌ها و اعضا</span>
         </button>
 
         <button
+          id="admin-tab-logos"
+          role="tab"
+          aria-selected={activeTab === 'logos'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('logos')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'logos'
               ? 'bg-[#173b82] text-white shadow-sm ring-2 ring-amber-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="مدیریت نشان‌ها و لوگوهای محاش و حلقوی"
         >
           <Sparkles className="w-4 h-4 text-amber-400" />
           <span>🎨 مدیریت نشان‌ها و لوگوهای محاش و حلقوی</span>
         </button>
 
         <button
+          id="admin-tab-media"
+          role="tab"
+          aria-selected={activeTab === 'media'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('media')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'media'
               ? 'bg-gradient-to-l from-indigo-800 to-blue-700 text-white shadow-sm ring-2 ring-cyan-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="مدیریت تصاویر و مدیا"
         >
           <ImageIcon className="w-4 h-4 text-cyan-400" />
           <span>🖼️ مدیریت تصاویر و مدیا (WebP & MySQL)</span>
         </button>
 
         <button
+          id="admin-tab-video-manager"
+          role="tab"
+          aria-selected={activeTab === 'video_manager'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('video_manager')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'video_manager'
+              ? 'bg-gradient-to-l from-indigo-700 via-blue-700 to-indigo-900 text-white shadow-sm ring-2 ring-indigo-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="مدیریت ویدیوها و نمایش عمومی در پایگاه داده"
+        >
+          <Film className="w-4 h-4 text-indigo-400" />
+          <span>🎥 مدیریت ویدیوها و نمایش عمومی (MySQL)</span>
+        </button>
+
+        <button
+          id="admin-tab-scores"
+          role="tab"
+          aria-selected={activeTab === 'scores'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('scores')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'scores'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label={`ویرایش امتیازات تیم‌ها (${scoresList.length} مورد)`}
         >
           <Award className="w-4 h-4" />
           <span>ویرایش امتیازات ({scoresList.length})</span>
         </button>
 
         <button
+          id="admin-tab-events"
+          role="tab"
+          aria-selected={activeTab === 'events'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('events')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'events'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label={`رویدادها و کارگاه‌های آموزشی (${eventsList.length} مورد)`}
         >
           <Calendar className="w-4 h-4" />
           <span>رویدادها و کارگاه‌ها ({eventsList.length})</span>
         </button>
 
         <button
+          id="admin-tab-health"
+          role="tab"
+          aria-selected={activeTab === 'health'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('health')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'health'
               ? 'bg-[#173b82] text-white shadow-sm ring-2 ring-emerald-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="تست سلامت لینک‌ها و فایل‌های سامانه"
         >
           <Activity className="w-4 h-4 text-emerald-400" />
           <span>🔍 تست سلامت لینک‌ها و فایل‌ها</span>
         </button>
 
         <button
+          id="admin-tab-storage"
+          role="tab"
+          aria-selected={activeTab === 'storage'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('storage')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'storage'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label={`حافظه ویدیوها (${storageStats.count} مورد)`}
         >
           <HardDrive className="w-4 h-4" />
           <span>حافظه ویدیوها ({storageStats.count})</span>
         </button>
 
         <button
+          id="admin-tab-wordpress"
+          role="tab"
+          aria-selected={activeTab === 'wordpress'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('wordpress')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'wordpress'
               ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="همگام‌سازی وردپرس و دیتابیس MySQL"
         >
           <Database className="w-4 h-4 text-blue-400" />
           <span>وردپرس و دیتابیس MySQL</span>
         </button>
 
         <button
+          id="admin-tab-mysql"
+          role="tab"
+          aria-selected={activeTab === 'mysql'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('mysql')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'mysql'
               ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="داشبورد و عملیات دیتابیس MySQL"
         >
           <Database className="w-4 h-4 text-emerald-400" />
           <span>داشبورد و CRUD دیتابیس MySQL</span>
         </button>
 
         <button
+          id="admin-tab-mysql-logs"
+          role="tab"
+          aria-selected={activeTab === 'mysql_logs'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('mysql_logs')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'mysql_logs'
               ? 'bg-teal-700 text-white shadow-sm ring-2 ring-teal-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="مانیتورینگ زنده رویدادهای MySQL"
         >
           <Activity className="w-4 h-4 text-teal-400" />
           <span>📡 مانیتورینگ زنده رویدادهای MySQL</span>
         </button>
 
         <button
+          id="admin-tab-audit-logs"
+          role="tab"
+          aria-selected={activeTab === 'audit_logs'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('audit_logs')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'audit_logs'
+              ? 'bg-gradient-to-l from-rose-700 to-indigo-800 text-white shadow-sm ring-2 ring-rose-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="ردگیری حذفیات و لاگ‌های نظارتی"
+        >
+          <Shield className="w-4 h-4 text-rose-400" />
+          <span>🛡️ ردگیری حذفیات و لاگ‌های نظارتی (Audit Logs)</span>
+        </button>
+
+        <button
+          id="admin-tab-settings"
+          role="tab"
+          aria-selected={activeTab === 'settings'}
+          aria-controls="admin-panel-content"
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'settings'
               ? 'bg-[#173b82] text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
+          aria-label="تنظیمات سامانه و امنیت کلمه عبور"
         >
           <Sliders className="w-4 h-4" />
           <span>تنظیمات و امنیت</span>
@@ -4117,6 +4441,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
             <div className="flex flex-wrap items-center gap-2">
               <button
+                onClick={async () => {
+                  try {
+                    const res = await restoreAllOfficialReportsAndPublish();
+                    showToast(res.message, 'success');
+                    triggerGlobalCacheBust();
+                  } catch (err: any) {
+                    showToast('خطا در بازگردانی گزارش‌ها: ' + (err?.message || 'نامشخص'), 'error');
+                  }
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer"
+                title="بازگردانی کلیه گزارش‌های ویدیویی رسمی با پیوندهای سالم و انتشار سراسری در وبسایت"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>✨ بازگردانی و انتشار گزارش‌های ویدیویی سالم در سایت عمومی</span>
+              </button>
+
+              <button
                 onClick={() => handleTransferApprovedReportsToPublicGroup()}
                 className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shrink-0 cursor-pointer"
                 title="انتقال سریع و نمایش تمام گزارش‌های تایید شده به صفحه عمومی گروه من"
@@ -4294,10 +4635,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredReports.map((report) => {
+                  {filteredReports.map((report, idx) => {
                     const views = reportViews[report.id] ?? 0;
                     return (
-                      <tr key={report.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition">
+                      <tr key={report.id} className={`${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/50 dark:bg-slate-800/30'} hover:bg-slate-100 dark:hover:bg-slate-800/60 transition group`}>
                         <td className="py-3.5 pr-2 font-bold text-[#173b82] dark:text-blue-400 whitespace-nowrap">
                           {report.teamName}
                         </td>
@@ -4406,7 +4747,29 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                           </button>
                         </td>
                         <td className="py-3.5 pl-2 text-left whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5 opacity-100 sm:opacity-50 group-hover:opacity-100 transition-opacity">
+                            {/* Fast Video Preview if available */}
+                            {report.videoSrc && report.videoSrc !== '#' && report.videoSrc.trim() !== '' && (
+                              <button
+                                onClick={() => setVideoPreviewUrl(report.videoSrc || null)}
+                                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition cursor-pointer"
+                                title="پیش‌نمایش سریع ویدیوی گزارش"
+                              >
+                                <Film className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* View Full Details Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleEditReport(report, report.teamSlug)}
+                              className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg transition cursor-pointer"
+                              title="نمایش جزئیات و ویرایش کامل گزارش"
+                              aria-label={`نمایش/ویرایش کامل گزارش ${report.title}`}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+
                             {/* Print / Export PDF */}
                             <PrintReportButton
                               report={report}
@@ -4972,6 +5335,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Comprehensive Memberships & Club Monitoring Dashboard */}
+      {/* ==================================================== */}
+      {activeTab === 'members_dashboard' && (
+        <MembershipsManagementDashboard />
       )}
 
       {/* ==================================================== */}
@@ -5724,7 +6094,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         sizes="96px"
                         className="w-full h-full object-cover"
                         containerClassName="w-full h-full"
-                        priority={false}
+                        priority={true}
                         showSkeleton={true}
                       />
                     </div>
@@ -5998,6 +6368,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ==================================================== */}
+      {/* TAB: MySQL Video Content & Public/Private Visibility Manager */}
+      {/* ==================================================== */}
+      {activeTab === 'video_manager' && (
+        <MySQLVideoManager
+          onNavigateToReport={(repId) => {
+            if (onNavigate) {
+              onNavigate('team-detail');
+            }
+          }}
+        />
+      )}
+
+      {/* ==================================================== */}
       {/* TAB 4: Media & Storage Cache Manager */}
       {/* ==================================================== */}
       {activeTab === 'storage' && (
@@ -6046,6 +6429,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                   </div>
 
                   <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+
+                    <button
+                      onClick={() => handleTransferToMySQL(video)}
+                      disabled={uploadingVideoId === video.reportId}
+                      className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      {uploadingVideoId === video.reportId ? (
+                        <div className="w-3.5 h-3.5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <CloudUpload className="w-3.5 h-3.5" />
+                      )}
+                      <span>انتقال به MySQL</span>
+                    </button>
                     <button
                       onClick={async () => {
                         await deleteVideoFromCache(video.reportId);
@@ -6585,6 +6981,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               </button>
 
               <button
+                onClick={handleForceRefresh}
+                disabled={isForceRefreshing || isSyncingServer}
+                className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 relative"
+              >
+                <RefreshCw className={`w-4 h-4 text-sky-600 ${isForceRefreshing ? 'animate-spin' : ''}`} />
+                <span>{isForceRefreshing ? 'در حال نوسازی اجباری از سرور...' : 'نوسازی اجباری اطلاعات از سرور مرکزی (Force Refresh)'}</span>
+                {pendingSyncCount > 0 && (
+                  <span className="px-2 py-0.5 bg-amber-500 text-slate-950 font-black rounded-full text-[10px] shadow-sm">
+                    {pendingSyncCount} ذخیره‌نشده
+                  </span>
+                )}
+              </button>
+
+              <button
                 onClick={() => setShowResetAllConfirmModal(true)}
                 className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer mt-4"
               >
@@ -6601,6 +7011,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       {/* ==================================================== */}
       {activeTab === 'wordpress' && (
         <div className="space-y-6">
+          <RecentSyncLogs
+            logs={syncLogsList}
+            lastSyncedTimestamp={lastSyncTime}
+            onRefreshNow={handleForceRefresh}
+            isRefreshing={isForceRefreshing}
+          />
           <WordPressCMSPanel />
           <SyncLogger />
         </div>
@@ -6617,7 +7033,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       {/* TAB: Real-Time MySQL Activity & Action Logs Monitor */}
       {/* ==================================================== */}
       {activeTab === 'mysql_logs' && (
-        <MySQLLiveLogsMonitor />
+        <div className="space-y-6">
+          <RecentSyncLogs
+            logs={syncLogsList}
+            lastSyncedTimestamp={lastSyncTime}
+            onRefreshNow={handleForceRefresh}
+            isRefreshing={isForceRefreshing}
+          />
+          <MySQLLiveLogsMonitor />
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Audit Logs & Deletion Tracking System */}
+      {/* ==================================================== */}
+      {activeTab === 'audit_logs' && (
+        <div className="space-y-6">
+          <AuditLogsTab
+            showToast={showToast}
+            onNavigateTab={(tab) => setActiveTab(tab as any)}
+          />
+        </div>
       )}
 
       {/* ==================================================== */}
@@ -6635,57 +7071,138 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ==================================================== */}
-      {/* CONFIRMATION MODAL: Delete Report */}
+      {/* PROTECTIVE CONFIRMATION MODAL: Permanent Report Purge */}
       {/* ==================================================== */}
       {reportToDelete && (
-        <div className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3 text-rose-600">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 flex items-center justify-center shrink-0">
-                <Trash2 className="w-6 h-6 text-rose-600" />
+        <div className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-rose-200 dark:border-rose-900/60 p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            {/* Header Alert */}
+            <div className="flex items-center gap-3.5 pb-2 border-b border-rose-100 dark:border-rose-900/40">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 flex items-center justify-center shrink-0 text-rose-600">
+                <ShieldAlert className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white">
-                  حذف قطعی گزارش
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  تأیید حفاظتی: حذف قطعی و پاکسازی کامل گزارش
                 </h3>
-                <span className="text-xs text-rose-500 font-bold">
-                  این عملیات غیرقابل بازگشت است
+                <span className="text-xs text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 mt-0.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  این عملیات غیرقابل بازگشت است و در سامانه نظارتی ثبت می‌شود
                 </span>
               </div>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs space-y-2">
-              <div className="font-bold text-slate-900 dark:text-white">
-                «{reportToDelete.title}»
+            {/* Report Information Card */}
+            <div className="bg-slate-50 dark:bg-slate-800/90 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs space-y-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-black text-slate-900 dark:text-white text-sm leading-snug">
+                  «{reportToDelete.title}»
+                </div>
+                <span className="px-2 py-0.5 bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 rounded-md text-[10px] font-mono shrink-0 font-bold">
+                  {reportToDelete.id}
+                </span>
               </div>
+
               {reportToDelete.teamName && (
-                <div className="text-slate-500">
-                  تیم: <span className="font-bold text-blue-600 dark:text-blue-400">{reportToDelete.teamName}</span>
+                <div className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5 font-medium">
+                  <span>تیم منتسب:</span>
+                  <span className="font-bold text-blue-600 dark:text-blue-400">{reportToDelete.teamName}</span>
+                  {reportToDelete.teamSlug && (
+                    <span className="text-slate-400 text-[10px]">({reportToDelete.teamSlug})</span>
+                  )}
                 </div>
               )}
-              <div className="text-[11px] text-slate-400">
-                فایل ویدیویی ذخیره شده در حافظه مرورگر و تمامی اسناد پیوست این گزارش نیز حذف خواهند شد.
+
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+                <div className="font-bold text-slate-700 dark:text-slate-300">مؤلفه‌های تحت تأثیر این پاکسازی:</div>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-500 dark:text-slate-400">
+                  <li>حذف کامل رکورد از پایگاه داده اصلی و MySQL</li>
+                  <li>پاکسازی فایل‌های ویدیویی و پیوست‌ها از حافظه مرورگر و کش</li>
+                  <li>حذف نسخه‌های پیشین و جلوگیری از بارگذاری مجدد فایل‌های پیش‌فرض</li>
+                </ul>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
+            {/* Operator and Reason Inputs for Audit Logging */}
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  نام شخص/مدیر اقدام‌کننده (ثبت در لاگ نظارتی):
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={deleteOperatorName}
+                    onChange={(e) => setDeleteOperatorName(e.target.value)}
+                    placeholder="نام مدیر یا اپراتور..."
+                    className="w-full pr-9 pl-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-rose-500 focus:outline-hidden dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  علت حذف گزارش:
+                </label>
+                <select
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-rose-500 focus:outline-hidden dark:text-white cursor-pointer"
+                >
+                  <option value="درخواست حذف نهایی توسط مدیر">درخواست حذف نهایی توسط مدیر</option>
+                  <option value="گزارش تکراری یا آزمایشی">گزارش تکراری یا آزمایشی</option>
+                  <option value="منسوخ شدن محتوا">منسوخ شدن محتوا</option>
+                  <option value="اصلاحیه و بارگذاری مجدد گزارش">اصلاحیه و بارگذاری مجدد گزارش</option>
+                  <option value="other">سایر دلایل (توضیح دستی)...</option>
+                </select>
+              </div>
+
+              {deleteReason === 'other' && (
+                <div>
+                  <input
+                    type="text"
+                    value={deleteReasonCustom}
+                    onChange={(e) => setDeleteReasonCustom(e.target.value)}
+                    placeholder="توضیح دلیل حذف را وارد فرمایید..."
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-medium focus:ring-2 focus:ring-rose-500 focus:outline-hidden dark:text-white"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setReportToDelete(null)}
                 disabled={isDeleting}
                 className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50"
               >
-                انصراف
+                انصراف و بازگشت
               </button>
 
               <button
                 type="button"
                 onClick={handleConfirmDeleteReport}
-                disabled={isDeleting}
-                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                disabled={isDeleting || !deleteOperatorName.trim()}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md cursor-pointer ${
+                  !deleteOperatorName.trim()
+                    ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white active:scale-95'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeleting ? 'در حال حذف...' : 'تأیید و حذف نهایی گزارش'}</span>
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>در حال پاکسازی امن و ثبت در لاگ نظارتی...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>تأیید نهایی و پاکسازی پایگاه داده</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -6907,6 +7424,74 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 لطفاً شکیبا باشید؛ اطلاعات در حال پردازش و ثبت پایدار است.
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* CONFIRMATION MODAL: Force Refresh Overwrite Warning */}
+      {/* ==================================================== */}
+      {showForceRefreshConfirmModal && (
+        <div 
+          className="fixed inset-0 z-[99999] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="force-refresh-modal-title"
+          aria-describedby="force-refresh-modal-desc"
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl max-w-md w-full space-y-5">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900/60 rounded-2xl text-amber-600 dark:text-amber-400 shrink-0">
+                <AlertTriangle className="w-6 h-6" aria-hidden="true" />
+              </div>
+              <div className="space-y-1 min-w-0">
+                <h3 id="force-refresh-modal-title" className="text-base font-black text-slate-900 dark:text-white">
+                  هشدار: تغییرات ذخیره‌نشده روی سرور
+                </h3>
+                <p id="force-refresh-modal-desc" className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  تعداد <span className="font-bold text-amber-600 dark:text-amber-400">{toPersianDigits(pendingSyncCount)} مورد</span> تغییر محلی (گزارش جدید، لوگو یا تصویر) در مرورگر شما وجود دارد که هنوز با دکمه سبز «انتشار سراسری» در پایگاه داده سرور ذخیره نشده است.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3.5 text-xs text-amber-800 dark:text-amber-300 space-y-2">
+              <p className="font-bold">آیا مایلید نوسازی اجباری انجام شود؟</p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                انجام نوسازی اجباری (Force Refresh) آخرین اطلاعات سرور را فراخوانی کرده و ممکن است تغییرات ارسال‌نشده محلی شما بازنویسی شوند.
+              </p>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowForceRefreshConfirmModal(false)}
+                aria-label="انصراف و حفظ تغییرات محلی"
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                انصراف (حفظ تغییرات محلی)
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForceRefreshConfirmModal(false);
+                  handleSyncToServer();
+                }}
+                aria-label="ذخیره تغییرات در سرور و سپس نوسازی اطلاعات"
+                className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+              >
+                <span>🚀 اول ذخیره در سرور (پیشنهادی)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={executeForceRefresh}
+                aria-label="نوسازی اجباری بدون ذخیره تغییرات محلی"
+                className="w-full sm:w-auto px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+              >
+                <span>نوسازی بدون ذخیره</span>
+              </button>
             </div>
           </div>
         </div>

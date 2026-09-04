@@ -53,8 +53,9 @@ export const BackToTop: React.FC = () => {
     >
       <button
         id="btn-back-to-top"
+        type="button"
         onClick={scrollToTop}
-        aria-label="بازگشت به بالای صفحه"
+        aria-label={`بازگشت به بالای صفحه (میزان اسکرول ${scrollProgress} درصد)`}
         title="بازگشت به بالا"
         className="group relative flex items-center justify-center w-12 h-12 sm:w-13 sm:h-13 rounded-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md text-[#173b82] dark:text-sky-300 shadow-lg hover:shadow-2xl hover:shadow-blue-500/25 border border-slate-200/80 dark:border-slate-700/80 transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer"
       >
@@ -62,6 +63,7 @@ export const BackToTop: React.FC = () => {
         <svg
           className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none p-0.5"
           viewBox="0 0 48 48"
+          aria-hidden="true"
         >
           {/* Background track */}
           <circle
@@ -89,10 +91,10 @@ export const BackToTop: React.FC = () => {
         </svg>
 
         {/* Center Arrow Icon */}
-        <ArrowUp className="w-5 h-5 transition-transform duration-300 group-hover:-translate-y-1 group-hover:scale-110 text-[#173b82] dark:text-sky-300" />
+        <ArrowUp className="w-5 h-5 transition-transform duration-300 group-hover:-translate-y-1 group-hover:scale-110 text-[#173b82] dark:text-sky-300" aria-hidden="true" />
 
         {/* Hover Tooltip (Left or Top) */}
-        <div className="absolute left-1/2 -translate-x-1/2 -top-10 opacity-0 group-hover:opacity-100 group-hover:-top-11 transition-all duration-200 pointer-events-none whitespace-nowrap bg-slate-900/95 dark:bg-slate-800/95 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md border border-slate-700/50">
+        <div className="absolute left-1/2 -translate-x-1/2 -top-10 opacity-0 group-hover:opacity-100 group-hover:-top-11 transition-all duration-200 pointer-events-none whitespace-nowrap bg-slate-900/95 dark:bg-slate-800/95 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md border border-slate-700/50" aria-hidden="true">
           بازگشت به بالا ({scrollProgress}٪)
           {/* Tooltip arrow */}
           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900/95 dark:border-t-slate-800/95" />

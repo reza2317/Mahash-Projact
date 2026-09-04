@@ -415,8 +415,17 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
             {imageFiles.map((img) => (
               <div
                 key={img.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => handlePreviewAttachment(img)}
-                className="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 aspect-4/3 cursor-pointer shadow-xs hover:shadow-md transition"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handlePreviewAttachment(img);
+                  }
+                }}
+                aria-label={`مشاهده و بزرگ‌نمایی تصویر: ${img.caption || img.name}`}
+                className="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 aspect-4/3 cursor-pointer shadow-xs hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <img
                   src={img.dataUrl}
@@ -424,12 +433,12 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2.5 text-white">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2.5 text-white pointer-events-none">
                   <span className="text-[11px] font-bold truncate block">{img.caption || img.name}</span>
                   <span className="text-[9px] text-slate-300">{img.sizeFormatted}</span>
                 </div>
-                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-xs text-white px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition flex items-center gap-1 text-[10px] font-bold">
-                  <ZoomIn className="w-3 h-3" />
+                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-xs text-white px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition flex items-center gap-1 text-[10px] font-bold pointer-events-none">
+                  <ZoomIn className="w-3 h-3" aria-hidden="true" />
                   <span>پیش‌نمایش و زوم</span>
                 </div>
               </div>
@@ -440,7 +449,7 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
 
       {/* Document & File List */}
       {documentFiles.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="list" aria-label="فهرست اسناد و فایل‌های پیوست">
           {documentFiles.map((doc) => {
             const isPdf = doc.type === 'pdf' || doc.extension === 'pdf' || doc.name.toLowerCase().endsWith('.pdf');
             const isDownloading = downloadingId === doc.id;
@@ -448,10 +457,11 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
             return (
               <div
                 key={doc.id}
+                role="listitem"
                 className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-between gap-3 hover:border-blue-300 dark:hover:border-blue-700 transition shadow-2xs"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 shadow-2xs">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 shadow-2xs" aria-hidden="true">
                     {getFileIcon(doc.type)}
                   </div>
                   <div className="min-w-0">
@@ -477,8 +487,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                       onClick={() => handlePreviewAttachment(doc)}
                       className="px-3 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/60 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
                       title="پیش‌نمایش و مطالعه PDF با قابلیت زوم"
+                      aria-label={`پیش‌نمایش و مطالعه فایل پی‌دی‌اف ${doc.name}`}
                     >
-                      <Eye className="w-3.5 h-3.5" />
+                      <Eye className="w-3.5 h-3.5" aria-hidden="true" />
                       <span className="hidden sm:inline text-[11px]">مشاهده</span>
                     </button>
                   )}
@@ -490,15 +501,16 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                     disabled={isDownloading}
                     className="px-3 py-2 bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
                     title="دانلود فایل اصلی"
+                    aria-label={isDownloading ? `در حال آماده‌سازی دانلود ${doc.name}` : `دانلود فایل ${doc.name}`}
                   >
                     {isDownloading ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                         <span className="text-[11px]">آماده‌سازی...</span>
                       </>
                     ) : (
                       <>
-                        <Download className="w-3.5 h-3.5" />
+                        <Download className="w-3.5 h-3.5" aria-hidden="true" />
                         <span className="text-[11px]">دانلود</span>
                       </>
                     )}
@@ -546,6 +558,7 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDownloadError(null)}
+                aria-label="بستن پیام خطا"
                 className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-2xl text-xs font-bold transition cursor-pointer"
               >
                 متوجه شدم و بستن
@@ -560,6 +573,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
         <div 
           className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200"
           onClick={() => setActivePreviewModal(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`پیش‌نمایش ${activePreviewModal.caption || activePreviewModal.name}`}
         >
           <div 
             ref={modalContainerRef}
@@ -573,7 +589,7 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
             {/* Header & Controls Toolbar */}
             <div className="flex flex-wrap items-center justify-between p-3 sm:p-4 bg-slate-950/90 border-b border-slate-800 gap-3 shrink-0">
               <div className="flex items-center gap-2.5 min-w-0 max-w-md">
-                <div className="p-1.5 rounded-lg bg-blue-950 text-blue-400 border border-blue-800 shrink-0">
+                <div className="p-1.5 rounded-lg bg-blue-950 text-blue-400 border border-blue-800 shrink-0" aria-hidden="true">
                   {activePreviewModal.type === 'pdf' ? <FileText className="w-4 h-4 text-red-400" /> : <ImageIcon className="w-4 h-4" />}
                 </div>
                 <div className="min-w-0">
@@ -587,15 +603,16 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
               </div>
 
               {/* Interactive Zoom & View Toolset */}
-              <div className="flex items-center flex-wrap gap-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
+              <div className="flex items-center flex-wrap gap-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700" role="toolbar" aria-label="ابزارهای کنترل نمایش و بزرگ‌نمایی سند">
                 {/* Zoom Out */}
                 <button
                   type="button"
                   onClick={handleZoomOut}
                   className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition cursor-pointer"
                   title="کوچک‌نمایی (-۲۵٪)"
+                  aria-label="کوچک‌نمایی سند یا تصویر بیست و پنج درصد"
                 >
-                  <ZoomOut className="w-4 h-4" />
+                  <ZoomOut className="w-4 h-4" aria-hidden="true" />
                 </button>
 
                 {/* Percentage Indicator */}
@@ -604,6 +621,7 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   onClick={handleResetZoom}
                   className="px-2.5 py-1 text-xs font-black text-blue-400 hover:bg-slate-700 rounded-lg transition font-mono cursor-pointer"
                   title="بازنشانی اندازه (۱۰۰٪)"
+                  aria-label={`میزان بزرگ‌نمایی ${toPersianDigits(Math.round(zoomScale * 100))} درصد، کلیک برای بازنشانی به ۱۰۰ درصد`}
                 >
                   {toPersianDigits(Math.round(zoomScale * 100))}٪
                 </button>
@@ -614,11 +632,12 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   onClick={handleZoomIn}
                   className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition cursor-pointer"
                   title="بزرگ‌نمایی (+۲۵٪)"
+                  aria-label="بزرگ‌نمایی سند یا تصویر بیست و پنج درصد"
                 >
-                  <ZoomIn className="w-4 h-4" />
+                  <ZoomIn className="w-4 h-4" aria-hidden="true" />
                 </button>
 
-                <div className="w-px h-4 bg-slate-700 mx-1"></div>
+                <div className="w-px h-4 bg-slate-700 mx-1" aria-hidden="true"></div>
 
                 {/* Rotate for Image */}
                 {activePreviewModal.type === 'image' && (
@@ -627,8 +646,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                     onClick={handleRotate}
                     className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition cursor-pointer"
                     title="چرخش ۹۰ درجه"
+                    aria-label="چرخش تصویر نود درجه در جهت عقربه‌های ساعت"
                   >
-                    <RotateCw className="w-4 h-4" />
+                    <RotateCw className="w-4 h-4" aria-hidden="true" />
                   </button>
                 )}
 
@@ -639,8 +659,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                     onClick={handlePrintDocument}
                     className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition cursor-pointer"
                     title="چاپ و استخراج سند"
+                    aria-label="چاپ و استخراج سند پی‌دی‌اف"
                   >
-                    <Printer className="w-4 h-4" />
+                    <Printer className="w-4 h-4" aria-hidden="true" />
                   </button>
                 )}
 
@@ -650,8 +671,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   onClick={handleResetZoom}
                   className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition cursor-pointer"
                   title="تنظیم مجدد اندازه"
+                  aria-label="تنظیم مجدد بزرگ‌نمایی و موقعیت نمایش"
                 >
-                  <RefreshCw className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4" aria-hidden="true" />
                 </button>
 
                 {/* Fullscreen toggle */}
@@ -660,8 +682,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   onClick={toggleFullscreen}
                   className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition cursor-pointer"
                   title={isFullscreen ? 'خروج از تمام صفحه' : 'نمایش تمام صفحه'}
+                  aria-label={isFullscreen ? 'خروج از نمایش تمام صفحه پیش‌نمایش' : 'نمایش تمام صفحه پیش‌نمایش'}
                 >
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  {isFullscreen ? <Minimize2 className="w-4 h-4" aria-hidden="true" /> : <Maximize2 className="w-4 h-4" aria-hidden="true" />}
                 </button>
               </div>
 
@@ -682,8 +705,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   }}
                   className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                   title="دانلود فایل اصلی"
+                  aria-label={`دانلود فایل ${activePreviewModal.name}`}
                 >
-                  <Download className="w-3.5 h-3.5" />
+                  <Download className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>دانلود</span>
                 </button>
 
@@ -692,8 +716,9 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                   onClick={() => setActivePreviewModal(null)}
                   className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
                   title="بستن پنجره"
+                  aria-label="بستن پنجره پیش‌نمایش"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -929,6 +954,7 @@ export const ReportAttachmentsView: React.FC<ReportAttachmentsViewProps> = ({
                       setZoomScale(scale);
                       setPanPosition({ x: 0, y: 0 });
                     }}
+                    aria-label={`تنظیم بزرگ‌نمایی به ${toPersianDigits(Math.round(scale * 100))} درصد`}
                     className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                       Math.abs(zoomScale - scale) < 0.1
                         ? 'bg-blue-600 text-white font-bold'

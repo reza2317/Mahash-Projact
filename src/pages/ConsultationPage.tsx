@@ -168,8 +168,8 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {consultants.map((c, idx) => {
           const isSelected = formData.selectedConsultant === c.name;
-          const defaultAvatar = idx === 0 ? NAZI_AVATAR_SVG : RADIN_AVATAR_SVG;
-          const currentPhoto = getConsultantPhoto(c.name, c.image || defaultAvatar);
+          const defaultAvatar = idx === 0 ? NAZI_AVATAR_SVG : (c.image || RADIN_AVATAR_SVG);
+          const currentPhoto = getConsultantPhoto(c.name, c.image || defaultAvatar) || c.image || defaultAvatar;
 
           return (
             <div
@@ -193,7 +193,7 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
                   showFormatBadge={true}
                   className="w-full h-full object-cover rounded-xl"
                   containerClassName="w-full h-full rounded-xl"
-                  priority={false}
+                  priority={true}
                   showSkeleton={true}
                 />
               </div>

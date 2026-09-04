@@ -409,10 +409,6 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
 
   // Delete / Reset asset
   const handleDeleteAsset = async (asset: StoredAssetSummary) => {
-    if (!window.confirm(`آیا از حذف مدیا «${asset.name}» از پایگاه داده اطمینان دارید؟`)) {
-      return;
-    }
-
     try {
       await deleteAssetFromFirestore(asset.id);
       showToast(`مدیا «${asset.name}» از دیتابیس حذف گردید.`);
@@ -457,9 +453,10 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDocModal(true)}
+                aria-label="مطالعه مستند فنی معماری ذخیره‌سازی و بهینه‌سازی رسانه"
                 className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/30 rounded-xl text-xs font-bold transition cursor-pointer"
               >
-                <BookOpen className="w-4 h-4 text-cyan-300" />
+                <BookOpen className="w-4 h-4 text-cyan-300" aria-hidden="true" />
                 <span>مطالعه مستند فنی معماری ذخیره‌سازی و بهینه‌سازی</span>
               </button>
             </div>
@@ -516,37 +513,40 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedCategory('consultant')}
+                aria-label="انتخاب دسته‌بندی عکس مشاوران"
                 className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                   selectedCategory === 'consultant'
                     ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <User className="w-3.5 h-3.5" />
+                <User className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>عکس مشاوران</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedCategory('team')}
+                aria-label="انتخاب دسته‌بندی لوگوی تیم‌ها"
                 className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                   selectedCategory === 'team'
                     ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <Shield className="w-3.5 h-3.5" />
+                <Shield className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>لوگوی تیم‌ها</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedCategory('official')}
+                aria-label="انتخاب دسته‌بندی نشان‌های رسمی"
                 className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                   selectedCategory === 'official'
                     ? 'bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <Sparkles className="w-3.5 h-3.5" />
+                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>نشان‌های رسمی</span>
               </button>
             </div>
@@ -755,17 +755,18 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
             <button
               type="button"
               disabled={!optimizeResult || isSaving}
+              aria-label={`تأیید و ذخیره در دیتابیس MySQL برای شناسه ${currentAssetId}`}
               onClick={handleSaveToDatabase}
               className="flex-1 py-3 px-5 bg-gradient-to-l from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-xl text-xs font-black shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSaving ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
                   <span>در حال ذخیره در جدول MySQL...</span>
                 </>
               ) : (
                 <>
-                  <Check className="w-4 h-4" />
+                  <Check className="w-4 h-4" aria-hidden="true" />
                   <span>تأیید و ذخیره در دیتابیس MySQL ({currentAssetId})</span>
                 </>
               )}
@@ -774,6 +775,7 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
             {optimizeResult && (
               <button
                 type="button"
+                aria-label="لغو و حذف فایل انتخاب‌شده"
                 onClick={() => {
                   setRawFile(null);
                   setOptimizeResult(null);
@@ -781,7 +783,7 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
                 }}
                 className="py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
                 <span>لغو</span>
               </button>
             )}
@@ -842,11 +844,12 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               </div>
               <button
                 type="button"
+                aria-label="کپی کوئری SQL در کلیپ‌بورد"
                 onClick={handleCopySqlQuery}
                 className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
                 title="کپی کوئری SQL"
               >
-                <Copy className="w-3 h-3" />
+                <Copy className="w-3 h-3" aria-hidden="true" />
                 <span>کپی SQL</span>
               </button>
             </div>
@@ -878,10 +881,11 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               <span>موتور جدول: InnoDB با Collation utf8mb4</span>
               <button
                 type="button"
+                aria-label="کپی آدرس داخلی رکورد دیتابیس"
                 onClick={() => handleCopyDbPath(dbRecordPath)}
                 className="text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer"
               >
-                <Copy className="w-3 h-3" />
+                <Copy className="w-3 h-3" aria-hidden="true" />
                 <span>کپی آدرس داخلی</span>
               </button>
             </div>
@@ -906,10 +910,11 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
             <button
               type="button"
               onClick={loadStoredAssets}
+              aria-label="بارگذاری مجدد فهرست دارایی‌ها و رسانه‌ها"
               className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl transition cursor-pointer"
               title="بارگذاری مجدد فهرست"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoadingAssets ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoadingAssets ? 'animate-spin' : ''}`} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -922,6 +927,7 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               type="text"
               placeholder="جستجو بر اساس نام مشاور، تیم یا شناسه رکورد..."
               value={searchQuery}
+              aria-label="جستجو در تصاویر و رسانه‌های دیتابیس"
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pr-10 pl-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             />
@@ -937,6 +943,7 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               <button
                 key={f.key}
                 type="button"
+                aria-label={`فیلتر نمایش دسته‌بندی: ${f.label}`}
                 onClick={() => setFilterCategory(f.key)}
                 className={`py-2 px-3 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
                   filterCategory === f.key
@@ -1008,39 +1015,43 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => handleCopyDbPath(asset.dbPath)}
+                      aria-label={`کپی مسیر دیتابیس برای ${asset.name}`}
                       className="p-1.5 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-lg transition cursor-pointer"
                       title="کپی مسیر دیتابیس"
                     >
-                      <Copy className="w-3.5 h-3.5" />
+                      <Copy className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
 
                     <button
                       type="button"
                       onClick={() => handleDownloadWebP(asset.data, asset.id)}
+                      aria-label={`دانلود نسخه فشرده WebP برای ${asset.name}`}
                       className="p-1.5 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-lg transition cursor-pointer"
                       title="دانلود نسخه فشرده WebP"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
 
                     <a
                       href={asset.apiEndpoint}
                       target="_blank"
                       rel="noreferrer"
+                      aria-label={`مشاهده مستقیم از API دیتابیس برای ${asset.name}`}
                       className="p-1.5 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-lg transition cursor-pointer"
                       title="مشاهده مستقیم از API دیتابیس"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
+                      <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                     </a>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => handleDeleteAsset(asset)}
+                    aria-label={`حذف رسانه ${asset.name} از دیتابیس MySQL`}
                     className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition cursor-pointer"
                     title="حذف از دیتابیس MySQL"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -1058,16 +1069,21 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
 
       {/* Technical Documentation Modal */}
       {showDocModal && (
-        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="media-doc-modal-title"
+        >
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
-                  <BookOpen className="w-5 h-5" />
+                  <BookOpen className="w-5 h-5" aria-hidden="true" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  <h3 id="media-doc-modal-title" className="text-base font-black text-slate-900 dark:text-white">
                     مستند فنی معماری و ذخیره‌سازی بهینه رسانه و تصاویر در MySQL
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1079,6 +1095,7 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  aria-label="کپی خلاصه مستند فنی در کلیپ‌بورد"
                   onClick={() => {
                     const docMarkdown = `# مستند فنی معماری و بهینه‌سازی ذخیره‌سازی رسانه‌ها در پرتال محاش\n\n- فرمت استاندارد فشرده: WebP\n- جدول پایگاه داده: mahash_assets در MySQL 8.0+\n- نوع داده: LONGTEXT با انکود Base64\n- کامپوننت فرانت‌اند: ImageLoader با پشتیبانی از Lazy Loading و IntersectionObserver\n- هدر کش مرورگر و کش رم سرور (Zero Latency)\n\nجهت مطالعه نسخه کامل، فایل /docs/MEDIA_OPTIMIZATION_AND_MYSQL_GUIDE.md را در مخزن پروژه مشاهده فرمایید.`;
                     navigator.clipboard.writeText(docMarkdown);
@@ -1086,15 +1103,16 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
                   }}
                   className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5" />
+                  <Copy className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>کپی مستند</span>
                 </button>
                 <button
                   type="button"
+                  aria-label="بستن پنجره مستند فنی"
                   onClick={() => setShowDocModal(false)}
                   className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -1190,6 +1208,7 @@ export const MediaContentManager: React.FC<MediaContentManagerProps> = ({
             <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-end bg-slate-50/50 dark:bg-slate-800/40">
               <button
                 type="button"
+                aria-label="متوجه شدم و بستن راهنمای فنی"
                 onClick={() => setShowDocModal(false)}
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white rounded-xl text-xs font-bold transition cursor-pointer"
               >

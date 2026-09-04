@@ -175,8 +175,6 @@ export const MySQLSchemaManager: React.FC = () => {
   };
 
   const handleUpgradeToLongtext = async () => {
-    if (!confirm('آیا مایلید تمام ستون‌های محتوایی این جدول (خلاصه، متن، ویدیو، پیوست‌ها) به ظرفیت حداکثری ۴ گیگابایت (LONGTEXT) ارتقا یابند؟')) return;
-
     setSubmitting(true);
     try {
       const res = await fetch('/api/mysql/schema/alter', {

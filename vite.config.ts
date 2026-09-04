@@ -1,11 +1,32 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, Plugin } from 'vite';
+
+function sitemapPlugin(): Plugin {
+  return {
+    name: 'sitemap-generator',
+    apply: 'build',
+    closeBundle() {
+      try {
+        const scriptPath = path.resolve(__dirname, './scripts/generate-sitemap.mjs');
+        import(scriptPath).then((m) => {
+          if (typeof m.generateSitemap === 'function') {
+            m.generateSitemap();
+          }
+        }).catch((err) => {
+          console.warn('[sitemapPlugin] Sitemap generation deferred:', err);
+        });
+      } catch (e) {
+        console.warn('[sitemapPlugin] Error:', e);
+      }
+    }
+  };
+}
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), sitemapPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -31,7 +52,7 @@ export default defineConfig(() => {
     },
     build: {
       outDir: 'dist',
-      emptyOutDir: false,
+      emptyOutDir: true,
       sourcemap: false,
       chunkSizeWarningLimit: 2000,
     },

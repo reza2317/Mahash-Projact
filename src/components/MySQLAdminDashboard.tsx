@@ -48,6 +48,7 @@ import {
 } from 'recharts';
 import { useNotification } from '../context/NotificationContext';
 import { toPersianDigits } from '../utils/persianDate';
+import { fetchAndMergeServerStore, subscribeToStoreUpdates } from '../utils/reportsStore';
 import { MySQLLiveLogsMonitor } from './admin/MySQLLiveLogsMonitor';
 import { MySQLSchemaManager } from './admin/MySQLSchemaManager';
 
@@ -441,6 +442,10 @@ export const MySQLAdminDashboard: React.FC = () => {
   useEffect(() => {
     fetchMySQLHealth();
     fetchStoreData();
+    const unsub = subscribeToStoreUpdates(() => {
+      fetchStoreData();
+    });
+    return () => unsub();
   }, []);
 
   const saveStoreToBackend = async (updatedConsultants: any[], updatedReports: any[]) => {
@@ -459,7 +464,14 @@ export const MySQLAdminDashboard: React.FC = () => {
       const result = await res.json();
       if (result.success) {
         setStoreData(result.store || payload);
+        // Force refresh lists to ensure UI is in complete sync with backend MySQL
+        if (result.store) {
+          if (Array.isArray(result.store.consultantsList)) setConsultants(result.store.consultantsList);
+          if (Array.isArray(result.store.customReports)) setCustomReports(result.store.customReports);
+        }
         maintenanceSuccess('ذخیره موفق در دیتابیس MySQL', 'تغییرات با موفقیت در دیتابیس MySQL و فایل پشتیبان ثبت شد.');
+        // Trigger global sync immediately
+        fetchAndMergeServerStore(true).catch(() => {});
       } else {
         throw new Error(result.error || 'خطای سرور');
       }
@@ -521,9 +533,8 @@ export const MySQLAdminDashboard: React.FC = () => {
     saveStoreToBackend(updated, customReports);
   };
 
-  const handleDeleteConsultant = (id: string) => {
-    if (!confirm('آیا از حذف این عضو تیم اطمینان دارید؟')) return;
-    const updated = consultants.filter(c => c.id !== id);
+  const handleDeleteConsultant = (id: string | number) => {
+    const updated = consultants.filter(c => String(c.id) !== String(id));
     setConsultants(updated);
     saveStoreToBackend(updated, customReports);
   };
@@ -579,11 +590,20 @@ export const MySQLAdminDashboard: React.FC = () => {
     saveStoreToBackend(consultants, updated);
   };
 
-  const handleDeleteReport = (id: string) => {
-    if (!confirm('آیا از حذف این سرویس/مورد اطمینان دارید؟')) return;
-    const updated = customReports.filter(r => r.id !== id);
-    setCustomReports(updated);
-    saveStoreToBackend(consultants, updated);
+  const handleDeleteReport = async (id: string | number) => {
+    try {
+      const res = await fetch(`/api/reports/${id}?permanent=true`, { method: 'DELETE' });
+      if (res.ok) {
+        const updated = customReports.filter(r => String(r.id) !== String(id));
+        setCustomReports(updated);
+        // We can just fetch the store data again to ensure everything is synced
+        fetchStoreData();
+      } else {
+        throw new Error('Failed to delete report from MySQL backend');
+      }
+    } catch (err: any) {
+      showError('خطا در حذف', err.message || 'خطا در حذف گزارش');
+    }
   };
 
   // Filtered consultants based on search & role filter

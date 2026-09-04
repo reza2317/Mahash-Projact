@@ -233,17 +233,24 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 bg-slate-900/60 backdrop-blur-sm transition-opacity">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+      role="dialog"
+      aria-modal="true"
+      aria-label="پنجره جستجوی سراسری در سایت محاش"
+    >
       <div
         className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150 text-right"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search Header Input */}
         <div className="relative flex items-center px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 gap-3">
-          <Search className="w-5 h-5 text-slate-400 shrink-0" />
+          <Search className="w-5 h-5 text-slate-400 shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
             type="text"
+            role="searchbox"
+            aria-label="عبارت جستجو در بخش‌های مختلف سایت محاش"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="جستجو در تیم‌ها، خدمات، گزارش‌ها، رویدادها..."
@@ -251,22 +258,26 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           />
           {query && (
             <button
+              type="button"
               onClick={() => setQuery('')}
               className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              aria-label="پاک کردن متن جستجو"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4" aria-hidden="true" />
             </button>
           )}
           <button
+            type="button"
             onClick={onClose}
             className="px-2.5 py-1 text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+            aria-label="بستن پنجره جستجو (کلید اسکیپ)"
           >
             ESC
           </button>
         </div>
 
         {/* Category Filter Pills */}
-        <div className="flex items-center gap-1.5 px-4 py-2 bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 px-4 py-2 bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar" role="group" aria-label="فیلتر دسته‌بندی نتایج جستجو">
           {[
             { id: 'all', label: 'همه بخش‌ها' },
             { id: 'team', label: 'تیم‌ها (۵ تیم)' },
@@ -277,12 +288,15 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           ].map((cat) => (
             <button
               key={cat.id}
+              type="button"
               onClick={() => setSelectedCategory(cat.id)}
               className={`px-3 py-1 text-xs font-bold rounded-full transition-all shrink-0 cursor-pointer ${
                 selectedCategory === cat.id
                   ? 'bg-[#173b82] text-white shadow-xs'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700'
               }`}
+              aria-pressed={selectedCategory === cat.id}
+              aria-label={`فیلتر دسته‌بندی: ${cat.label}`}
             >
               {cat.label}
             </button>
@@ -290,10 +304,15 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
         </div>
 
         {/* Results List */}
-        <div className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800">
+        <div
+          className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800"
+          role="region"
+          aria-label="فهرست نتایج جستجو"
+          aria-live="polite"
+        >
           {filteredResults.length === 0 ? (
             <div className="py-12 text-center text-slate-400 space-y-2">
-              <Sparkles className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+              <Sparkles className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" aria-hidden="true" />
               <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
                 نتیجه‌ای برای «{query}» یافت نشد.
               </p>
@@ -303,12 +322,14 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
             </div>
           ) : (
             filteredResults.map((item) => (
-              <div
+              <button
                 key={item.id}
+                type="button"
                 onClick={() => handleSelect(item)}
-                className="flex items-start gap-3 p-3 rounded-2xl hover:bg-blue-50/70 dark:hover:bg-slate-800/80 transition-all cursor-pointer group"
+                className="w-full text-right flex items-start gap-3 p-3 rounded-2xl hover:bg-blue-50/70 dark:hover:bg-slate-800/80 transition-all cursor-pointer group"
+                aria-label={`${item.title} - ${item.badge}${item.subtitle ? ` - ${item.subtitle}` : ''}`}
               >
-                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700 group-hover:scale-105 transition-transform" aria-hidden="true">
                   {item.icon}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -326,8 +347,8 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                     </p>
                   )}
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 group-hover:-translate-x-1 transition-transform self-center shrink-0" />
-              </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 group-hover:-translate-x-1 transition-transform self-center shrink-0" aria-hidden="true" />
+              </button>
             ))
           )}
         </div>

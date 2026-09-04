@@ -222,29 +222,90 @@ export function useTeamLogos() {
   useEffect(() => {
     loadAllLogos();
 
-    // Background Firestore hydration: fetch logos from cloud to recover if LocalStorage was cleared
-    const officialSlugs = ['team-thinker', 'team-tomorrow', 'team-angels', 'team-ghorbani', 'team-silence'];
-    Promise.all([
-      getMahashLogoFromFirestore(),
-      ...officialSlugs.map((slug) => getLogoFromFirestore(slug))
-    ]).then(([cloudMahash, ...teamLogos]) => {
+    // Comprehensive MySQL & Server Hydration: fetch logos and assets from MySQL so logos never revert
+    const hydrateFromMySQLAndCloud = async () => {
       let hasUpdates = false;
-      if (cloudMahash && isValidImageFormat(cloudMahash)) {
-        setMahashLogoStore(cloudMahash);
-        hasUpdates = true;
+
+      // 1. Fetch server main_store from MySQL
+      try {
+        const storeRes = await fetch(`/api/store?force=true&t=${Date.now()}`);
+        if (storeRes.ok) {
+          const storeData = await storeRes.json();
+          if (storeData && typeof storeData === 'object') {
+            if (storeData.mahashLogo && isValidImageFormat(storeData.mahashLogo)) {
+              setMahashLogoStore(storeData.mahashLogo);
+              hasUpdates = true;
+            }
+            if (storeData.teamLogos && typeof storeData.teamLogos === 'object') {
+              Object.entries(storeData.teamLogos).forEach(([slug, logoUrl]) => {
+                if (typeof logoUrl === 'string' && isValidImageFormat(logoUrl)) {
+                  saveTeamLogoStore(slug, logoUrl);
+                  hasUpdates = true;
+                }
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[useTeamLogos] Error fetching store from MySQL server:', err);
       }
-      officialSlugs.forEach((slug, idx) => {
-        const cloudLogo = teamLogos[idx];
-        if (cloudLogo && isValidImageFormat(cloudLogo)) {
-          saveTeamLogoStore(slug, cloudLogo);
+
+      // 2. Fetch direct MySQL assets from mahash_assets table
+      try {
+        const assetsRes = await fetch('/api/mysql/assets');
+        if (assetsRes.ok) {
+          const assetsData = await assetsRes.json();
+          if (assetsData && Array.isArray(assetsData.assets)) {
+            for (const asset of assetsData.assets) {
+              if (!asset || !asset.data || !isValidImageFormat(asset.data)) continue;
+              if (asset.id === 'mahash_official_logo' || asset.id === 'mahash_logo') {
+                setMahashLogoStore(asset.data);
+                hasUpdates = true;
+              } else if (asset.id.startsWith('team_') && asset.id.endsWith('_logo')) {
+                const teamSlug = asset.id.replace(/^team_/, '').replace(/_logo$/, '');
+                saveTeamLogoStore(teamSlug, asset.data);
+                saveTeamLogoStore(`team-${teamSlug}`, asset.data);
+                hasUpdates = true;
+              } else if (asset.id.startsWith('logo-')) {
+                const teamSlug = asset.id.replace(/^logo-/, '');
+                saveTeamLogoStore(teamSlug, asset.data);
+                saveTeamLogoStore(`team-${teamSlug}`, asset.data);
+                hasUpdates = true;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[useTeamLogos] Error fetching mahash_assets from MySQL:', err);
+      }
+
+      // 3. Fallback Firestore hydration for official slugs
+      const officialSlugs = ['team-thinker', 'team-tomorrow', 'team-angels', 'team-ghorbani', 'team-silence'];
+      try {
+        const [cloudMahash, ...teamLogos] = await Promise.all([
+          getMahashLogoFromFirestore(),
+          ...officialSlugs.map((slug) => getLogoFromFirestore(slug))
+        ]);
+        if (cloudMahash && isValidImageFormat(cloudMahash)) {
+          setMahashLogoStore(cloudMahash);
           hasUpdates = true;
         }
-      });
+        officialSlugs.forEach((slug, idx) => {
+          const cloudLogo = teamLogos[idx];
+          if (cloudLogo && isValidImageFormat(cloudLogo)) {
+            saveTeamLogoStore(slug, cloudLogo);
+            hasUpdates = true;
+          }
+        });
+      } catch {}
+
       if (hasUpdates) {
         triggerGlobalCacheBust();
         loadAllLogos();
       }
-    }).catch(() => {});
+    };
+
+    hydrateFromMySQLAndCloud();
 
     const unsub = subscribeToStoreUpdates(() => {
       loadAllLogos();
