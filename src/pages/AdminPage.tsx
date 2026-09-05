@@ -7072,8 +7072,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FolderDown className="w-4 h-4 text-blue-600" />
-                <span>دانلود نسخه پشتیبان کامل (JSON)</span>
+                <span>دانلود نسخه پشتیبان کامل داده‌ها (JSON)</span>
               </button>
+
+              <a
+                href="/mahash-production-dist.zip"
+                download="mahash-production-dist.zip"
+                className="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-emerald-600" />
+                <span>دانلود پکیج خروجی کامل سایت برای Netlify (ZIP)</span>
+              </a>
 
               <button
                 onClick={handleForceRefresh}

@@ -2482,16 +2482,44 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
     const fetchTimeout = setTimeout(() => controller.abort(), force ? 8000 : 3500);
 
     const storeUrl = '/api/store' + (force ? `?force=true&t=${Date.now()}` : (lastStoreUpdatedAt ? `?since=${encodeURIComponent(lastStoreUpdatedAt)}` : ''));
-    const apiStorePromise = fetch(storeUrl, {
-      signal: controller.signal,
-      cache: force ? 'no-store' : 'default',
-      headers: force ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : {}
-    })
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null)
-      .finally(() => clearTimeout(fetchTimeout));
+    let response: Response | null = null;
+    try {
+      response = await fetch(storeUrl, {
+        signal: controller.signal,
+        cache: force ? 'no-store' : 'default',
+        headers: force ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : {}
+      });
+    } catch (networkErr: any) {
+      console.warn('[reportsStore] Network error fetching server store:', networkErr);
+    } finally {
+      clearTimeout(fetchTimeout);
+    }
 
-    const apiStoreData = await apiStorePromise;
+    let apiStoreData: any = null;
+
+    if (!response || (response.status !== 200 && response.status !== 201)) {
+      // Fallback: Fetch build-time static offline baseline database for offline resilience or static hosting (Netlify/Cloudflare)
+      const fallbackBaseline = await fetch('/offline_baseline.json', { cache: 'default' })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
+
+      if (fallbackBaseline && typeof fallbackBaseline === 'object' && (Array.isArray(fallbackBaseline.customReports) || fallbackBaseline.schema)) {
+        console.log('[reportsStore] 🔄 Server unreachable/static hosting. Re-hydrating with static offline baseline database.');
+        apiStoreData = fallbackBaseline;
+        serverData = { ...fallbackBaseline };
+      } else {
+        addSyncAttemptLog({
+          timestamp: new Date().toISOString(),
+          type: attemptType,
+          success: false,
+          message: response ? `پاسخ ناموفق سرور با کد وضعیت (${response.status})` : 'عدم برقراری ارتباط با سرور پایگاه داده (شبکه آفلاین)',
+          durationMs: Math.round(performance.now() - startTime),
+        });
+        return false;
+      }
+    } else {
+      apiStoreData = await response.json().catch(() => null);
+    }
 
     // Fast-path: If server data has not changed since last poll, skip heavy parsing (unless force is requested)
     if (!force && apiStoreData && apiStoreData.unchanged === true) {
@@ -2508,7 +2536,7 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
         timestamp: new Date().toISOString(),
         type: attemptType,
         success: false,
-        message: 'عدم دریافت پاسخ معتبر از سرور MySQL',
+        message: 'عدم دریافت ساختار معتبر داده از سرور MySQL',
         durationMs: Math.round(performance.now() - startTime),
       });
       return false;
@@ -2948,17 +2976,35 @@ export async function syncLocalDataToServer(
         
         // Direct permanent write to MySQL database via /api/store
         let saveSuccess = false;
+        let serverResponseBody: any = null;
         try {
           const res = await fetch('/api/store', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store, no-cache, must-revalidate'
+            },
             body: JSON.stringify(payload)
           });
-          if (res.ok) {
-            saveSuccess = true;
+          
+          if (res.status !== 200 && res.status !== 201) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`خطای سرور (${res.status}): نگارش در پایگاه داده با خطا مواجه شد. ${errText ? `جزئیات: ${errText.slice(0, 150)}` : ''}`);
           }
-        } catch (postErr) {
-          console.warn('[reportsStore] Direct MySQL save warning:', postErr);
+
+          serverResponseBody = await res.json().catch(() => null);
+          if (!serverResponseBody || !serverResponseBody.success) {
+            throw new Error(serverResponseBody?.error || 'پایگاه داده MySQL پاسخ موفقیت‌آمیز ارسال نکرد.');
+          }
+
+          saveSuccess = true;
+        } catch (postErr: any) {
+          console.error('[reportsStore] Direct MySQL save failed:', postErr);
+          globalEventBus.emit('DATABASE_WRITE_ERROR', {
+            title: 'خطا در نگارش پایگاه داده MySQL',
+            message: postErr?.message || 'ارتباط با سرور برقرار نشد یا ثبت اطلاعات در دیتابیس با مشکل مواجه شد.'
+          });
+          throw postErr;
         }
 
         try {
@@ -2971,7 +3017,7 @@ export async function syncLocalDataToServer(
         await yieldToMain();
         setTimeout(() => globalEventBus.emit('SYNC_PROGRESS', { visible: false }), 2000);
 
-        const nowIso = new Date().toISOString();
+        const nowIso = serverResponseBody?.store?.updatedAt || new Date().toISOString();
         lastSuccessfulSyncTimestamp = nowIso;
         clearPendingSyncItems();
         safeSetLocalStorage('mahash_last_successful_sync', nowIso);
@@ -2987,6 +3033,10 @@ export async function syncLocalDataToServer(
       } catch (err: any) {
         console.warn('[reportsStore] Failed to sync data to MySQL:', err);
         globalEventBus.emit('SYNC_PROGRESS', { visible: false });
+        globalEventBus.emit('DATABASE_WRITE_ERROR', {
+          title: 'خطا در همگام‌سازی پایگاه داده MySQL',
+          message: err?.message || 'ثبت اطلاعات در دیتابیس با مشکل مواجه شد.'
+        });
         addSyncAttemptLog({
           timestamp: new Date().toISOString(),
           type: 'push',
@@ -3068,23 +3118,43 @@ export async function persistReportDirectlyToServerWithConfirmation(
   };
 
   // 3. Send definitive write request to /api/store
-  const res = await fetch('/api/store', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store, no-cache, must-revalidate'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(`خطای سرور (${res.status}): نگارش در پایگاه داده با خطا مواجه شد. ${errorText ? `جزئیات: ${errorText.slice(0, 150)}` : ''}`);
+  let res: Response;
+  try {
+    res = await fetch('/api/store', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate'
+      },
+      body: JSON.stringify(payload)
+    });
+  } catch (networkErr: any) {
+    const errMsg = networkErr?.message || 'خطای شبکه در ارتباط با سرور پایگاه داده MySQL';
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطای شبکه در ثبت گزارش در MySQL',
+      message: errMsg
+    });
+    throw new Error(errMsg);
   }
 
-  const serverResponse = await res.json();
-  if (!serverResponse.success) {
-    throw new Error(serverResponse.error || 'سرور پایگاه داده عملیات ذخیره را تأیید نکرد.');
+  if (res.status !== 200 && res.status !== 201) {
+    const errorText = await res.text().catch(() => '');
+    const errMsg = `خطای سرور (${res.status}): نگارش در پایگاه داده با خطا مواجه شد. ${errorText ? `جزئیات: ${errorText.slice(0, 150)}` : ''}`;
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطا در ثبت گزارش در MySQL',
+      message: errMsg
+    });
+    throw new Error(errMsg);
+  }
+
+  const serverResponse = await res.json().catch(() => null);
+  if (!serverResponse || !serverResponse.success) {
+    const errMsg = serverResponse?.error || 'سرور پایگاه داده عملیات ذخیره را تأیید نکرد.';
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'عدم تایید ثبت در پایگاه داده MySQL',
+      message: errMsg
+    });
+    throw new Error(errMsg);
   }
 
   // 4. Server confirmed! Now commit to local storage, bust cache, and record sync log

@@ -1,5 +1,6 @@
 import { UserPreferences } from '../types';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage } from './storage';
+import { globalEventBus } from './eventBus';
 
 export enum OperationType {
   CREATE = 'create',
@@ -173,24 +174,32 @@ export async function saveAssetToFirestore(
     });
     const latency = Math.round(performance.now() - start);
 
-    if (res.ok) {
+    if (res.status === 200 || res.status === 201) {
       logFirestoreDiagnostic('saveToMySQL(assets)', path, 'SUCCESS', latency, sizeBytes, { status: 'saved_to_mysql', docId: cleanId });
       return { success: true, latencyMs: latency, rawResult: { docId: cleanId, status: 'committed_to_mysql' } };
     } else {
       const errJson = await res.json().catch(() => ({}));
-      const errMsg = errJson.error || 'خطا در ثبت فایل در دیتابیس MySQL';
+      const errMsg = errJson.error || `خطای سرور (${res.status}) در ثبت فایل در دیتابیس MySQL`;
       logFirestoreDiagnostic('saveToMySQL(assets)', path, 'ERROR', latency, sizeBytes, undefined, errMsg);
-      // Graceful local persistence fallback: return success: true since localStorage succeeded
-      return { success: true, latencyMs: latency, rawResult: { warning: errMsg, fallback: 'local_storage_success' } };
+      globalEventBus.emit('DATABASE_WRITE_ERROR', {
+        title: 'خطا در ثبت رسانه در پایگاه داده MySQL',
+        message: errMsg
+      });
+      return { success: false, error: errMsg, latencyMs: latency, rawResult: { warning: errMsg } };
     }
   } catch (err: unknown) {
     const latency = Math.round(performance.now() - start);
+    const errMsg = err instanceof Error ? err.message : String(err);
     logFirestoreDiagnostic('saveToMySQL(assets)', path, 'ERROR', latency, sizeBytes, undefined, err);
-    // Graceful local persistence fallback on network error/Load failed: return success: true since localStorage succeeded
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطای شبکه در ذخیره رسانه در MySQL',
+      message: errMsg
+    });
     return {
-      success: true,
+      success: false,
+      error: errMsg,
       latencyMs: latency,
-      rawResult: { error: err instanceof Error ? err.message : String(err), fallback: 'local_storage_success' }
+      rawResult: { error: errMsg }
     };
   }
 }

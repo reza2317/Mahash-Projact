@@ -8,18 +8,214 @@ import { GoogleGenAI } from '@google/genai';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
-import {
-  OFFICIAL_MAHASH_LOGO_SVG,
-  OFFICIAL_MAHASH_EMBLEM_SVG,
-  OFFICIAL_NAZI_AVATAR_SVG,
-  OFFICIAL_RADIN_AVATAR_SVG,
-  GENERIC_PLACEHOLDER_SVG
-} from './serverAssets';
+// Server-side Official Assets & Vector SVGs for Mahash Institution and Youth Club
+export const OFFICIAL_MAHASH_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <linearGradient id="mahashNavy" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="40%" stop-color="#173b82"/>
+      <stop offset="100%" stop-color="#0b1b3d"/>
+    </linearGradient>
+    <linearGradient id="mahashTeal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2dd4bf"/>
+      <stop offset="60%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#115e59"/>
+    </linearGradient>
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  
+  <circle cx="120" cy="120" r="116" fill="#ffffff" stroke="#e2e8f0" stroke-width="2.5"/>
+  
+  <path d="M120 24 C175 24 212 66 212 116 C212 172 162 210 108 210 C54 210 28 168 28 118 C28 76 58 38 102 28" fill="none" stroke="url(#mahashNavy)" stroke-width="18" stroke-linecap="round" filter="url(#subtleShadow)"/>
+  
+  <path d="M114 54 C150 54 178 80 178 116 C178 152 144 182 108 182" fill="none" stroke="url(#mahashTeal)" stroke-width="11" stroke-linecap="round"/>
+  
+  <circle cx="114" cy="116" r="26" fill="none" stroke="url(#mahashTeal)" stroke-width="7"/>
+  <circle cx="114" cy="116" r="12" fill="url(#mahashNavy)"/>
+  
+  <text x="120" y="228" fill="#173b82" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="10.5" font-weight="900" text-anchor="middle" letter-spacing="0.2">موسسه حمایت از افراد با افت شنوایی محاش</text>
+</svg>`;
+
+export const OFFICIAL_MAHASH_EMBLEM_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" width="260" height="260">
+  <defs>
+    <linearGradient id="clubNavyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="50%" stop-color="#172554"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="clubGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="40%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="clubCyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <path id="clubTextPathTop" d="M 30,130 A 100,100 0 1,1 230,130" fill="none"/>
+    <path id="clubTextPathBottom" d="M 230,130 A 100,100 0 0,1 30,130" fill="none"/>
+  </defs>
+
+  <circle cx="130" cy="130" r="126" fill="url(#clubNavyGrad)" stroke="url(#clubGoldGrad)" stroke-width="4.5"/>
+  <circle cx="130" cy="130" r="117" fill="none" stroke="url(#clubGoldGrad)" stroke-width="1.5" stroke-dasharray="5 3"/>
+
+  <circle cx="130" cy="130" r="88" fill="#ffffff" stroke="url(#clubGoldGrad)" stroke-width="3"/>
+  
+  <g transform="translate(130, 126)">
+    <path d="M-45 15 C-40 -25 -10 -40 0 -55 C10 -40 40 -25 45 15 C25 22 0 25 -45 15 Z" fill="url(#clubCyanGrad)" opacity="0.9"/>
+    <path d="M0 -62 C-15 -35 -12 -15 0 8 C12 -15 15 -35 0 -62 Z" fill="url(#clubGoldGrad)"/>
+    <circle cx="0" cy="-20" r="6" fill="#ffffff"/>
+    <polygon points="0,-48 3,-40 10,-40 5,-35 7,-28 0,-32 -7,-28 -5,-35 -10,-40 -3,-40" fill="#ffffff"/>
+    <path d="M-28 20 Q0 30 28 20" stroke="url(#clubGoldGrad)" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    <line x1="-16" y1="28" x2="16" y2="28" stroke="url(#clubGoldGrad)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <text font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="12" font-weight="900" fill="url(#clubGoldGrad)" letter-spacing="0.8">
+    <textPath href="#clubTextPathTop" startOffset="50%" text-anchor="middle">
+      ★ باشگاه جوانان موسسه محاش ★
+    </textPath>
+  </text>
+  <text font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="10" font-weight="700" fill="#93c5fd" letter-spacing="0.5">
+    <textPath href="#clubTextPathBottom" startOffset="50%" text-anchor="middle">
+      کانون پویایی، رشد و همبستگی جوانان
+    </textPath>
+  </text>
+</svg>`;
+
+export const OFFICIAL_NAZI_AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="nazi_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0fdfa"/>
+      <stop offset="100%" stop-color="#ccfbf1"/>
+    </linearGradient>
+    <linearGradient id="nazi_coat" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#115e59"/>
+    </linearGradient>
+    <linearGradient id="nazi_skin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffedd5"/>
+      <stop offset="100%" stop-color="#fed7aa"/>
+    </linearGradient>
+    <linearGradient id="nazi_hair" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="32" fill="url(#nazi_bg)"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="#0d9488" stroke-width="2" stroke-dasharray="6,4" opacity="0.4"/>
+  
+  <path d="M28 196 C30 148 62 134 100 134 C138 134 170 148 172 196 Z" fill="url(#nazi_coat)"/>
+  <path d="M84 134 L100 166 L116 134 Z" fill="#ffffff" opacity="0.95"/>
+  <path d="M100 152 L100 196" stroke="#0f766e" stroke-width="2"/>
+  <polygon points="100,166 94,152 106,152" fill="#0d9488"/>
+  
+  <path d="M68 152 C68 174 132 174 132 152" fill="none" stroke="#5eead4" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="100" cy="174" r="5" fill="#f0fdfa" stroke="#0d9488" stroke-width="2"/>
+  
+  <rect x="88" y="112" width="24" height="26" rx="6" fill="#fed7aa"/>
+  
+  <ellipse cx="100" cy="78" rx="42" ry="46" fill="url(#nazi_hair)"/>
+  <path d="M62 82 C56 112 60 142 70 148 C76 136 74 116 74 100 Z" fill="url(#nazi_hair)"/>
+  <path d="M138 82 C144 112 140 142 130 148 C124 136 126 116 126 100 Z" fill="url(#nazi_hair)"/>
+  
+  <ellipse cx="100" cy="84" rx="30" ry="34" fill="url(#nazi_skin)"/>
+  
+  <path d="M68 76 C74 58 100 54 132 64 C126 56 106 50 86 52 C74 54 68 64 68 76 Z" fill="url(#nazi_hair)"/>
+  <path d="M70 70 C85 68 98 76 106 82 C98 74 85 70 70 70 Z" fill="#475569"/>
+
+  <rect x="76" y="78" width="20" height="14" rx="4" fill="none" stroke="#0f766e" stroke-width="2.2"/>
+  <rect x="104" y="78" width="20" height="14" rx="4" fill="none" stroke="#0f766e" stroke-width="2.2"/>
+  <line x1="96" y1="84" x2="104" y2="84" stroke="#0f766e" stroke-width="2"/>
+  <line x1="72" y1="83" x2="76" y2="83" stroke="#0f766e" stroke-width="1.8"/>
+  <line x1="124" y1="83" x2="128" y2="83" stroke="#0f766e" stroke-width="1.8"/>
+  
+  <circle cx="86" cy="85" r="2.8" fill="#1e293b"/>
+  <circle cx="114" cy="85" r="2.8" fill="#1e293b"/>
+  <circle cx="87" cy="84" r="0.9" fill="#ffffff"/>
+  <circle cx="115" cy="84" r="0.9" fill="#ffffff"/>
+  
+  <path d="M92 99 Q100 106 108 99" fill="none" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="78" cy="94" r="3.5" fill="#fca5a5" opacity="0.6"/>
+  <circle cx="122" cy="94" r="3.5" fill="#fca5a5" opacity="0.6"/>
+  
+  <g transform="translate(150, 20)">
+    <circle cx="16" cy="16" r="16" fill="#0f766e" stroke="#ffffff" stroke-width="2"/>
+    <path d="M16 9 L16 23 M9 16 L23 16" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+</svg>`;
+
+export const OFFICIAL_RADIN_AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="radin_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#eff6ff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+    <linearGradient id="radin_suit" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#172554"/>
+    </linearGradient>
+    <linearGradient id="radin_skin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffedd5"/>
+      <stop offset="100%" stop-color="#fed7aa"/>
+    </linearGradient>
+    <linearGradient id="radin_hair" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="32" fill="url(#radin_bg)"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="#2563eb" stroke-width="2" stroke-dasharray="6,4" opacity="0.4"/>
+  
+  <path d="M28 196 C30 148 62 134 100 134 C138 134 170 148 172 196 Z" fill="url(#radin_suit)"/>
+  
+  <polygon points="100,134 84,134 92,168 100,186 108,168 116,134" fill="#ffffff"/>
+  <polygon points="100,140 105,145 103,178 100,184 97,178 95,145" fill="#0284c7"/>
+  <polygon points="96,140 104,140 105,146 95,146" fill="#0369a1"/>
+  
+  <path d="M68 144 L86 182 L76 196" fill="none" stroke="#3b82f6" stroke-width="2.5" opacity="0.6"/>
+  <path d="M132 144 L114 182 L124 196" fill="none" stroke="#3b82f6" stroke-width="2.5" opacity="0.6"/>
+  
+  <rect x="88" y="112" width="24" height="26" rx="6" fill="#fed7aa"/>
+  
+  <ellipse cx="100" cy="82" rx="29" ry="33" fill="url(#radin_skin)"/>
+  
+  <path d="M70 76 C68 54 84 46 102 46 C122 46 134 56 132 76 C130 66 124 56 108 54 C92 52 78 60 70 76 Z" fill="url(#radin_hair)"/>
+  <path d="M68 76 C66 84 66 96 72 100 C72 90 72 82 74 76 Z" fill="url(#radin_hair)"/>
+  <path d="M132 76 C134 84 134 96 128 100 C128 90 128 82 126 76 Z" fill="url(#radin_hair)"/>
+  
+  <path d="M78 74 Q86 71 92 74" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M108 74 Q114 71 122 74" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round"/>
+  
+  <circle cx="85" cy="83" r="3" fill="#0f172a"/>
+  <circle cx="115" cy="83" r="3" fill="#0f172a"/>
+  <circle cx="86" cy="82" r="1" fill="#ffffff"/>
+  <circle cx="116" cy="82" r="1" fill="#ffffff"/>
+  
+  <path d="M91 97 Q100 105 109 97" fill="none" stroke="#b45309" stroke-width="2.2" stroke-linecap="round"/>
+  
+  <g transform="translate(150, 20)">
+    <circle cx="16" cy="16" r="16" fill="#1e40af" stroke="#ffffff" stroke-width="2"/>
+    <path d="M16 8 L18.5 13.5 L24.5 14 L20 18 L21.5 24 L16 20.8 L10.5 24 L12 18 L7.5 14 L13.5 13.5 Z" fill="#fbbf24"/>
+  </g>
+</svg>`;
+
+export const GENERIC_PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" rx="24" fill="#0f172a"/>
+  <circle cx="100" cy="100" r="70" fill="none" stroke="#0284c7" stroke-width="3" stroke-dasharray="6 4"/>
+  <text x="100" y="108" fill="#38bdf8" font-family="sans-serif" font-size="28" font-weight="900" text-anchor="middle">MAHASH</text>
+</svg>`;
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Immediate infrastructure health probes (Always return 200 OK fast for Cloud Run)
+app.get(['/healthz', '/api/health', '/api/ping'], (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
@@ -57,17 +253,47 @@ function insertAuditLog(actionType: string, title: string, details: string, acto
 function ensureUploadsAndHydrate() {
   try {
     if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {}
     }
+    const publicUploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    if (!fs.existsSync(publicUploadsDir)) {
+      try { fs.mkdirSync(publicUploadsDir, { recursive: true }); } catch {}
+    }
+
+    // Bidirectional sync between root uploads/ and public/uploads/
+    try {
+      if (fs.existsSync(UPLOADS_DIR) && fs.existsSync(publicUploadsDir)) {
+        const uFiles = fs.readdirSync(UPLOADS_DIR);
+        for (const file of uFiles) {
+          const src = path.join(UPLOADS_DIR, file);
+          const dest = path.join(publicUploadsDir, file);
+          if (!fs.existsSync(dest)) {
+            try { fs.copyFileSync(src, dest); } catch {}
+          }
+        }
+        const pFiles = fs.readdirSync(publicUploadsDir);
+        for (const file of pFiles) {
+          const src = path.join(publicUploadsDir, file);
+          const dest = path.join(UPLOADS_DIR, file);
+          if (!fs.existsSync(dest)) {
+            try { fs.copyFileSync(src, dest); } catch {}
+          }
+        }
+      }
+    } catch {}
 
     // 1. Write official Mahash logo and Youth Club emblem SVGs to disk
     const mahashLogoDest = path.join(UPLOADS_DIR, 'mahash-96747ecd00.webp');
     const mahashLogoSvgDest = path.join(UPLOADS_DIR, 'mahash-96747ecd00.svg');
+    const mahashLogoPngDest = path.join(UPLOADS_DIR, 'mahash-2193c09b41.png');
     if (!fs.existsSync(mahashLogoDest)) {
       try { fs.writeFileSync(mahashLogoDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
     }
     if (!fs.existsSync(mahashLogoSvgDest)) {
       try { fs.writeFileSync(mahashLogoSvgDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(mahashLogoPngDest)) {
+      try { fs.writeFileSync(mahashLogoPngDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
     }
 
     const emblemDest = path.join(UPLOADS_DIR, 'emblem-96747ecd00.webp');
@@ -86,11 +312,25 @@ function ensureUploadsAndHydrate() {
     // 2. Write Dr. Nazi Abbasian avatar to uploads
     const naziPhotoDest = path.join(UPLOADS_DIR, 'consultant-284f763688.webp');
     const naziSvgDest = path.join(UPLOADS_DIR, 'consultant-284f763688.svg');
+    const naziPngDest = path.join(UPLOADS_DIR, 'consultant-4385004063.png');
     if (!fs.existsSync(naziPhotoDest)) {
       try { fs.writeFileSync(naziPhotoDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
     }
     if (!fs.existsSync(naziSvgDest)) {
       try { fs.writeFileSync(naziSvgDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(naziPngDest)) {
+      try { fs.writeFileSync(naziPngDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
+    }
+
+    // Write Radin Oroumi avatar to uploads
+    const radinPhotoDest = path.join(UPLOADS_DIR, 'consultant-01916cb489.webp');
+    const radinPngDest = path.join(UPLOADS_DIR, 'consultant-f513d1c735.png');
+    if (!fs.existsSync(radinPhotoDest)) {
+      try { fs.writeFileSync(radinPhotoDest, OFFICIAL_RADIN_AVATAR_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(radinPngDest)) {
+      try { fs.writeFileSync(radinPngDest, OFFICIAL_RADIN_AVATAR_SVG, 'utf-8'); } catch {}
     }
 
     // 3. Write public standalone SVGs
@@ -99,8 +339,12 @@ function ensureUploadsAndHydrate() {
       if (fs.existsSync(pubDir)) {
         const pubLogo = path.join(pubDir, 'mahash-official-logo.svg');
         const pubEmblem = path.join(pubDir, 'mahash-club-emblem.svg');
-        if (!fs.existsSync(pubLogo)) fs.writeFileSync(pubLogo, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8');
-        if (!fs.existsSync(pubEmblem)) fs.writeFileSync(pubEmblem, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8');
+        if (!fs.existsSync(pubLogo)) {
+          try { fs.writeFileSync(pubLogo, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
+        }
+        if (!fs.existsSync(pubEmblem)) {
+          try { fs.writeFileSync(pubEmblem, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
+        }
       }
     } catch {}
 
@@ -110,6 +354,28 @@ function ensureUploadsAndHydrate() {
       if (fs.existsSync(dataStorePath)) {
         const dsContent = JSON.parse(fs.readFileSync(dataStorePath, 'utf-8'));
         
+        // Consultant photos
+        if (dsContent.consultantPhotos && typeof dsContent.consultantPhotos === 'object') {
+          for (const [cName, cImg] of Object.entries(dsContent.consultantPhotos)) {
+            if (typeof cImg === 'string' && cImg.startsWith('data:image/')) {
+              const matches = cImg.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+              if (matches) {
+                const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+                const hash = crypto.createHash('md5').update(matches[2]).digest('hex').substring(0, 10);
+                const cFile = `consultant-${hash}.${ext}`;
+                const cPath = path.join(UPLOADS_DIR, cFile);
+                const cPubPath = path.join(publicUploadsDir, cFile);
+                if (!fs.existsSync(cPath)) {
+                  try { fs.writeFileSync(cPath, Buffer.from(matches[2], 'base64')); } catch {}
+                }
+                if (!fs.existsSync(cPubPath)) {
+                  try { fs.writeFileSync(cPubPath, Buffer.from(matches[2], 'base64')); } catch {}
+                }
+              }
+            }
+          }
+        }
+
         // Radin Oroumi photo
         if (dsContent.consultantsList && dsContent.consultantsList[1] && dsContent.consultantsList[1].image) {
           const imgStr = dsContent.consultantsList[1].image;
@@ -117,7 +383,7 @@ function ensureUploadsAndHydrate() {
             const clean = imgStr.replace(/^data:image\/[^;]+;base64,/, '');
             const radinDest = path.join(UPLOADS_DIR, 'consultant-01916cb489.webp');
             if (!fs.existsSync(radinDest)) {
-              fs.writeFileSync(radinDest, Buffer.from(clean, 'base64'));
+              try { fs.writeFileSync(radinDest, Buffer.from(clean, 'base64')); } catch {}
             }
           }
         }
@@ -133,12 +399,12 @@ function ensureUploadsAndHydrate() {
                 const tName = `team-${hash}.${ext}`;
                 const tPath = path.join(UPLOADS_DIR, tName);
                 if (!fs.existsSync(tPath)) {
-                  fs.writeFileSync(tPath, Buffer.from(m[2], 'base64'));
+                  try { fs.writeFileSync(tPath, Buffer.from(m[2], 'base64')); } catch {}
                 }
                 if (teamKey === 'team-silence' || teamKey === 'silence') {
                   const sPath = path.join(UPLOADS_DIR, `score-silence-${hash}.${ext}`);
                   if (!fs.existsSync(sPath)) {
-                    fs.writeFileSync(sPath, Buffer.from(m[2], 'base64'));
+                    try { fs.writeFileSync(sPath, Buffer.from(m[2], 'base64')); } catch {}
                   }
                 }
               }
@@ -229,23 +495,54 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 app.get('/uploads/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(UPLOADS_DIR, filename);
+  const publicFilePath = path.join(process.cwd(), 'public', 'uploads', filename);
+  const distFilePath = path.join(process.cwd(), 'dist', 'uploads', filename);
 
-  if (fs.existsSync(filePath)) {
+  const resolvedPath = fs.existsSync(filePath)
+    ? filePath
+    : (fs.existsSync(publicFilePath) ? publicFilePath : (fs.existsSync(distFilePath) ? distFilePath : null));
+
+  if (resolvedPath) {
     try {
       const headBuf = Buffer.alloc(100);
-      const fd = fs.openSync(filePath, 'r');
+      const fd = fs.openSync(resolvedPath, 'r');
       fs.readSync(fd, headBuf, 0, 100, 0);
       fs.closeSync(fd);
       const headStr = headBuf.toString('utf8');
       if (headStr.includes('<svg') || headStr.includes('<?xml')) {
         res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
         res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.sendFile(filePath);
+        return res.sendFile(resolvedPath);
       }
-      return res.sendFile(filePath);
+      return res.sendFile(resolvedPath);
     } catch {
-      return res.sendFile(filePath);
+      return res.sendFile(resolvedPath);
     }
+  }
+
+  // Check inMemoryAssets for dynamically stored media/base64
+  const assetRecord = inMemoryAssets[`upload_${filename}`] || inMemoryAssets[filename] || Object.values(inMemoryAssets).find((a: any) => a?.name === filename);
+  if (assetRecord && assetRecord.data && typeof assetRecord.data === 'string') {
+    try {
+      if (assetRecord.data.startsWith('data:')) {
+        const parts = assetRecord.data.split(';base64,');
+        const mime = parts[0].replace('data:', '') || 'image/png';
+        const buffer = Buffer.from(parts[1], 'base64');
+        try {
+          fs.writeFileSync(filePath, buffer);
+          if (fs.existsSync(path.join(process.cwd(), 'public', 'uploads'))) {
+            fs.writeFileSync(publicFilePath, buffer);
+          }
+        } catch {}
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(buffer);
+      } else if (assetRecord.data.startsWith('<svg')) {
+        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(assetRecord.data);
+      }
+    } catch {}
   }
 
   // Dynamic synthesis for known Mahash assets
@@ -261,13 +558,19 @@ app.get('/uploads/:filename', (req, res) => {
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     return res.send(OFFICIAL_MAHASH_EMBLEM_SVG);
   }
-  if (lower.includes('284f763688') || lower.includes('nazi') || lower.includes('consultant-1')) {
+  if (lower.includes('284f763688') || lower.includes('4385004063') || lower.includes('nazi') || lower.includes('consultant-1')) {
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     return res.send(OFFICIAL_NAZI_AVATAR_SVG);
   }
-  if (lower.includes('01916cb489') || lower.includes('radin') || lower.includes('consultant-2')) {
+  if (lower.includes('01916cb489') || lower.includes('f513d1c735') || lower.includes('radin') || lower.includes('consultant-2')) {
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     return res.send(OFFICIAL_RADIN_AVATAR_SVG);
+  }
+
+  // If filename starts with consultant-, check if there's any avatar to fallback to
+  if (lower.startsWith('consultant-')) {
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.send(OFFICIAL_NAZI_AVATAR_SVG);
   }
 
   // For any other missing asset in /uploads, return 404 SVG image (NEVER index.html)
@@ -468,6 +771,29 @@ app.get('/sitemap.xml', (req, res) => {
 app.get('/robots.txt', (req, res) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.send(`User-agent: *\nAllow: /\nDisallow: /api/admin/\nDisallow: /#/admin\n\nSitemap: https://mahash.org/sitemap.xml\n`);
+});
+
+app.get(['/api/export-netlify-zip', '/api/export-dist-zip', '/mahash-production-dist.zip', '/dist.zip'], (req, res) => {
+  try {
+    const zip = new AdmZip();
+    const projectRoot = process.cwd();
+    const distPath = path.join(projectRoot, 'dist');
+    const publicPath = path.join(projectRoot, 'public');
+
+    if (fs.existsSync(distPath)) {
+      zip.addLocalFolder(distPath);
+    } else if (fs.existsSync(publicPath)) {
+      zip.addLocalFolder(publicPath);
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="mahash-production-dist.zip"');
+    res.send(zipBuffer);
+  } catch (error) {
+    console.error('Error generating netlify export zip:', error);
+    res.status(500).json({ error: 'Failed to generate Netlify export package' });
+  }
 });
 
 app.get('/api/export-website', (req, res) => {
@@ -897,16 +1223,27 @@ let mysqlPool: mysql.Pool | null = null;
 let mysqlConnected = false;
 
 async function initMySQL() {
+  if (!process.env.MYSQL_HOST) {
+    // MySQL host not configured in environment, safely operating on persistent disk / memory store fallback
+    return;
+  }
   try {
-    const host = process.env.MYSQL_HOST || 'localhost';
+    const host = process.env.MYSQL_HOST;
     const port = parseInt(process.env.MYSQL_PORT || '3306', 10);
     const user = process.env.MYSQL_USER || 'root';
     const password = process.env.MYSQL_PASSWORD || '';
     const database = process.env.MYSQL_DATABASE || 'mahash_db';
+    const hasExplicitHost = true;
 
     // 1. Try to create database if not exists (might fail on shared/WordPress hosting due to permissions)
     try {
-      const tempConn = await mysql.createConnection({ host, port, user, password });
+      const tempConn = await mysql.createConnection({
+        host,
+        port,
+        user,
+        password,
+        connectTimeout: hasExplicitHost ? 10000 : 1500
+      });
       await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
       await tempConn.end();
     } catch (err: any) {
@@ -924,7 +1261,7 @@ async function initMySQL() {
       connectionLimit: 100,
       maxIdle: 25,
       idleTimeout: 60000,
-      connectTimeout: 30000,
+      connectTimeout: hasExplicitHost ? 15000 : 2000,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
       charset: 'utf8mb4'
@@ -1463,6 +1800,7 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
         const hash = crypto.createHash('md5').update(matches[2]).digest('hex').substring(0, 10);
         const filename = `${prefix}-${hash}.${ext}`;
         const filePath = path.join(UPLOADS_DIR, filename);
+        const publicFilePath = path.join(process.cwd(), 'public', 'uploads', filename);
         let buffer;
         if (!fs.existsSync(filePath)) {
           buffer = Buffer.from(matches[2], 'base64');
@@ -1470,6 +1808,11 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
         } else {
           buffer = fs.readFileSync(filePath);
         }
+        try {
+          if (!fs.existsSync(publicFilePath)) {
+            fs.writeFileSync(publicFilePath, buffer);
+          }
+        } catch {}
         
         // Persist to MySQL mahash_assets
         const assetId = `upload_${filename}`;
@@ -5472,6 +5815,14 @@ app.post('/api/upload-file', upload.single('file'), (req, res) => {
     const publicUrl = `/uploads/${req.file.filename}`;
     const filename = req.file.filename;
 
+    // Mirror to public/uploads
+    try {
+      const pubDest = path.join(process.cwd(), 'public', 'uploads', filename);
+      if (!fs.existsSync(pubDest)) {
+        fs.copyFileSync(path.join(UPLOADS_DIR, filename), pubDest);
+      }
+    } catch {}
+
     // Persist to inMemoryAssets and MySQL/data_store if under 20MB for permanent cloud persistence
     if (req.file.size < 20 * 1024 * 1024) {
       try {
@@ -5548,9 +5899,15 @@ app.post('/api/upload', (req, res) => {
     const safeName = (filename || `upload-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
     const targetFileName = `${safeName}-${Date.now()}${ext}`;
     const targetFilePath = path.join(UPLOADS_DIR, targetFileName);
+    const targetPublicFilePath = path.join(process.cwd(), 'public', 'uploads', targetFileName);
 
     const buf = Buffer.from(cleanBase64, 'base64');
     fs.writeFileSync(targetFilePath, buf);
+    try {
+      if (!fs.existsSync(targetPublicFilePath)) {
+        fs.writeFileSync(targetPublicFilePath, buf);
+      }
+    } catch {}
 
     // Save asset record
     if (buf.length < 20 * 1024 * 1024) {
@@ -6215,55 +6572,74 @@ function generateFallbackTeamSummary(
 // Vite middleware and static serving integration
 async function startApp() {
   const isCjsBundle = typeof __filename !== 'undefined' && (__filename.endsWith('.cjs') || __filename.includes('dist'));
-  const isProduction = process.env.NODE_ENV === 'production' || isCjsBundle || !fs.existsSync(path.join(process.cwd(), 'src', 'main.tsx'));
+  const hasDistIndex = fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || isCjsBundle || hasDistIndex || !fs.existsSync(path.join(process.cwd(), 'src', 'main.tsx'));
 
   if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
-    });
-    app.use(vite.middlewares);
-  } else {
-    // Check multiple candidate locations for the compiled dist directory
-    const candidates = [
-      path.join(process.cwd(), 'dist'),
-      typeof __dirname !== 'undefined' ? __dirname : '',
-      typeof __dirname !== 'undefined' ? path.join(__dirname, '..', 'dist') : '',
-      typeof __dirname !== 'undefined' ? path.join(__dirname, 'dist') : '',
-      path.resolve('dist')
-    ].filter(Boolean);
-
-    let distPath = candidates.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) || path.join(process.cwd(), 'dist');
-
-    app.use(express.static(distPath, {
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.html')) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        } else {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        }
-      }
-    }));
-
-    app.get('*', (req, res) => {
-      // If request is for an API route that didn't match, return 404 json instead of index.html
-      if (req.path.startsWith('/api/')) {
-        res.status(404).json({ error: 'Endpoint not found' });
-        return;
-      }
-      const indexPath = path.join(distPath, 'index.html');
-      if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-      } else {
-        res.status(200).send('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>سامانه باشگاه جوانان مؤسسه محاش</title></head><body><div id="root"></div></body></html>');
-      }
-    });
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa'
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.warn('⚠️ Could not start Vite dev middleware, falling back to static dist serving:', viteErr);
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // Always mount static serving for production or fallback
+  const candidates = [
+    path.join(process.cwd(), 'dist'),
+    typeof __dirname !== 'undefined' ? __dirname : '',
+    typeof __dirname !== 'undefined' ? path.join(__dirname, '..', 'dist') : '',
+    typeof __dirname !== 'undefined' ? path.join(__dirname, 'dist') : '',
+    path.resolve('dist')
+  ].filter(Boolean);
+
+  let distPath = candidates.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) || path.join(process.cwd(), 'dist');
+
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }
+  }));
+
+  app.get('*', (req, res) => {
+    // If request is for an API route that didn't match, return 404 json instead of index.html
+    if (req.path.startsWith('/api/')) {
+      res.status(404).json({ error: 'Endpoint not found' });
+      return;
+    }
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(200).send('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>سامانه باشگاه جوانان مؤسسه محاش</title></head><body><div id="root"></div></body></html>');
+    }
+  });
+
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Mahash Portal server running on http://localhost:${PORT}`);
   });
+
+  const handleShutdown = (signal: string) => {
+    console.log(`Received ${signal}, closing server gracefully...`);
+    server.close(() => {
+      console.log('Server closed successfully.');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      process.exit(0);
+    }, 5000);
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
 process.on('uncaughtException', (err) => {

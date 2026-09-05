@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { fetchAndMergeServerStore, getAllReports } from './utils/reportsStore';
+import { globalEventBus } from './utils/eventBus';
 import { OfflineBanner } from './components/OfflineBanner';
 import { usePerformanceMonitor } from './hooks/usePerformanceMonitor';
 import { reportIndexedDBDatabases } from './utils/indexedDBHelper';
 import { migrateAllClientMediaToWordPress } from './utils/mediaMigration';
 import { initStorageMonitor } from './utils/storageMonitor';
 import { ThemeProvider } from './context/ThemeContext';
-import { NotificationProvider } from './context/NotificationContext';
+import { NotificationProvider, useNotification } from './context/NotificationContext';
 import { StatusNotification } from './components/StatusNotification';
 import { ProgressTracker } from './components/ProgressTracker';
 import { useKeyboardNav } from './hooks/useKeyboardNav';
@@ -33,6 +34,49 @@ import { AdminPage } from './pages/AdminPage';
 
 function MainApp() {
   const [currentPage, setCurrentPage] = useState<string>('home');
+  const { error: notifyError, warning: notifyWarning, success: notifySuccess, info: notifyInfo } = useNotification();
+
+  // Listen for database write/sync failures and display clear user notifications
+  useEffect(() => {
+    const handleDbWriteError = (data?: { title?: string; message?: string }) => {
+      notifyError(
+        data?.title || 'خطا در ثبت پایگاه داده MySQL',
+        data?.message || 'عملیات ذخیره‌سازی در پایگاه داده مرکزی با خطا مواجه شد و ثبت نشد.',
+        6500
+      );
+    };
+
+    const handleDbSyncError = (data?: { title?: string; message?: string }) => {
+      notifyWarning(
+        data?.title || 'خطا در همگام‌سازی اطلاعات',
+        data?.message || 'دریافت یا ارسال اطلاعات به پایگاه داده با خطا مواجه شد.',
+        5000
+      );
+    };
+
+    const handleGenericNotification = (data?: { type?: 'success' | 'error' | 'warning' | 'info'; title?: string; message?: string; duration?: number }) => {
+      if (!data) return;
+      if (data.type === 'error') {
+        notifyError(data.title || 'خطا', data.message, data.duration);
+      } else if (data.type === 'warning') {
+        notifyWarning(data.title || 'هشدار', data.message, data.duration);
+      } else if (data.type === 'success') {
+        notifySuccess(data.title || 'عملیات موفق', data.message, data.duration);
+      } else {
+        notifyInfo(data.title || 'اطلاعیه', data.message, data.duration);
+      }
+    };
+
+    globalEventBus.on('DATABASE_WRITE_ERROR', handleDbWriteError);
+    globalEventBus.on('DATABASE_SYNC_ERROR', handleDbSyncError);
+    globalEventBus.on('SHOW_APP_NOTIFICATION', handleGenericNotification);
+
+    return () => {
+      globalEventBus.off('DATABASE_WRITE_ERROR', handleDbWriteError);
+      globalEventBus.off('DATABASE_SYNC_ERROR', handleDbSyncError);
+      globalEventBus.off('SHOW_APP_NOTIFICATION', handleGenericNotification);
+    };
+  }, [notifyError, notifyWarning, notifySuccess, notifyInfo]);
 
   // Handle URL hash routing if present
   useEffect(() => {

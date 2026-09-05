@@ -25,9 +25,44 @@ function sitemapPlugin(): Plugin {
   };
 }
 
+function offlineBaselinePlugin(): Plugin {
+  return {
+    name: 'offline-baseline-generator',
+    apply: 'build',
+    buildStart() {
+      try {
+        const scriptPath = path.resolve(__dirname, './scripts/generate-offline-baseline.mjs');
+        import(scriptPath).then((m) => {
+          if (typeof m.generateOfflineBaseline === 'function') {
+            m.generateOfflineBaseline();
+          }
+        }).catch((err) => {
+          console.warn('[offlineBaselinePlugin] Baseline generation buildStart deferred:', err);
+        });
+      } catch (e) {
+        console.warn('[offlineBaselinePlugin] Error at buildStart:', e);
+      }
+    },
+    closeBundle() {
+      try {
+        const scriptPath = path.resolve(__dirname, './scripts/generate-offline-baseline.mjs');
+        import(scriptPath).then((m) => {
+          if (typeof m.generateOfflineBaseline === 'function') {
+            m.generateOfflineBaseline();
+          }
+        }).catch((err) => {
+          console.warn('[offlineBaselinePlugin] Baseline generation closeBundle deferred:', err);
+        });
+      } catch (e) {
+        console.warn('[offlineBaselinePlugin] Error at closeBundle:', e);
+      }
+    }
+  };
+}
+
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), sitemapPlugin(), 
+    plugins: [react(), tailwindcss(), sitemapPlugin(), offlineBaselinePlugin(), 
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',

@@ -1,4 +1,5 @@
 import { MembershipApplication, MembershipStats, MembershipStatus } from '../types';
+import { globalEventBus } from '../utils/eventBus';
 
 const API_BASE = '/api/memberships';
 
@@ -19,7 +20,7 @@ export async function fetchMemberships(filter?: {
 
     const queryStr = params.toString() ? `?${params.toString()}` : '';
     const res = await fetch(`${API_BASE}${queryStr}`);
-    if (!res.ok) {
+    if (res.status !== 200 && res.status !== 201) {
       throw new Error(`Failed to fetch memberships: ${res.statusText}`);
     }
     const data = await res.json();
@@ -43,7 +44,7 @@ export async function fetchMemberships(filter?: {
 export async function fetchMembershipStats(): Promise<MembershipStats | null> {
   try {
     const res = await fetch(`${API_BASE}/stats`);
-    if (!res.ok) throw new Error(`Stats fetch failed: ${res.statusText}`);
+    if (res.status !== 200 && res.status !== 201) throw new Error(`Stats fetch failed: ${res.statusText}`);
     const data = await res.json();
     return data.stats || null;
   } catch (err) {
@@ -61,13 +62,23 @@ export async function createMembership(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(appData)
     });
-    const data = await res.json();
-    if (!res.ok) {
-      return { success: false, error: data.error || 'خطا در ثبت درخواست' };
+    const data = await res.json().catch(() => ({}));
+    if (res.status !== 200 && res.status !== 201) {
+      const errMsg = data.error || `خطای سرور (${res.status}): ثبت درخواست با شکست مواجه شد`;
+      globalEventBus.emit('DATABASE_WRITE_ERROR', {
+        title: 'خطا در ثبت درخواست عضویت در دیتابیس',
+        message: errMsg
+      });
+      return { success: false, error: errMsg };
     }
     return { success: true, membership: data.membership };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'خطای اتصال به سرور' };
+    const errMsg = err?.message || 'خطای اتصال به سرور پایگاه داده';
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطای شبکه در ثبت درخواست عضویت',
+      message: errMsg
+    });
+    return { success: false, error: errMsg };
   }
 }
 
@@ -82,11 +93,23 @@ export async function updateMembershipStatus(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, adminNotes })
     });
-    const data = await res.json();
-    if (!res.ok) return { success: false, error: data.error || 'خطا در به‌روزرسانی' };
+    const data = await res.json().catch(() => ({}));
+    if (res.status !== 200 && res.status !== 201) {
+      const errMsg = data.error || `خطای سرور (${res.status}): به‌روزرسانی وضعیت پرونده ناموفق بود`;
+      globalEventBus.emit('DATABASE_WRITE_ERROR', {
+        title: 'خطا در به‌روزرسانی وضعیت عضویت',
+        message: errMsg
+      });
+      return { success: false, error: errMsg };
+    }
     return { success: true, membership: data.membership };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'خطای اتصال' };
+    const errMsg = err?.message || 'خطای اتصال به سرور';
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطای شبکه در ویرایش وضعیت عضویت',
+      message: errMsg
+    });
+    return { success: false, error: errMsg };
   }
 }
 
@@ -100,11 +123,23 @@ export async function updateMembershipDetails(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates)
     });
-    const data = await res.json();
-    if (!res.ok) return { success: false, error: data.error || 'خطا در ویرایش پرونده' };
+    const data = await res.json().catch(() => ({}));
+    if (res.status !== 200 && res.status !== 201) {
+      const errMsg = data.error || `خطای سرور (${res.status}): ویرایش پرونده ناموفق بود`;
+      globalEventBus.emit('DATABASE_WRITE_ERROR', {
+        title: 'خطا در ویرایش پرونده در پایگاه داده',
+        message: errMsg
+      });
+      return { success: false, error: errMsg };
+    }
     return { success: true, membership: data.membership };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'خطای سرور' };
+    const errMsg = err?.message || 'خطای سرور پایگاه داده';
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطای شبکه در ویرایش پرونده',
+      message: errMsg
+    });
+    return { success: false, error: errMsg };
   }
 }
 
@@ -113,11 +148,23 @@ export async function deleteMembership(id: string): Promise<{ success: boolean; 
     const res = await fetch(`${API_BASE}/${id}`, {
       method: 'DELETE'
     });
-    const data = await res.json();
-    if (!res.ok) return { success: false, error: data.error || 'خطا در حذف پرونده' };
+    const data = await res.json().catch(() => ({}));
+    if (res.status !== 200 && res.status !== 201 && res.status !== 204) {
+      const errMsg = data.error || `خطای سرور (${res.status}): حذف پرونده ناموفق بود`;
+      globalEventBus.emit('DATABASE_WRITE_ERROR', {
+        title: 'خطا در حذف عضویت از دیتابیس',
+        message: errMsg
+      });
+      return { success: false, error: errMsg };
+    }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'خطای شبکه' };
+    const errMsg = err?.message || 'خطای شبکه در حذف عضویت';
+    globalEventBus.emit('DATABASE_WRITE_ERROR', {
+      title: 'خطای شبکه در حذف عضویت',
+      message: errMsg
+    });
+    return { success: false, error: errMsg };
   }
 }
 
