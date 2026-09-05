@@ -17,12 +17,12 @@ export const Header: React.FC<HeaderProps> = ({ currentPage, onNavigate }) => {
   const [mobileSubmenu, setMobileSubmenu] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(isAdminAuthenticated());
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
-  const [logoSrc, setLogoSrc] = useState<string>(getMahashLogo());
+  const [logoSrc, setLogoSrc] = useState<string>(() => getMahashLogo() || MAHESH_LOGO_SVG);
 
   useEffect(() => {
     const updateHeaderState = () => {
       setIsAdmin(isAdminAuthenticated());
-      setLogoSrc(getMahashLogo());
+      setLogoSrc(getMahashLogo() || MAHESH_LOGO_SVG);
     };
     updateHeaderState();
     const unsub = subscribeToStoreUpdates(updateHeaderState);

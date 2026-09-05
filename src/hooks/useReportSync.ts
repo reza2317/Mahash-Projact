@@ -6,7 +6,7 @@ import {
   getAllReports, 
   getAllTeams, 
   triggerGlobalCacheBust, 
-  syncLocalDataToServer, 
+  persistReportDirectlyToServerWithConfirmation,
   saveDraft, 
   deleteDraft,
   getSavedDrafts 
@@ -15,6 +15,7 @@ import {
 export function useReportSync() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [lastServerTimestamp, setLastServerTimestamp] = useState<string | null>(null);
 
   const syncReportData = useCallback(async (
     reportObject: ActivityReport,
@@ -27,7 +28,7 @@ export function useReportSync() {
 
     try {
       if (options?.asDraft) {
-        // Save as Draft
+        // Save as Draft (local draft storage)
         const draft: ReportDraft = {
           id: options.draftId || `draft_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           reportId: reportObject.id,
@@ -53,39 +54,46 @@ export function useReportSync() {
         };
         saveDraft(draft);
       } else {
-        // If it was a draft being published, clean up draft record
+        // 1. Definitively commit to Database Server FIRST and await confirmation
+        const serverConfirmation = await persistReportDirectlyToServerWithConfirmation(
+          reportObject,
+          selectedTeamSlug,
+          { keepVideoAttachment: options?.keepVideoAttachment }
+        );
+
+        if (!serverConfirmation.success) {
+          throw new Error('پایگاه داده سرور موفقیت عملیات ذخیره را تأیید نکرد.');
+        }
+
+        if (serverConfirmation.serverUpdatedAt) {
+          setLastServerTimestamp(serverConfirmation.serverUpdatedAt);
+        }
+
+        // 2. If it was a draft being published, clean up draft record
         if (options?.draftId) {
           deleteDraft(options.draftId);
         }
-        // 1. Immediate local storage update with schema enforcement
-        saveReport(reportObject, selectedTeamSlug, { keepVideoAttachment: options?.keepVideoAttachment });
       }
 
+      // 3. Invalidate client caches and fetch fresh immutable arrays
       triggerGlobalCacheBust();
-      
-      // 2. Fetch fresh state based on immutable arrays
       const freshReports = getAllReports();
       const freshTeams = getAllTeams();
       
-      // 3. Update parent component state to trigger re-render
+      // 4. Update parent component state with server-acknowledged data
       onSuccess(freshReports, freshTeams);
 
-      // 4. Server sync (run asynchronously in the background so UI save completes instantly)
-      if (!options?.asDraft) {
-        syncLocalDataToServer().catch((err) => {
-          console.warn('[useReportSync] Background server sync warning:', err);
-        });
-      }
-      
+      // 5. Mark success state only after server confirmation
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
-    } catch (error) {
-      console.error('Failed to sync report:', error);
+      setTimeout(() => setSaveSuccess(false), 5000);
+    } catch (error: any) {
+      console.error('[useReportSync] Failed to sync report to database:', error);
+      setSaveSuccess(false);
       throw error;
     } finally {
       setIsSaving(false);
     }
   }, []);
 
-  return { isSaving, saveSuccess, syncReportData };
+  return { isSaving, saveSuccess, lastServerTimestamp, syncReportData };
 }

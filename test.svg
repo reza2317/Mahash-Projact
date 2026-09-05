@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <rect width="240" height="240" fill="#141a63"/>
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <!-- Ear Shape -->
+    <path d="M100 45 C150 45 180 80 180 120 C180 160 150 190 120 190 C100 190 85 175 85 155 C85 140 95 130 110 130 C130 130 140 145 140 160 C140 120 115 85 85 85 C65 85 55 105 55 125" fill="none" stroke="#ffffff" stroke-width="14"/>
+    <!-- Inner ear curve -->
+    <path d="M90 75 C115 75 130 95 130 125" fill="none" stroke="#ffffff" stroke-width="10"/>
+  </g>
+  <!-- Background colored gap for the slash -->
+  <line x1="30" y1="210" x2="210" y2="30" stroke="#141a63" stroke-width="50"/>
+  <!-- White slash -->
+  <line x1="20" y1="220" x2="220" y2="20" stroke="#ffffff" stroke-width="32"/>
+</svg>

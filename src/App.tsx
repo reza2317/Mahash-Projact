@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { fetchAndMergeServerStore } from './utils/reportsStore';
+import { fetchAndMergeServerStore, getAllReports } from './utils/reportsStore';
 import { OfflineBanner } from './components/OfflineBanner';
 import { usePerformanceMonitor } from './hooks/usePerformanceMonitor';
 import { reportIndexedDBDatabases } from './utils/indexedDBHelper';
@@ -61,6 +61,39 @@ function MainApp() {
   });
 
   const renderContent = () => {
+    // Dynamic report direct link hash routing
+    if (currentPage.startsWith('report-')) {
+      const cleanReportId = currentPage.replace(/^report-/, '');
+      const allReports = getAllReports();
+      const matchedReport = allReports.find(
+        (r) => r.id === currentPage || r.id === cleanReportId || r.id === `report-${cleanReportId}`
+      );
+      
+      let targetTeamSlug = matchedReport?.teamSlug;
+      if (!targetTeamSlug) {
+        if (currentPage.includes('angel') || currentPage.includes('فرشتگان')) {
+          targetTeamSlug = 'team-angels';
+        } else if (currentPage.includes('thinker') || currentPage.includes('متفکر')) {
+          targetTeamSlug = 'team-thinker';
+        } else if (currentPage.includes('tomorrow') || currentPage.includes('فردا')) {
+          targetTeamSlug = 'team-tomorrow';
+        } else if (currentPage.includes('ghorbani') || currentPage.includes('هادی')) {
+          targetTeamSlug = 'team-ghorbani';
+        } else if (currentPage.includes('silence') || currentPage.includes('سکوت')) {
+          targetTeamSlug = 'team-silence';
+        } else {
+          targetTeamSlug = 'team-angels';
+        }
+      }
+      return (
+        <TeamDetailPage
+          teamSlug={targetTeamSlug}
+          targetReportId={matchedReport?.id || cleanReportId}
+          onNavigate={navigateTo}
+        />
+      );
+    }
+
     // Dynamic team slug routing
     if (
       currentPage.startsWith('team-') ||

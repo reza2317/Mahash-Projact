@@ -7,7 +7,7 @@ import {
   getMahashLogo,
   subscribeToStoreUpdates
 } from '../utils/reportsStore';
-import { getTeamLogoPlaceholder } from '../utils/assets';
+import { getTeamLogoPlaceholder, MAHESH_LOGO_SVG } from '../utils/assets';
 import { formatSmartUpdateDate, toPersianDigits, formatReportNumberDisplay } from '../utils/persianDate';
 import { InteractiveCalendar } from '../components/InteractiveCalendar';
 import { FormattedText } from '../components/FormattedText';
@@ -41,7 +41,7 @@ interface HomePageProps {
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [teamsList, setTeamsList] = useState<TeamData[]>(() => getAllTeamsList());
   const [rawReportsList, setRawReportsList] = useState<ActivityReport[]>(() => getAllReports());
-  const [mahashLogoSrc, setMahashLogoSrc] = useState<string>(() => getMahashLogo());
+  const [mahashLogoSrc, setMahashLogoSrc] = useState<string>(() => getMahashLogo() || MAHESH_LOGO_SVG);
   
   // Team carousel state
   const [activeTeamIndex, setActiveTeamIndex] = useState(0);
@@ -58,7 +58,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     const refresh = () => {
       setTeamsList(getAllTeamsList());
       setRawReportsList(getAllReports());
-      setMahashLogoSrc(getMahashLogo());
+      setMahashLogoSrc(getMahashLogo() || MAHESH_LOGO_SVG);
     };
     const unsub = subscribeToStoreUpdates(refresh);
     return () => unsub();
@@ -162,9 +162,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 {/* Central Logo */}
                 <div className="w-32 h-32 rounded-full bg-white dark:bg-slate-800 shadow-xl border-4 border-white dark:border-slate-700 p-2 z-10 flex items-center justify-center">
                   <img
-                    src={mahashLogoSrc}
+                    src={mahashLogoSrc || MAHESH_LOGO_SVG}
                     alt="لوگوی رسمی محاش"
                     className="w-full h-full object-contain rounded-full"
+                    onError={(e) => {
+                      e.currentTarget.src = MAHESH_LOGO_SVG;
+                    }}
                   />
                 </div>
 

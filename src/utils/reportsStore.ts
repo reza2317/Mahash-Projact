@@ -20,25 +20,29 @@ import { toEnglishDigits } from './persianDigitsHandler';
 import { MAHESH_LOGO_SVG, MAHESH_CLUB_EMBLEM_SVG, NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from './assets';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage, freeUpLocalStorageQuota } from './storage';
 
+// Event for notifying subscribers of reports/teams changes
+export const STORE_CHANGE_EVENT = 'mahash_store_updated';
+export const CACHE_VERSION_KEY = 'mahash_cache_version_v1';
+
 const CUSTOM_REPORTS_KEY = 'mahash_custom_reports_v1';
 const DELETED_REPORTS_KEY = 'mahash_deleted_reports_v1';
 const TRASH_BIN_KEY = 'mahash_trash_bin_v1';
-const DRAFTS_KEY = 'mahash_report_drafts_v1';
-const TEAM_OVERRIDES_KEY = 'mahash_team_overrides_v1';
-const TEAM_OVERRIDES_LEGACY_KEY = 'mahash_team_overrides';
-const SCORES_KEY = 'mahash_scores_v1';
-const SCORES_LEGACY_KEY = 'mahash_scores';
-const EVENTS_KEY = 'mahash_events_v1';
-const VIEWS_KEY = 'mahash_report_views_v1';
-const MAHASH_LOGO_KEY = 'mahash_custom_logo_v1';
-const MAHASH_LOGO_LEGACY_KEYS = ['mahash_site_logo', 'mahash_custom_logo', 'mahash_logo', 'mahash_logo_url'];
-const CLUB_EMBLEM_KEY = 'mahash_custom_club_emblem_v1';
-const CLUB_EMBLEM_LEGACY_KEYS = ['mahash_custom_club_emblem', 'mahash_club_emblem', 'youth_club_badge'];
-const TEAM_LOGOS_MAP_KEY = 'mahash_team_logos_v1';
-const TEAM_LOGOS_MAP_LEGACY_KEYS = ['mahash_team_logos', 'mahash_logos', 'team_logos'];
-const MEMBER_AVATARS_KEY = 'mahash_member_avatars_v1';
-const CONSULTANTS_STORAGE_KEY = 'mahash_consultants_list_v1';
-const CONSULTANT_PHOTOS_KEY = 'mahash_consultant_custom_photos_v1';
+export const DRAFTS_KEY = 'mahash_report_drafts_v1';
+export const TEAM_OVERRIDES_KEY = 'mahash_team_overrides_v1';
+export const TEAM_OVERRIDES_LEGACY_KEY = 'mahash_team_overrides';
+export const SCORES_KEY = 'mahash_scores_v1';
+export const SCORES_LEGACY_KEY = 'mahash_scores';
+export const EVENTS_KEY = 'mahash_events_v1';
+export const VIEWS_KEY = 'mahash_report_views_v1';
+export const MAHASH_LOGO_KEY = 'mahash_custom_logo_v1';
+export const MAHASH_LOGO_LEGACY_KEYS = ['mahash_site_logo', 'mahash_custom_logo', 'mahash_logo', 'mahash_logo_url'];
+export const CLUB_EMBLEM_KEY = 'mahash_custom_club_emblem_v1';
+export const CLUB_EMBLEM_LEGACY_KEYS = ['mahash_custom_club_emblem', 'mahash_club_emblem', 'youth_club_badge'];
+export const TEAM_LOGOS_MAP_KEY = 'mahash_team_logos_v1';
+export const TEAM_LOGOS_MAP_LEGACY_KEYS = ['mahash_team_logos', 'mahash_logos', 'team_logos'];
+export const MEMBER_AVATARS_KEY = 'mahash_member_avatars_v1';
+export const CONSULTANTS_STORAGE_KEY = 'mahash_consultants_list_v1';
+export const CONSULTANT_PHOTOS_KEY = 'mahash_consultant_custom_photos_v1';
 const ADMIN_SESSION_KEY = 'mahash_admin_session_v1';
 const ADMIN_USERNAME_KEY = 'mahash_admin_username_v1';
 const ADMIN_PASSWORD_KEY = 'mahash_admin_password_v1';
@@ -237,11 +241,6 @@ const DEFAULT_VIEWS: Record<string, number> = {
   'silence-01': 510,
 };
 
-// Event for notifying subscribers of reports/teams changes
-const STORE_CHANGE_EVENT = 'mahash_store_updated';
-
-const CACHE_VERSION_KEY = 'mahash_cache_version_v1';
-
 export function getGlobalCacheVersion(): number {
   if (typeof window === 'undefined') return 1;
   const val = safeGetLocalStorage(CACHE_VERSION_KEY);
@@ -267,21 +266,23 @@ export function triggerStoreUpdate() {
   memoryConsultantPhotosCache = null;
   memoryConsultantsListCache = null;
   if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('mahash_clear_query_cache'));
+    } catch {}
     const newVer = Date.now();
     try {
       safeSetLocalStorage(CACHE_VERSION_KEY, String(newVer));
     } catch {}
-    window.dispatchEvent(new CustomEvent(STORE_CHANGE_EVENT));
+    window.dispatchEvent(new CustomEvent('mahash_store_updated'));
   }
-
 }
 
 export function subscribeToStoreUpdates(callback: () => void): () => void {
   if (typeof window === 'undefined') return () => {};
-  window.addEventListener(STORE_CHANGE_EVENT, callback);
+  window.addEventListener('mahash_store_updated', callback);
   window.addEventListener('storage', callback);
   return () => {
-    window.removeEventListener(STORE_CHANGE_EVENT, callback);
+    window.removeEventListener('mahash_store_updated', callback);
     window.removeEventListener('storage', callback);
   };
 }
@@ -514,13 +515,13 @@ export function sanitizeVideoUrl(reportId: string, url?: string, title?: string)
   const id = (reportId || '').toLowerCase();
   const repTitle = title || '';
   if (id === 'angels-03' || repTitle.includes('معرفی اعضا')) {
-    return '/uploads/file-1788063303183-909070848.mp4';
+    return '/uploads/file-1788581058938-637124645.mp4';
   }
   if (id === 'angels-02' || repTitle.includes('سکوی قهرمانی') || repTitle.includes('مسیر یک')) {
-    return '/uploads/file-1788063141877-869516181.mp4';
+    return '/uploads/file-1788580086633-502025870.mp4';
   }
   if (id === 'thinker-03' || id === 'angels-01' || repTitle.includes('کافه') || repTitle.includes('انیمه')) {
-    return '/uploads/file-1788063352946-218736197.mp4';
+    return '/uploads/file-1788580054502-531839423.mp4';
   }
   if (id === 'thinker-02' || id === 'thinker-01' || repTitle.includes('همکاری') || repTitle.includes('پیام تصویری') || repTitle.includes('پیام ویدیویی')) {
     return '/uploads/file-1788194454093-106622230.mp4';
@@ -1064,6 +1065,9 @@ export function saveReport(
   teamSlug: string, 
   options?: { keepVideoAttachment?: boolean }
 ): void {
+  const canonicalSlug = teamSlug.startsWith('team-') ? teamSlug : `team-${teamSlug}`;
+  const shortSlug = canonicalSlug.replace(/^team-/, '');
+
   const customMap = getCustomReportsMap();
   const deletedList = getDeletedReportsList();
 
@@ -1074,64 +1078,59 @@ export function saveReport(
 
   // Remove from other teams in customMap if team was changed during edit
   for (const [slug, list] of Object.entries(customMap)) {
-    if (slug !== teamSlug && Array.isArray(list)) {
+    if (slug !== canonicalSlug && slug !== shortSlug && Array.isArray(list)) {
       customMap[slug] = list.filter((r) => r.id !== report.id);
     }
   }
 
-  const teamReports = customMap[teamSlug] || [];
-  const existingIdx = teamReports.findIndex((r) => r.id === report.id);
+  const teamReports = (customMap[canonicalSlug] || customMap[shortSlug] || []).filter((r) => r.id !== report.id);
 
   const keepVideo = options?.keepVideoAttachment ?? report.keepVideoAttachment ?? false;
   const isExplicitText = report.reportType === 'text';
-  const hasValidVideo = Boolean(report.videoSrc && report.videoSrc.trim() !== '' && report.videoSrc !== '#' && (!isExplicitText || keepVideo));
+  const rawVideo = (report.videoSrc || (report as any).videoUrl || (report as any).video_url || '').trim();
+  const hasValidVideo = Boolean(rawVideo && rawVideo !== '#' && (!isExplicitText || keepVideo));
 
   // Only auto-generate Persian subtitles if transcript is undefined AND video is attached on creation
   let transcript = report.transcript;
   if (transcript === undefined && hasValidVideo && !isExplicitText) {
-    const baseTeam = TEAMS_DATA[teamSlug];
+    const baseTeam = TEAMS_DATA[canonicalSlug] || TEAMS_DATA[shortSlug];
     transcript = generatePersianSubtitlesForReport(report, baseTeam?.name);
   }
 
   const now = Date.now();
   const reportToSave: ActivityReport = {
     ...report,
-    teamSlug,
+    teamSlug: canonicalSlug,
     reportType: isExplicitText ? 'text' : (report.reportType || (hasValidVideo ? (report.summary && report.summary.length > 50 ? 'hybrid' : 'video') : 'text')),
     transcript: transcript !== undefined ? transcript : [],
     status: report.status || 'published',
     isCustom: true,
-    updatedAt: report.updatedAt || now,
+    updatedAt: now, // Always update to current timestamp so edits propagate immediately to server and public clients
     keepVideoAttachment: keepVideo
   };
 
   if (isExplicitText && !keepVideo) {
     delete reportToSave.videoSrc;
+    delete (reportToSave as any).videoUrl;
     delete reportToSave.videoHint;
     delete reportToSave.posterSrc;
     if (typeof window !== 'undefined') {
       import('./videoCache').then((m) => m.deleteVideoFromCache(report.id)).catch(() => {});
     }
   } else if (hasValidVideo) {
-    reportToSave.videoSrc = report.videoSrc;
+    reportToSave.videoSrc = rawVideo;
+    (reportToSave as any).videoUrl = rawVideo;
     reportToSave.videoHint = report.videoHint;
   }
 
-  if (existingIdx >= 0) {
-    teamReports[existingIdx] = reportToSave;
-  } else {
-    // Check if it exists in TEAMS_DATA
-    const baseTeam = TEAMS_DATA[teamSlug];
-    const existsInBase = baseTeam?.reports.some((r) => r.id === report.id);
-    if (existsInBase) {
-      teamReports.push(reportToSave);
-    } else {
-      // Put new reports on top
-      teamReports.unshift(reportToSave);
-    }
+  // Put new or edited report at the top of the team's feed
+  teamReports.unshift(reportToSave);
+
+  customMap[canonicalSlug] = teamReports;
+  if (shortSlug !== canonicalSlug) {
+    customMap[shortSlug] = teamReports;
   }
 
-  customMap[teamSlug] = teamReports;
   if (report.date) {
     try {
       safeSetLocalStorage('mahash_last_activity_date', report.date);
@@ -1141,10 +1140,11 @@ export function saveReport(
   saveCustomReportsMap(customMap);
   markPendingSyncItem(`report:${reportToSave.id}`);
   triggerStoreUpdate();
+  triggerGlobalCacheBust(true);
 
   // Asynchronously mirror into dedicated IndexedDB service without locking UI
   if (typeof window !== 'undefined') {
-    indexedDBService.saveReport(reportToSave, teamSlug).catch((e) => {
+    indexedDBService.saveReport(reportToSave, canonicalSlug).catch((e) => {
       console.warn('[IndexedDB Sync Warning] Could not persist report to IndexedDB:', e);
     });
   }
@@ -1455,8 +1455,6 @@ export function deleteReport(reportId: string, teamSlug?: string): void {
   triggerStoreUpdate();
   syncLocalDataToServer().catch(console.warn);
 }
-
-export { securePermanentReportPurge, type SecurePurgeOptions, type SecurePurgeResult } from './secureDeletion';
 
 /**
  * Permanently deletes a report from all local storage, indexedDB, trash bin, and backend/MySQL databases.
@@ -2665,27 +2663,50 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
             const localUpdated = localRep.updatedAt || 0;
             const serverUpdated = sanitizedReport.updatedAt || 0;
 
-            // If local report has newer changes, preserve local and schedule push to sync server
+            // If local report has strictly newer changes (not yet pushed), preserve local
             if (localUpdated > serverUpdated) {
               needsPushToServer = true;
               return;
             }
 
-            // Ensure local video and rich report content are permanently preserved unless server has explicit newer update WITH a valid video
-            const hasLocalVideo = Boolean(localRep.videoSrc && localRep.videoSrc !== '#' && localRep.videoSrc.trim() !== '' && !localRep.videoSrc.startsWith('blob:'));
-            const hasServerVideo = Boolean(sanitizedReport.videoSrc && sanitizedReport.videoSrc !== '#' && sanitizedReport.videoSrc.trim() !== '' && !sanitizedReport.videoSrc.startsWith('blob:'));
+            // Server update is newer or equal: apply all server edits (texts, videos, summary, etc.)
+            const serverVideo = sanitizedReport.videoSrc || (sanitizedReport as any).videoUrl;
+            const hasServerVideo = Boolean(serverVideo && serverVideo !== '#' && serverVideo.trim() !== '' && !serverVideo.startsWith('blob:'));
+            const isServerText = sanitizedReport.reportType === 'text';
 
-            grouped[teamSlug][existingIdx] = {
-              ...sanitizedReport,
+            const updatedRep = {
               ...localRep,
-              videoSrc: hasLocalVideo ? localRep.videoSrc : (hasServerVideo ? sanitizedReport.videoSrc : localRep.videoSrc),
-              videoHint: localRep.videoHint || sanitizedReport.videoHint,
-              posterSrc: localRep.posterSrc || sanitizedReport.posterSrc,
-              transcript: (localRep.transcript && localRep.transcript.length > 0) ? localRep.transcript : sanitizedReport.transcript,
-              reportType: (hasLocalVideo || localRep.reportType === 'video' || localRep.reportType === 'hybrid') ? (localRep.reportType || 'video') : sanitizedReport.reportType
+              ...sanitizedReport,
+              videoSrc: isServerText ? undefined : (hasServerVideo ? serverVideo : (localRep.videoSrc || (localRep as any).videoUrl)),
+              videoUrl: isServerText ? undefined : (hasServerVideo ? serverVideo : (localRep.videoSrc || (localRep as any).videoUrl)),
+              videoHint: isServerText ? undefined : (sanitizedReport.videoHint || localRep.videoHint),
+              posterSrc: sanitizedReport.posterSrc || localRep.posterSrc,
+              transcript: (sanitizedReport.transcript && sanitizedReport.transcript.length > 0) ? sanitizedReport.transcript : localRep.transcript,
+              keyPoints: sanitizedReport.keyPoints || localRep.keyPoints,
+              attachments: sanitizedReport.attachments || localRep.attachments,
+              reportType: sanitizedReport.reportType || (hasServerVideo ? 'video' : 'text'),
+              updatedAt: serverUpdated || localUpdated || Date.now()
             };
+
+            grouped[teamSlug][existingIdx] = updatedRep;
+
+            const shortSlug = teamSlug.replace(/^team-/, '');
+            if (shortSlug !== teamSlug) {
+              if (!grouped[shortSlug]) grouped[shortSlug] = [];
+              const shortIdx = grouped[shortSlug].findIndex((x: any) => x.id === sanitizedReport.id);
+              if (shortIdx >= 0) {
+                grouped[shortSlug][shortIdx] = updatedRep;
+              } else {
+                grouped[shortSlug].unshift(updatedRep);
+              }
+            }
           } else {
-            grouped[teamSlug].push(sanitizedReport);
+            grouped[teamSlug].unshift(sanitizedReport);
+            const shortSlug = teamSlug.replace(/^team-/, '');
+            if (shortSlug !== teamSlug) {
+              if (!grouped[shortSlug]) grouped[shortSlug] = [];
+              grouped[shortSlug].unshift(sanitizedReport);
+            }
           }
           // Mirror to IndexedDB service for local offline persistence
           try {
@@ -2864,7 +2885,18 @@ export async function syncLocalDataToServer(
 
         await yieldToMain();
         const customReportsMap = getCustomReportsMap();
-        const customReports = Object.values(customReportsMap).flat();
+        const customReportsList = Object.values(customReportsMap).flat();
+
+        // Also gather all active client reports from getAllReports() to ensure no report is omitted
+        const allClientReports = getAllReports();
+        const repDedupeMap = new Map<string, any>();
+        allClientReports.forEach(r => {
+          if (r && r.id) repDedupeMap.set(r.id, r);
+        });
+        customReportsList.forEach(r => {
+          if (r && r.id) repDedupeMap.set(r.id, r);
+        });
+        const customReports = Array.from(repDedupeMap.values());
         
         const deletedReports = getDeletedReportsList();
         const trashBin = getTrashBinList();
@@ -2965,6 +2997,112 @@ export async function syncLocalDataToServer(
       }
     }, debounceMs);
   });
+}
+
+/**
+ * Persists a report directly to the central database server (/api/store) and awaits definitive acknowledgment.
+ * Only after the server confirms write success (200 OK + { success: true }), client caches and states are updated.
+ */
+export async function persistReportDirectlyToServerWithConfirmation(
+  reportObject: ActivityReport,
+  selectedTeamSlug: string,
+  options?: { keepVideoAttachment?: boolean }
+): Promise<{ success: boolean; serverUpdatedAt?: string }> {
+  const canonicalSlug = selectedTeamSlug.startsWith('team-') ? selectedTeamSlug : `team-${selectedTeamSlug}`;
+  const shortSlug = canonicalSlug.replace(/^team-/, '');
+
+  // 1. Prepare existing custom reports map and compute new list
+  const customMap = getCustomReportsMap();
+  const deletedList = getDeletedReportsList();
+
+  // Filter out any prior instance of this report from other teams
+  for (const [slug, list] of Object.entries(customMap)) {
+    if (Array.isArray(list)) {
+      customMap[slug] = list.filter((r) => r.id !== reportObject.id);
+    }
+  }
+
+  const existingTeamList = (customMap[canonicalSlug] || customMap[shortSlug] || []).filter((r) => r.id !== reportObject.id);
+  const keepVideo = options?.keepVideoAttachment ?? reportObject.keepVideoAttachment ?? false;
+  const isExplicitText = reportObject.reportType === 'text';
+  const rawVideo = (reportObject.videoSrc || (reportObject as any).videoUrl || (reportObject as any).video_url || '').trim();
+  const hasValidVideo = Boolean(rawVideo && rawVideo !== '#' && (!isExplicitText || keepVideo));
+
+  const now = Date.now();
+  const reportToSave: ActivityReport = {
+    ...reportObject,
+    teamSlug: canonicalSlug,
+    reportType: isExplicitText ? 'text' : (reportObject.reportType || (hasValidVideo ? (reportObject.summary && reportObject.summary.length > 50 ? 'hybrid' : 'video') : 'text')),
+    status: reportObject.status || 'published',
+    isCustom: true,
+    updatedAt: now
+  };
+  (reportToSave as any).videoUrl = reportToSave.videoSrc || undefined;
+
+  customMap[canonicalSlug] = [reportToSave, ...existingTeamList];
+  customMap[shortSlug] = [reportToSave, ...existingTeamList];
+
+  // Flatten all custom reports for server payload
+  const allCustomReportsList: ActivityReport[] = [];
+  const seenIds = new Set<string>();
+  for (const [slug, rList] of Object.entries(customMap)) {
+    if (Array.isArray(rList)) {
+      rList.forEach((r) => {
+        if (r && r.id && !seenIds.has(r.id)) {
+          seenIds.add(r.id);
+          allCustomReportsList.push(r);
+        }
+      });
+    }
+  }
+
+  // 2. Fetch logos and payload components
+  const rawLogos = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
+  const teamLogos = rawLogos ? JSON.parse(rawLogos) : {};
+
+  const payload = {
+    customReports: allCustomReportsList,
+    teamLogos,
+    deletedReports: deletedList.filter((id) => id !== reportObject.id),
+    updatedAt: new Date(now).toISOString()
+  };
+
+  // 3. Send definitive write request to /api/store
+  const res = await fetch('/api/store', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(`خطای سرور (${res.status}): نگارش در پایگاه داده با خطا مواجه شد. ${errorText ? `جزئیات: ${errorText.slice(0, 150)}` : ''}`);
+  }
+
+  const serverResponse = await res.json();
+  if (!serverResponse.success) {
+    throw new Error(serverResponse.error || 'سرور پایگاه داده عملیات ذخیره را تأیید نکرد.');
+  }
+
+  // 4. Server confirmed! Now commit to local storage, bust cache, and record sync log
+  saveReport(reportObject, selectedTeamSlug, options);
+  safeSetLocalStorage('mahash_last_successful_sync', serverResponse.store?.updatedAt || new Date(now).toISOString());
+  triggerGlobalCacheBust();
+
+  addSyncAttemptLog({
+    timestamp: new Date().toISOString(),
+    type: 'push',
+    success: true,
+    message: `ذخیره‌سازی و تایید قطعی گزارش ${reportObject.id} در پایگاه داده سرور`
+  });
+
+  return {
+    success: true,
+    serverUpdatedAt: serverResponse.store?.updatedAt
+  };
 }
 
 // Reset report views

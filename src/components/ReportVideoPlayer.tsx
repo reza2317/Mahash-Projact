@@ -1,3 +1,4 @@
+import { useAutoVideoThumbnail } from "../hooks/useAutoVideoThumbnail";
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -87,6 +88,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
   }, [report.transcript, report.vttContent, report.title]);
 
   // Use our dedicated isolated video hook per team and report
+  const effectiveReportVideo = report.videoSrc || (report as any).videoUrl || '';
+  const autoThumbnail = useAutoVideoThumbnail(effectiveReportVideo, report.posterSrc);
+
   const {
     domId,
     videoRef,
@@ -94,6 +98,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
     effectiveVideoSrc,
     isPlaying,
     isLoadingResource,
+    isVideoReady,
     isFromCache,
     resourceSizeBytes,
     status,
@@ -444,48 +449,123 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
           }`}
         >
           {effectiveVideoSrc ? (
-            <video
-              ref={videoRef}
-              id={domId}
-              key={effectiveVideoSrc}
-              poster={report.posterSrc}
-              className={`block select-none pointer-events-none transition-all ${
-                isFullscreen
-                  ? videoFit === 'cover'
-                    ? 'w-full h-full object-cover'
-                    : 'max-w-full max-h-full w-auto h-auto object-contain'
-                  : videoFit === 'cover'
-                    ? 'w-full h-full object-cover'
-                    : 'w-full h-full object-contain'
-              }`}
-              playsInline
-              preload="metadata"
-              crossOrigin="anonymous"
-            >
-              {/* Primary format source */}
-              <source
-                src={effectiveVideoSrc}
-                type={effectiveVideoSrc.endsWith('.webm') ? 'video/webm' : 'video/mp4'}
-              />
-              {/* Fallback format source (WebM / MP4) */}
-              {effectiveVideoSrc.endsWith('.mp4') && (
-                <source src={effectiveVideoSrc.replace(/\.mp4$/i, '.webm')} type="video/webm" />
-              )}
-              {effectiveVideoSrc.endsWith('.webm') && (
-                <source src={effectiveVideoSrc.replace(/\.webm$/i, '.mp4')} type="video/mp4" />
-              )}
-              {/* Fail-safe high-availability stable video */}
-              <source src="/uploads/mahash-stable-video.mp4" type="video/mp4" />
-              {(vttBlobUrl || report.vttUrl) && (
-                <track
-                  kind="subtitles"
-                  src={vttBlobUrl || report.vttUrl}
-                  srcLang="fa"
-                  label="زیرنویس فارسی (هوش مصنوعی)"
-                  default={showSubtitles}
+            <>
+              <video
+                ref={videoRef}
+                id={domId}
+                key={effectiveVideoSrc}
+                poster={autoThumbnail || report.posterSrc}
+                className={`block select-none pointer-events-none transition-opacity duration-500 ${
+                  isVideoReady ? 'opacity-100' : 'opacity-0'
+                } ${
+                  isFullscreen
+                    ? videoFit === 'cover'
+                      ? 'w-full h-full object-cover'
+                      : 'max-w-full max-h-full w-auto h-auto object-contain'
+                    : videoFit === 'cover'
+                      ? 'w-full h-full object-cover'
+                      : 'w-full h-full object-contain'
+                }`}
+                playsInline
+                preload="metadata"
+                crossOrigin="anonymous"
+              >
+                {/* Primary format source */}
+                <source
+                  src={effectiveVideoSrc}
+                  type={effectiveVideoSrc.endsWith('.webm') ? 'video/webm' : 'video/mp4'}
                 />
+                {/* Fallback format source (WebM / MP4) */}
+                {effectiveVideoSrc.endsWith('.mp4') && (
+                  <source src={effectiveVideoSrc.replace(/\.mp4$/i, '.webm')} type="video/webm" />
+                )}
+                {effectiveVideoSrc.endsWith('.webm') && (
+                  <source src={effectiveVideoSrc.replace(/\.webm$/i, '.mp4')} type="video/mp4" />
+                )}
+                {/* Fail-safe high-availability stable video */}
+                <source src="/uploads/mahash-stable-video.mp4" type="video/mp4" />
+                {(vttBlobUrl || report.vttUrl) && (
+                  <track
+                    kind="subtitles"
+                    src={vttBlobUrl || report.vttUrl}
+                    srcLang="fa"
+                    label="زیرنویس فارسی (هوش مصنوعی)"
+                    default={showSubtitles}
+                  />
+                )}
+              </video>
+
+              {/* High-Craft Loading Skeleton: Completely covers video until file is loaded from server */}
+              {(!isVideoReady || isLoadingResource) && status !== 'error' && (
+                <div 
+                  className="absolute inset-0 z-20 flex flex-col justify-between p-4 sm:p-6 bg-slate-950 overflow-hidden select-none"
+                  aria-label="در حال بارگذاری فایل ویدیو از سرور"
+                >
+                  {/* Blurred Poster Background if available */}
+                  {(autoThumbnail || report.posterSrc) && (
+                    <div className="absolute inset-0 overflow-hidden">
+                      <img
+                        src={autoThumbnail || report.posterSrc}
+                        alt=""
+                        className="w-full h-full object-cover blur-md opacity-30 scale-105"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/50" />
+                    </div>
+                  )}
+
+                  {/* Shimmer Light Sweep Effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+
+                  {/* Top Bar Skeleton Placeholders */}
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-slate-800/90 border border-slate-700/60 animate-pulse flex items-center justify-center">
+                        <Film className="w-4 h-4 text-blue-400" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="h-3.5 w-32 sm:w-48 bg-slate-800 rounded-md animate-pulse" />
+                        <div className="h-2.5 w-20 bg-slate-800/80 rounded-md animate-pulse" />
+                      </div>
+                    </div>
+                    <div className="h-6 w-16 bg-slate-800/90 rounded-full border border-slate-700/60 animate-pulse" />
+                  </div>
+
+                  {/* Center Loading Spinner & Status Notification */}
+                  <div className="relative z-10 flex flex-col items-center justify-center gap-3 text-center my-auto">
+                    <div className="relative flex items-center justify-center">
+                      <div className="w-16 h-16 rounded-full border-3 border-blue-500/20 border-t-blue-500 animate-spin" />
+                      <Loader2 className="w-6 h-6 text-blue-400 animate-spin absolute" />
+                    </div>
+                    <div className="space-y-1.5 max-w-sm px-4">
+                      <span className="text-xs sm:text-sm font-bold text-slate-100 block">
+                        در حال بارگذاری فایل ویدیو از سرور...
+                      </span>
+                      <span className="text-[11px] text-slate-400 block font-medium leading-relaxed">
+                        جهت جلوگیری از خطای عدم نمایش، محتوای ویدیو پس از بارگذاری کامل فایل ارائه می‌گردد
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bottom Controls Placeholder Skeleton */}
+                  <div className="relative z-10 space-y-2 pt-2">
+                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full w-2/5 bg-blue-500/50 rounded-full animate-pulse" />
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-slate-800 animate-pulse" />
+                        <div className="w-7 h-7 rounded-lg bg-slate-800 animate-pulse" />
+                        <div className="h-3 w-16 bg-slate-800 rounded-md animate-pulse" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-slate-800 animate-pulse" />
+                        <div className="w-7 h-7 rounded-lg bg-slate-800 animate-pulse" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
-            </video>
+            </>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-3 p-6 text-center">
               {isLoadingResource ? (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PageId } from '../types';
 import { getMahashLogo, subscribeToStoreUpdates, isAdminAuthenticated } from '../utils/reportsStore';
+import { MAHESH_LOGO_SVG } from '../utils/assets';
 import { Phone, Mail, MapPin, Clock, HeartHandshake } from 'lucide-react';
 
 interface FooterProps {
@@ -8,12 +9,12 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
-  const [logoSrc, setLogoSrc] = useState<string>(getMahashLogo());
+  const [logoSrc, setLogoSrc] = useState<string>(() => getMahashLogo() || MAHESH_LOGO_SVG);
   const [isAdmin, setIsAdmin] = useState<boolean>(isAdminAuthenticated());
 
   useEffect(() => {
     const updateFooterState = () => {
-      setLogoSrc(getMahashLogo());
+      setLogoSrc(getMahashLogo() || MAHESH_LOGO_SVG);
       setIsAdmin(isAdminAuthenticated());
     };
     updateFooterState();
@@ -30,11 +31,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <div className="flex items-center gap-3">
               <div className="w-16 h-16 bg-white rounded-2xl p-1.5 shadow-md flex-shrink-0">
                 <img
-                  src={logoSrc}
+                  src={logoSrc || MAHESH_LOGO_SVG}
                   alt="لوگوی رسمی موسسه محاش"
                   className="w-full h-full object-contain rounded-xl"
                   loading="lazy"
                   decoding="async"
+                  onError={(e) => {
+                    e.currentTarget.src = MAHESH_LOGO_SVG;
+                  }}
                 />
               </div>
               <div>

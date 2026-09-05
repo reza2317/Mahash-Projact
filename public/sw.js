@@ -5,12 +5,13 @@
  * Cache-First for static media assets with background refresh
  */
 
-const STATIC_CACHE = 'mahash-static-v2.1';
-const RUNTIME_CACHE = 'mahash-runtime-v2.1';
-const MEDIA_CACHE = 'mahash-media-v2.1';
-const API_CACHE = 'mahash-api-v2.1';
+const STATIC_CACHE = 'mahash-static-v2.3';
+const RUNTIME_CACHE = 'mahash-runtime-v2.3';
+const MEDIA_CACHE = 'mahash-media-v2.3';
+const VIDEO_CACHE = 'mahash-video-v2.3';
+const API_CACHE = 'mahash-api-v2.3';
 
-const CURRENT_CACHES = [STATIC_CACHE, RUNTIME_CACHE, MEDIA_CACHE, API_CACHE];
+const CURRENT_CACHES = [STATIC_CACHE, RUNTIME_CACHE, MEDIA_CACHE, VIDEO_CACHE, API_CACHE];
 
 // Core shell assets to pre-cache on installation
 const PRECACHE_ASSETS = [
@@ -156,8 +157,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. API Read-Only Data Endpoints (e.g., /api/reports, /api/scores, /api/health) -> Stale-While-Revalidate
-  if (url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/admin/') && !url.pathname.startsWith('/api/upload')) {
+  // 3. API Read-Only Data Endpoints (Exclude mutable store/sync endpoints so public site stays real-time)
+  if (
+    url.pathname.startsWith('/api/') && 
+    !url.pathname.startsWith('/api/store') && 
+    !url.pathname.startsWith('/api/admin/') && 
+    !url.pathname.startsWith('/api/upload') &&
+    !url.pathname.startsWith('/api/video-monitor') &&
+    !url.pathname.startsWith('/api/reports/restore') &&
+    !url.pathname.startsWith('/api/system/')
+  ) {
     event.respondWith(
       caches.open(API_CACHE).then(async (cache) => {
         const cachedResponse = await cache.match(request);
@@ -180,14 +189,77 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 4. Static Media Assets (Images, Icons, SVG, Posters) -> Cache-First with Revalidation
+  // 4. Video Files -> Advanced Cache-First Strategy with Byte-Range Slicing
+  const isVideo =
+    request.destination === 'video' ||
+    url.pathname.match(/\.(mp4|webm|ogg|m4v)$/i) ||
+    url.pathname.startsWith('/uploads/video-') ||
+    (url.pathname.includes('/uploads/') && url.pathname.match(/\.(mp4|webm)$/i));
+
+  if (isVideo) {
+    if (request.url.startsWith('data:') || request.url.startsWith('blob:')) return;
+
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(VIDEO_CACHE);
+        const cleanUrl = url.origin + url.pathname;
+        let cachedResponse = await cache.match(cleanUrl);
+
+        if (!cachedResponse) {
+          try {
+            // Pre-cache clean whole response
+            const networkResponse = await fetch(cleanUrl);
+            if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+              await cache.put(cleanUrl, networkResponse.clone());
+              cachedResponse = networkResponse;
+            }
+          } catch (netErr) {
+            // Direct request fallback
+            return fetch(request);
+          }
+        }
+
+        // Handle partial range requests if video is cached
+        const rangeHeader = request.headers.get('range');
+        if (rangeHeader && cachedResponse && cachedResponse.status === 200) {
+          try {
+            const arrayBuffer = await cachedResponse.clone().arrayBuffer();
+            const bytesMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+            if (bytesMatch) {
+              const total = arrayBuffer.byteLength;
+              const start = parseInt(bytesMatch[1], 10);
+              const end = bytesMatch[2] ? parseInt(bytesMatch[2], 10) : total - 1;
+              const chunk = arrayBuffer.slice(start, end + 1);
+
+              return new Response(chunk, {
+                status: 206,
+                statusText: 'Partial Content',
+                headers: {
+                  'Content-Range': `bytes ${start}-${end}/${total}`,
+                  'Accept-Ranges': 'bytes',
+                  'Content-Length': String(chunk.byteLength),
+                  'Content-Type': cachedResponse.headers.get('Content-Type') || 'video/mp4'
+                }
+              });
+            }
+          } catch (rangeErr) {
+            console.warn('[SW] Range slice fallback to direct fetch:', rangeErr);
+            return fetch(request);
+          }
+        }
+
+        return cachedResponse || fetch(request);
+      })()
+    );
+    return;
+  }
+
+  // 5. Static Images, Icons, SVG, Posters -> Cache-First with Background Revalidation
   const isMediaAsset =
     request.destination === 'image' ||
-    request.destination === 'video' ||
     url.pathname.match(/\.(png|jpe?g|svg|webp|gif|ico|avif)$/i);
 
   if (isMediaAsset) {
-    // Avoid intercepting data URIs, blob URIs, or Range requests (for video chunks)
     if (request.url.startsWith('data:') || request.url.startsWith('blob:')) return;
     if (request.headers.has('range')) return;
 
@@ -195,7 +267,6 @@ self.addEventListener('fetch', (event) => {
       caches.open(MEDIA_CACHE).then(async (cache) => {
         const cachedResponse = await cache.match(request);
         if (cachedResponse) {
-          // Trigger asynchronous background update to keep images fresh
           fetch(request).then((freshRes) => {
             if (freshRes && (freshRes.status === 200 || freshRes.type === 'opaque')) {
               cache.put(request, freshRes.clone());

@@ -168,8 +168,9 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {consultants.map((c, idx) => {
           const isSelected = formData.selectedConsultant === c.name;
-          const defaultAvatar = idx === 0 ? NAZI_AVATAR_SVG : (c.image || RADIN_AVATAR_SVG);
-          const currentPhoto = getConsultantPhoto(c.name, c.image || defaultAvatar) || c.image || defaultAvatar;
+          const isNazi = c.name.includes('نازی') || c.name.includes('عباسیان') || idx === 0;
+          const defaultAvatar = isNazi ? NAZI_AVATAR_SVG : RADIN_AVATAR_SVG;
+          const currentPhoto = getConsultantPhoto(c.name, defaultAvatar) || (c.image && c.image.length > 5 ? c.image : defaultAvatar);
 
           return (
             <div

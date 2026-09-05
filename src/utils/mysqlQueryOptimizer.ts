@@ -8,7 +8,7 @@
  */
 
 import { ActivityReport, TeamData } from '../types';
-import { getMemberAvatars, subscribeToStoreUpdates } from './reportsStore';
+import { getMemberAvatars } from './reportsStore';
 import { fetchOptimizedVideos, OptimizedVideoResponse, MySQLVideoItem } from './mysqlVideoService';
 
 export interface TeamVideoResourceItem {
@@ -392,12 +392,17 @@ export function getCachedVideoMetrics(
 // Automatic Cache Synchronization
 // ----------------------------------------------------
 if (typeof window !== 'undefined') {
-  // Subscribe to store updates to invalidate caches whenever reports or team data are edited
-  subscribeToStoreUpdates(() => {
+  const handleStoreChange = () => {
     cachedAvatarsMap = null;
     invalidateQueryCache(/^videos_/);
     invalidateQueryCache(/^members_/);
     invalidateQueryCache(/^metrics_/);
     invalidateQueryCache(/^mysql_videos_/);
+  };
+
+  window.addEventListener('mahash_store_updated', handleStoreChange);
+  window.addEventListener('storage', handleStoreChange);
+  window.addEventListener('mahash_clear_query_cache', () => {
+    clearQueryCache();
   });
 }

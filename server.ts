@@ -8,6 +8,13 @@ import { GoogleGenAI } from '@google/genai';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import {
+  OFFICIAL_MAHASH_LOGO_SVG,
+  OFFICIAL_MAHASH_EMBLEM_SVG,
+  OFFICIAL_NAZI_AVATAR_SVG,
+  OFFICIAL_RADIN_AVATAR_SVG,
+  GENERIC_PLACEHOLDER_SVG
+} from './serverAssets';
 
 dotenv.config();
 
@@ -46,11 +53,101 @@ function insertAuditLog(actionType: string, title: string, details: string, acto
   ).catch((err: any) => console.warn('Audit log fail', err));
 }
 
-// Ensure permanent fallback video assets exist on disk for all container instances
+// Ensure permanent fallback video assets and official images exist on disk for all container instances
 function ensureUploadsAndHydrate() {
   try {
     if (!fs.existsSync(UPLOADS_DIR)) {
       fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+
+    // 1. Write official Mahash logo and Youth Club emblem SVGs to disk
+    const mahashLogoDest = path.join(UPLOADS_DIR, 'mahash-96747ecd00.webp');
+    const mahashLogoSvgDest = path.join(UPLOADS_DIR, 'mahash-96747ecd00.svg');
+    if (!fs.existsSync(mahashLogoDest)) {
+      try { fs.writeFileSync(mahashLogoDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(mahashLogoSvgDest)) {
+      try { fs.writeFileSync(mahashLogoSvgDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
+    }
+
+    const emblemDest = path.join(UPLOADS_DIR, 'emblem-96747ecd00.webp');
+    const emblemSvgDest = path.join(UPLOADS_DIR, 'emblem-96747ecd00.svg');
+    const emblemPngDest = path.join(UPLOADS_DIR, 'emblem-2193c09b41.png');
+    if (!fs.existsSync(emblemDest)) {
+      try { fs.writeFileSync(emblemDest, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(emblemSvgDest)) {
+      try { fs.writeFileSync(emblemSvgDest, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(emblemPngDest)) {
+      try { fs.writeFileSync(emblemPngDest, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
+    }
+
+    // 2. Write Dr. Nazi Abbasian avatar to uploads
+    const naziPhotoDest = path.join(UPLOADS_DIR, 'consultant-284f763688.webp');
+    const naziSvgDest = path.join(UPLOADS_DIR, 'consultant-284f763688.svg');
+    if (!fs.existsSync(naziPhotoDest)) {
+      try { fs.writeFileSync(naziPhotoDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
+    }
+    if (!fs.existsSync(naziSvgDest)) {
+      try { fs.writeFileSync(naziSvgDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
+    }
+
+    // 3. Write public standalone SVGs
+    try {
+      const pubDir = path.join(process.cwd(), 'public');
+      if (fs.existsSync(pubDir)) {
+        const pubLogo = path.join(pubDir, 'mahash-official-logo.svg');
+        const pubEmblem = path.join(pubDir, 'mahash-club-emblem.svg');
+        if (!fs.existsSync(pubLogo)) fs.writeFileSync(pubLogo, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8');
+        if (!fs.existsSync(pubEmblem)) fs.writeFileSync(pubEmblem, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8');
+      }
+    } catch {}
+
+    // 4. Hydrate consultant photos and team logos from data_store.json
+    try {
+      const dataStorePath = path.join(process.cwd(), 'data_store.json');
+      if (fs.existsSync(dataStorePath)) {
+        const dsContent = JSON.parse(fs.readFileSync(dataStorePath, 'utf-8'));
+        
+        // Radin Oroumi photo
+        if (dsContent.consultantsList && dsContent.consultantsList[1] && dsContent.consultantsList[1].image) {
+          const imgStr = dsContent.consultantsList[1].image;
+          if (imgStr.startsWith('data:image/')) {
+            const clean = imgStr.replace(/^data:image\/[^;]+;base64,/, '');
+            const radinDest = path.join(UPLOADS_DIR, 'consultant-01916cb489.webp');
+            if (!fs.existsSync(radinDest)) {
+              fs.writeFileSync(radinDest, Buffer.from(clean, 'base64'));
+            }
+          }
+        }
+
+        // Team logos
+        if (dsContent.teamOverrides) {
+          for (const [teamKey, override] of Object.entries(dsContent.teamOverrides)) {
+            if (override && (override as any).logo && (override as any).logo.startsWith('data:image/')) {
+              const m = (override as any).logo.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+              if (m) {
+                const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
+                const hash = crypto.createHash('md5').update(m[2]).digest('hex').substring(0, 10);
+                const tName = `team-${hash}.${ext}`;
+                const tPath = path.join(UPLOADS_DIR, tName);
+                if (!fs.existsSync(tPath)) {
+                  fs.writeFileSync(tPath, Buffer.from(m[2], 'base64'));
+                }
+                if (teamKey === 'team-silence' || teamKey === 'silence') {
+                  const sPath = path.join(UPLOADS_DIR, `score-silence-${hash}.${ext}`);
+                  if (!fs.existsSync(sPath)) {
+                    fs.writeFileSync(sPath, Buffer.from(m[2], 'base64'));
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (dsHydrateErr) {
+      console.warn('⚠️ Warning during data_store hydration:', dsHydrateErr);
     }
 
     const publicSample = path.join(process.cwd(), 'public', 'mahash-sample-video.mp4');
@@ -127,6 +224,56 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
     res.setHeader('Accept-Ranges', 'bytes');
   }
 }));
+
+// Resilient fallback for /uploads assets to ensure images/logos never return 200 OK index.html
+app.get('/uploads/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(UPLOADS_DIR, filename);
+
+  if (fs.existsSync(filePath)) {
+    try {
+      const headBuf = Buffer.alloc(100);
+      const fd = fs.openSync(filePath, 'r');
+      fs.readSync(fd, headBuf, 0, 100, 0);
+      fs.closeSync(fd);
+      const headStr = headBuf.toString('utf8');
+      if (headStr.includes('<svg') || headStr.includes('<?xml')) {
+        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.sendFile(filePath);
+      }
+      return res.sendFile(filePath);
+    } catch {
+      return res.sendFile(filePath);
+    }
+  }
+
+  // Dynamic synthesis for known Mahash assets
+  const lower = filename.toLowerCase();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+
+  if (lower.includes('mahash') || lower.includes('logo')) {
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.send(OFFICIAL_MAHASH_LOGO_SVG);
+  }
+  if (lower.includes('emblem')) {
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.send(OFFICIAL_MAHASH_EMBLEM_SVG);
+  }
+  if (lower.includes('284f763688') || lower.includes('nazi') || lower.includes('consultant-1')) {
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.send(OFFICIAL_NAZI_AVATAR_SVG);
+  }
+  if (lower.includes('01916cb489') || lower.includes('radin') || lower.includes('consultant-2')) {
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.send(OFFICIAL_RADIN_AVATAR_SVG);
+  }
+
+  // For any other missing asset in /uploads, return 404 SVG image (NEVER index.html)
+  res.status(404).setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+  return res.send(GENERIC_PLACEHOLDER_SVG);
+});
 
 // Resilient Video Streaming & Proxy Gateway (Handles HTTP Range, CORS, and ISP/Cloudflare/Google Storage fallbacks)
 app.get('/api/video-stream', async (req, res) => {
@@ -1032,13 +1179,22 @@ async function initMySQL() {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         inMemoryStore = {
-          ...parsed,
           ...inMemoryStore,
-          teamLogos: { ...(parsed.teamLogos || {}), ...(inMemoryStore.teamLogos || {}) },
-          teamOverrides: { ...(parsed.teamOverrides || {}), ...(inMemoryStore.teamOverrides || {}) },
-          customReports: Array.isArray(inMemoryStore.customReports) && inMemoryStore.customReports.length > 0
-            ? inMemoryStore.customReports
-            : (Array.isArray(parsed.customReports) ? parsed.customReports : []),
+          ...parsed,
+          mahashLogo: parsed.mahashLogo || inMemoryStore.mahashLogo || '/uploads/mahash-96747ecd00.webp',
+          clubEmblem: parsed.clubEmblem || inMemoryStore.clubEmblem || '/uploads/emblem-96747ecd00.webp',
+          teamLogos: { ...(inMemoryStore.teamLogos || {}), ...(parsed.teamLogos || {}) },
+          teamOverrides: { ...(inMemoryStore.teamOverrides || {}), ...(parsed.teamOverrides || {}) },
+          customReports: (() => {
+            const raw = Array.isArray(inMemoryStore.customReports) && inMemoryStore.customReports.length > 0
+              ? inMemoryStore.customReports
+              : (Array.isArray(parsed.customReports) ? parsed.customReports : []);
+            const m = new Map();
+            for (const r of raw) {
+              if (r && r.id) m.set(r.id, r);
+            }
+            return Array.from(m.values());
+          })(),
           deletedReports: Array.isArray(inMemoryStore.deletedReports) && inMemoryStore.deletedReports.length > 0
             ? inMemoryStore.deletedReports
             : (Array.isArray(parsed.deletedReports) ? parsed.deletedReports : []),
@@ -1054,12 +1210,12 @@ async function initMySQL() {
           customBadges: Array.isArray(inMemoryStore.customBadges) && inMemoryStore.customBadges.length > 0
             ? inMemoryStore.customBadges
             : (Array.isArray(parsed.customBadges) ? parsed.customBadges : []),
-          reportViews: { ...(parsed.reportViews || {}), ...(inMemoryStore.reportViews || {}) },
-          consultantPhotos: { ...(parsed.consultantPhotos || {}), ...(inMemoryStore.consultantPhotos || {}) },
+          reportViews: { ...(inMemoryStore.reportViews || {}), ...(parsed.reportViews || {}) },
+          consultantPhotos: { ...(inMemoryStore.consultantPhotos || {}), ...(parsed.consultantPhotos || {}) },
           consultantsList: Array.isArray(inMemoryStore.consultantsList) && inMemoryStore.consultantsList.length > 0
             ? inMemoryStore.consultantsList
             : (Array.isArray(parsed.consultantsList) ? parsed.consultantsList : []),
-          memberAvatars: { ...(parsed.memberAvatars || {}), ...(inMemoryStore.memberAvatars || {}) },
+          memberAvatars: { ...(inMemoryStore.memberAvatars || {}), ...(parsed.memberAvatars || {}) },
           memberships: Array.isArray(parsed.memberships) && parsed.memberships.length > 0
             ? parsed.memberships
             : (Array.isArray(inMemoryStore.memberships) && inMemoryStore.memberships.length > 0 ? inMemoryStore.memberships : [...defaultSeedMemberships])
@@ -3022,13 +3178,51 @@ app.post('/api/mysql/preferences', async (req, res) => {
   }
 });
 
+let inMemoryVideoErrors: any[] = [];
+
+// Video Monitor Telemetry Endpoints
+app.post('/api/video-monitor', (req, res) => {
+  try {
+    const errorEntry = req.body;
+    if (errorEntry && typeof errorEntry === 'object') {
+      inMemoryVideoErrors.unshift({
+        ...errorEntry,
+        receivedAt: new Date().toISOString()
+      });
+      if (inMemoryVideoErrors.length > 100) {
+        inMemoryVideoErrors = inMemoryVideoErrors.slice(0, 100);
+      }
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+app.get('/api/video-monitor', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.json({ success: true, logs: inMemoryVideoErrors });
+});
+
+app.delete('/api/video-monitor', (req, res) => {
+  inMemoryVideoErrors = [];
+  res.json({ success: true, message: 'لاگ‌های خطای ویدیو پاکسازی شد.' });
+});
+
 // Shared Server Store GET endpoint
 app.get('/api/store', (req, res) => {
   const clientSince = req.query.since as string;
   if (clientSince && inMemoryStore.updatedAt && clientSince === inMemoryStore.updatedAt) {
-    return res.status(200).json({ unchanged: true, updatedAt: inMemoryStore.updatedAt });
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.status(200).json({ unchanged: true, updatedAt: inMemoryStore.updatedAt, store: inMemoryStore });
   }
-  res.json(inMemoryStore);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.json({
+    ...inMemoryStore,
+    store: inMemoryStore
+  });
 });
 
 // Shared Server Store POST/Sync endpoint
@@ -3067,9 +3261,14 @@ app.post('/api/store', async (req, res) => {
     // Update custom reports with automatic MySQL version snapshotting
     if (Array.isArray(payload.customReports)) {
       const prevReports = inMemoryStore.customReports || [];
+      const reportMap = new Map<string, any>();
+      // Seed with existing server reports
+      for (const r of prevReports) {
+        if (r && r.id) reportMap.set(r.id, r);
+      }
       for (const newRep of payload.customReports) {
         if (!newRep || !newRep.id) continue;
-        const oldRep = prevReports.find((r: any) => r.id === newRep.id);
+        const oldRep = reportMap.get(newRep.id);
         const isNew = !oldRep;
         const hasChanged = oldRep && (
           oldRep.title !== newRep.title ||
@@ -3116,8 +3315,9 @@ app.post('/api/store', async (req, res) => {
             ]).catch(() => {});
           }
         }
+        reportMap.set(newRep.id, newRep);
       }
-      inMemoryStore.customReports = payload.customReports;
+      inMemoryStore.customReports = Array.from(reportMap.values());
       // Auto-sync videos to MySQL immediately upon report updates
       syncVideosToMySQLRegistry().catch(err => console.warn("Auto-sync videos error:", err));
     }
@@ -3452,7 +3652,7 @@ app.delete('/api/mysql/videos/:id', async (req, res) => {
     const videoId = req.params.id;
     if (mysqlPool && mysqlConnected) {
       // Find the video URL to remove from reports
-      const [rows] = await mysqlPool.query('SELECT video_url FROM mahash_videos WHERE id = ?', [videoId]);
+      const [rows]: any = await mysqlPool.query('SELECT video_url FROM mahash_videos WHERE id = ?', [videoId]);
       const videoUrl = rows && rows.length > 0 ? rows[0].video_url : null;
       
       await mysqlPool.query('DELETE FROM mahash_videos WHERE id = ?', [videoId]);

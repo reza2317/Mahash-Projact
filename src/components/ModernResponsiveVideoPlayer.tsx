@@ -14,9 +14,12 @@ import {
   RefreshCw,
   Sliders,
   ExternalLink,
-  Tv
+  Tv,
+  Loader2
 } from 'lucide-react';
 import { toPersianDigits } from '../utils/persianDate';
+import { useVideoMonitor } from '../hooks/useVideoMonitor';
+import { useAutoVideoThumbnail } from '../hooks/useAutoVideoThumbnail';
 
 export interface VideoSourceOption {
   src: string;
@@ -69,6 +72,7 @@ export const ModernResponsiveVideoPlayer: React.FC<ModernResponsiveVideoPlayerPr
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isPiPActive, setIsPiPActive] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isMediaLoaded, setIsMediaLoaded] = useState<boolean>(false);
   const [hasError, setHasError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -81,6 +85,10 @@ export const ModernResponsiveVideoPlayer: React.FC<ModernResponsiveVideoPlayerPr
   const [activeSourceIndex, setActiveSourceIndex] = useState<number>(0);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-generate lightweight thumbnail for mobile and monitor playback health
+  useVideoMonitor(videoRef, id || 'video-player', 'public');
+  const autoThumb = useAutoVideoThumbnail(src, poster);
 
   // Normalize sources list
   const resolvedSources: VideoSourceOption[] = React.useMemo(() => {
@@ -359,32 +367,114 @@ export const ModernResponsiveVideoPlayer: React.FC<ModernResponsiveVideoPlayerPr
     >
       {/* HTML5 Video Element with High-Performance Multi-Source */}
       {isInViewport ? (
-        <video
-          ref={videoRef}
-          src={currentSource?.src}
-          poster={poster}
-          autoPlay={autoPlay}
-          loop={loop}
-          muted={muted}
-          playsInline
-          preload="metadata"
-          crossOrigin="anonymous"
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
-          onWaiting={() => setIsLoading(true)}
-          onPlaying={() => {
-            setIsLoading(false);
-            setIsPlaying(true);
-          }}
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => {
-            setIsPlaying(false);
-            onEnded?.();
-          }}
-          onError={handleError}
-          onClick={togglePlay}
-          className="w-full h-full object-contain cursor-pointer"
-        />
+        <>
+          <video
+            ref={videoRef}
+            src={currentSource?.src}
+            poster={poster || autoThumb}
+            autoPlay={autoPlay}
+            loop={loop}
+            muted={muted}
+            playsInline
+            preload="metadata"
+            crossOrigin="anonymous"
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onLoadedData={() => {
+              setIsMediaLoaded(true);
+              setIsLoading(false);
+            }}
+            onCanPlay={() => {
+              setIsMediaLoaded(true);
+              setIsLoading(false);
+            }}
+            onLoadStart={() => {
+              setIsMediaLoaded(false);
+              setIsLoading(true);
+            }}
+            onWaiting={() => setIsLoading(true)}
+            onPlaying={() => {
+              setIsMediaLoaded(true);
+              setIsLoading(false);
+              setIsPlaying(true);
+            }}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => {
+              setIsPlaying(false);
+              onEnded?.();
+            }}
+            onError={handleError}
+            onClick={togglePlay}
+            className={`w-full h-full object-contain cursor-pointer transition-opacity duration-500 ${
+              isMediaLoaded ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          />
+
+          {/* Loading Skeleton: prevents showing incomplete video content until fully loaded from server */}
+          {!isMediaLoaded && !hasError && (
+            <div 
+              className="absolute inset-0 z-15 flex flex-col justify-between p-4 bg-slate-950 overflow-hidden select-none"
+              aria-label="در حال بارگذاری فایل ویدیو از سرور"
+            >
+              {/* Blurred Poster Background if available */}
+              {(poster || autoThumb) && (
+                <div className="absolute inset-0 overflow-hidden">
+                  <img
+                    src={poster || autoThumb}
+                    alt=""
+                    className="w-full h-full object-cover blur-md opacity-25 scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-slate-950/40" />
+                </div>
+              )}
+
+              {/* Shimmer sweep */}
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+
+              {/* Top header skeleton */}
+              <div className="relative z-10 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-slate-800 animate-pulse" />
+                  <div className="h-3.5 w-36 bg-slate-800 rounded animate-pulse" />
+                </div>
+                <div className="h-5 w-12 bg-slate-800 rounded-full animate-pulse" />
+              </div>
+
+              {/* Center Loading Spinner & Status */}
+              <div className="relative z-10 flex flex-col items-center justify-center gap-3 text-center my-auto">
+                <div className="relative flex items-center justify-center">
+                  <div className="w-14 h-14 rounded-full border-3 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+                  <Loader2 className="w-6 h-6 text-indigo-400 animate-spin absolute" />
+                </div>
+                <div className="space-y-1 max-w-xs px-2">
+                  <span className="text-xs font-bold text-slate-100 block">
+                    در حال بارگذاری کامل فایل از سرور...
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-medium">
+                    جهت جلوگیری از خطای عدم نمایش، ویدیو پس از دریافت کامل نمایش داده می‌شود
+                  </span>
+                </div>
+              </div>
+
+              {/* Bottom Controls Skeleton */}
+              <div className="relative z-10 space-y-2 pt-2">
+                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full w-1/3 bg-indigo-500/50 rounded-full animate-pulse" />
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-slate-800 animate-pulse" />
+                    <div className="w-6 h-6 rounded bg-slate-800 animate-pulse" />
+                    <div className="h-2.5 w-12 bg-slate-800 rounded animate-pulse" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-slate-800 animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         /* Poster Placeholder before Viewport Intersection */
         <div className="w-full h-full flex items-center justify-center bg-slate-950">

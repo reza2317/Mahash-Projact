@@ -58,8 +58,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
     normalizedSrc &&
       (normalizedSrc.startsWith('data:') ||
         normalizedSrc.startsWith('blob:') ||
-        normalizedSrc.startsWith('<svg') ||
-        normalizedSrc.startsWith('/'))
+        normalizedSrc.startsWith('<svg'))
   );
 
   const [currentSrc, setCurrentSrc] = useState<string>(() => {
@@ -159,6 +158,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
       if (!isMounted) return;
       if (normalizedFallback && currentSrc !== normalizedFallback) {
         setCurrentSrc(normalizedFallback);
+        setHasError(false);
         setIsLoaded(true);
       } else {
         setHasError(true);
@@ -248,6 +248,7 @@ export const ImageLoader: React.FC<ImageLoaderProps> = ({
             onError={(e) => {
               if (normalizedFallback && currentSrc !== normalizedFallback) {
                 setCurrentSrc(normalizedFallback);
+                setHasError(false);
                 setIsLoaded(true);
               } else {
                 setHasError(true);

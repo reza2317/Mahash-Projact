@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useVideoMonitor } from './useVideoMonitor';
 import { ActivityReport, TranscriptScene } from '../types';
 import { 
   getTeamVideoElementId, 
@@ -27,6 +28,7 @@ export interface IsolatedTeamVideoState {
   effectiveVideoSrc: string;
   isPlaying: boolean;
   isLoadingResource: boolean;
+  isVideoReady: boolean;
   isFromCache: boolean;
   resourceSizeBytes?: number;
   status: VideoLoadingStatus;
@@ -109,6 +111,7 @@ export function useIsolatedTeamVideo({
   const [status, setStatus] = useState<VideoLoadingStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoadingResource, setIsLoadingResource] = useState<boolean>(true);
+  const [isVideoReady, setIsVideoReady] = useState<boolean>(false);
 
   // View count state
   const [viewCount, setViewCount] = useState<number>(() => getReportViews(report.id));
@@ -122,6 +125,42 @@ export function useIsolatedTeamVideo({
   }, [report.id]);
 
   // Auto retry attempts tracking
+  
+  const [isInViewport, setIsInViewport] = useState(true);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    try {
+      if (typeof IntersectionObserver !== 'undefined') {
+        observerRef.current = new IntersectionObserver((entries) => {
+          if (entries[0] && entries[0].isIntersecting) {
+            setIsInViewport(true);
+            if (observerRef.current && containerRef.current) {
+              observerRef.current.unobserve(containerRef.current);
+            }
+          }
+        }, {
+          rootMargin: '200px 0px',
+          threshold: 0.01
+        });
+        
+        observerRef.current.observe(containerRef.current);
+      }
+    } catch {
+      setIsInViewport(true);
+    }
+    
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  useVideoMonitor(videoRef, report.id, teamSlug);
+
   const autoRetryCountRef = useRef<number>(0);
   const maxAutoRetries = 2;
 
@@ -131,6 +170,7 @@ export function useIsolatedTeamVideo({
       autoRetryCountRef.current = 0;
     }
     setIsLoadingResource(true);
+    setIsVideoReady(false);
     setStatus('loading');
     setErrorMessage(null);
 
@@ -182,7 +222,7 @@ export function useIsolatedTeamVideo({
     } finally {
       setIsLoadingResource(false);
     }
-  }, [report.id, report.videoSrc, uniqueKey]);
+  }, [report.id, report.videoSrc, (report as any)?.videoUrl, uniqueKey]);
 
   useEffect(() => {
     loadResource();
@@ -222,6 +262,29 @@ export function useIsolatedTeamVideo({
         setErrorMessage(null);
         autoRetryCountRef.current = 0;
       }
+    };
+
+    const onLoadedData = () => {
+      if (video) {
+        setIsVideoReady(true);
+        setIsLoadingResource(false);
+        setStatus('ready');
+        setErrorMessage(null);
+      }
+    };
+
+    const onCanPlay = () => {
+      if (video) {
+        setIsVideoReady(true);
+        setIsLoadingResource(false);
+        setStatus('ready');
+        setErrorMessage(null);
+      }
+    };
+
+    const onLoadStart = () => {
+      setIsVideoReady(false);
+      setIsLoadingResource(true);
     };
 
     const onDurationChange = () => {
@@ -296,6 +359,9 @@ export function useIsolatedTeamVideo({
 
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('loadeddata', onLoadedData);
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('loadstart', onLoadStart);
     video.addEventListener('durationchange', onDurationChange);
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
@@ -305,6 +371,11 @@ export function useIsolatedTeamVideo({
     video.addEventListener('webkitendfullscreen', onEndFullscreen as any);
 
     // Initial check
+    if (video.readyState >= 2) {
+      setIsVideoReady(true);
+      setIsLoadingResource(false);
+      setStatus('ready');
+    }
     if (video.duration && !isNaN(video.duration) && video.duration > 0) {
       setDuration(video.duration);
     }
@@ -312,6 +383,9 @@ export function useIsolatedTeamVideo({
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('loadeddata', onLoadedData);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('loadstart', onLoadStart);
       video.removeEventListener('durationchange', onDurationChange);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
@@ -535,6 +609,7 @@ export function useIsolatedTeamVideo({
     effectiveVideoSrc: resolvedVideoUrl,
     isPlaying,
     isLoadingResource,
+    isVideoReady,
     isFromCache,
     resourceSizeBytes,
     status,

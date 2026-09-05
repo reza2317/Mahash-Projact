@@ -4,6 +4,7 @@ import { WordPressCMSPanel } from '../components/WordPressCMSPanel';
 import { MySQLAdminDashboard } from '../components/MySQLAdminDashboard';
 import { MySQLLiveLogsMonitor } from '../components/admin/MySQLLiveLogsMonitor';
 import { AuditLogsTab } from '../components/admin/AuditLogsTab';
+import { AdminVideoMonitorTab } from '../components/AdminVideoMonitorTab';
 import { SyncLogger } from '../components/admin/SyncLogger';
 import { WordPressService } from '../services/WordPressService';
 import { useNotification } from '../context/NotificationContext';
@@ -91,6 +92,7 @@ import { AdminLogoManager } from '../components/admin/AdminLogoManager';
 import { MediaContentManager } from '../components/admin/MediaContentManager';
 import { MySQLVideoManager } from '../components/admin/MySQLVideoManager';
 import { MembershipsManagementDashboard } from '../components/admin/MembershipsManagementDashboard';
+import { DatabaseStateAuditTool } from '../components/admin/DatabaseStateAuditTool';
 import {
   saveMahashLogoToFirestore,
   saveYouthClubEmblemToFirestore,
@@ -240,7 +242,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [recoverySuccess, setRecoverySuccess] = useState<boolean>(false);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'members_dashboard' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'video_manager' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs' | 'audit_logs'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'members_dashboard' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'video_manager' | 'video_errors' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs' | 'audit_logs' | 'db_audit'>('create');
   const [mysqlHealthStatus, setMysqlHealthStatus] = useState<{ connected: boolean; host?: string; database?: string; timestamp?: string } | null>(null);
 
   const [isSyncingServer, setIsSyncingServer] = useState(false);
@@ -524,7 +526,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [reportStatus, setReportStatus] = useState<'published' | 'draft'>('published');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [previewVideoLoaded, setPreviewVideoLoaded] = useState<boolean>(false);
   const [keyPointsText, setKeyPointsText] = useState<string>('');
+
+  useEffect(() => {
+    setPreviewVideoLoaded(false);
+  }, [videoPreviewUrl]);
   
   // Attachments State (JPG, PNG, PDF, Word, Excel, ZIP, etc.)
   const [attachments, setAttachments] = useState<ReportAttachment[]>([]);
@@ -633,8 +640,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         const report = allReps.find((r: any) => r.id === video.reportId);
         
         if (report) {
-          const updatedReport = { ...report, videoUrl: data.url };
-          delete updatedReport.videoSrc; // Remove local URL
+          const updatedReport = { ...report, videoSrc: data.url, videoUrl: data.url, updatedAt: Date.now() };
           saveReport(updatedReport, updatedReport.teamSlug);
           
           // Re-sync allReports state
@@ -1282,10 +1288,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       // 1. Save video file to permanent server storage and local IndexedDB cache
       let videoSrc: string | undefined = undefined;
 
-      if (reportFormat === 'text' || (!videoFile && !videoPreviewUrl)) {
-        // Clear any existing video for text-only reports or when video is detached
+      if (reportFormat === 'text') {
+        // Clear any existing video for text-only reports or when explicitly converted to text
         videoSrc = undefined;
-        if (editingReportId) {
+        if (editingReportId && !keepVideoAttachment) {
           try {
             await deleteVideoFromCache(editingReportId);
             removeVideoFromReport(editingReportId, selectedTeamSlug);
@@ -1320,12 +1326,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         });
 
         videoSrc = uploadResult?.url || `indexeddb:${reportId}`;
-      } else if (editingReportId && videoPreviewUrl) {
-        const existingRep = targetTeam?.reports.find(r => r.id === editingReportId);
-        if (existingRep && existingRep.videoSrc && !existingRep.videoSrc.startsWith('blob:') && existingRep.videoSrc !== '#') {
-          videoSrc = existingRep.videoSrc;
-        } else if (!videoPreviewUrl.startsWith('blob:')) {
+      } else if (editingReportId) {
+        // Retain existing video when only text or meta is being edited
+        const existingRep = (targetTeam?.reports || []).find((r: any) => r.id === editingReportId) || allReports.find((r: any) => r.id === editingReportId);
+        const existingVideo = existingRep?.videoSrc || (existingRep as any)?.videoUrl;
+
+        if (videoPreviewUrl && !videoPreviewUrl.startsWith('blob:')) {
           videoSrc = videoPreviewUrl;
+        } else if (existingVideo && !existingVideo.startsWith('blob:') && existingVideo !== '#') {
+          videoSrc = existingVideo;
+        } else if (existingVideo) {
+          videoSrc = existingVideo;
+        } else if (videoPreviewUrl) {
+          videoSrc = `indexeddb:${editingReportId}`;
         }
       } else if (videoPreviewUrl && !videoPreviewUrl.startsWith('blob:')) {
         videoSrc = videoPreviewUrl;
@@ -1416,8 +1429,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         posterSrc: targetTeam?.logo || undefined,
         keyPoints: parsedKeyPoints.length > 0 ? parsedKeyPoints : undefined,
         transcript: validTranscript,
-        attachments: finalAttachments.length > 0 ? finalAttachments : undefined
+        attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
+        updatedAt: Date.now()
       };
+      (reportObject as any).videoUrl = videoSrc || undefined;
 
       // 5. Save to store & trigger sync hook with keepVideoAttachment
       setSubmitStageText('در حال ذخیره نهایی در پایگاه داده و ثبت در سایت...');
@@ -2495,6 +2510,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               )}
             </div>
 
+            {/* Database & State Audit Debug Tool Button */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('db_audit')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer ${
+                activeTab === 'db_audit'
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-md'
+                  : 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 hover:text-white border-blue-400/30'
+              }`}
+              title="ابزار عیب‌یابی، تست اتصال دیتابیس و بررسی تطبیق استیت کلاینت با پایگاه داده"
+            >
+              <Database className="w-3.5 h-3.5 text-blue-300" />
+              <span>🔍 دیباگ و تطبیق استیت</span>
+            </button>
+
             {/* Archive & Clear Logs Button (Task 3) */}
             <button
               type="button"
@@ -3012,6 +3042,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         </button>
 
         <button
+          id="admin-tab-video-errors"
+          role="tab"
+          aria-selected={activeTab === 'video_errors'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('video_errors')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'video_errors'
+              ? 'bg-gradient-to-l from-rose-700 via-rose-600 to-rose-800 text-white shadow-sm ring-2 ring-rose-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="مانیتورینگ خطاهای پخش ویدیو در مرورگرها"
+        >
+          <AlertTriangle className="w-4 h-4 text-rose-400" />
+          <span>⚠️ مانیتورینگ خطاهای ویدیو</span>
+        </button>
+
+        <button
           id="admin-tab-scores"
           role="tab"
           aria-selected={activeTab === 'scores'}
@@ -3145,6 +3192,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         >
           <Shield className="w-4 h-4 text-rose-400" />
           <span>🛡️ ردگیری حذفیات و لاگ‌های نظارتی (Audit Logs)</span>
+        </button>
+
+        <button
+          id="admin-tab-db-audit"
+          role="tab"
+          aria-selected={activeTab === 'db_audit'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('db_audit')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'db_audit'
+              ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="دیباگ و بررسی تطبیق استیت و پایگاه داده"
+        >
+          <Database className="w-4 h-4 text-blue-400" />
+          <span>🔍 دیباگ و تطبیق پایگاه داده با کلاینت</span>
         </button>
 
         <button
@@ -3971,12 +4035,28 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                   </div>
 
                   {/* Video Live Preview if selected */}
-                  <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black aspect-video max-h-56 mx-auto flex items-center justify-center shadow-inner">
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black aspect-video max-h-56 mx-auto flex items-center justify-center shadow-inner">
                     <video
                       src={videoPreviewUrl}
                       controls
-                      className="w-full h-full object-contain"
+                      playsInline
+                      preload="metadata"
+                      onLoadedData={() => setPreviewVideoLoaded(true)}
+                      onCanPlay={() => setPreviewVideoLoaded(true)}
+                      onLoadStart={() => setPreviewVideoLoaded(false)}
+                      className={`w-full h-full object-contain transition-opacity duration-300 ${
+                        previewVideoLoaded ? 'opacity-100' : 'opacity-0'
+                      }`}
                     />
+                    {!previewVideoLoaded && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 text-white gap-2 p-4 text-center select-none z-10">
+                        <div className="w-10 h-10 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin flex items-center justify-center">
+                          <Film className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <span className="text-xs font-bold text-slate-200">در حال بارگذاری فایل ویدیو از سرور...</span>
+                        <span className="text-[10px] text-slate-400">تا زمان تکمیل بارگذاری، جهت جلوگیری از خطا محتوا نمایش داده نمی‌شود</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -6381,6 +6461,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ==================================================== */}
+      {/* TAB: Real-time Video Error & Stalled Monitor */}
+      {/* ==================================================== */}
+      {activeTab === 'video_errors' && (
+        <AdminVideoMonitorTab
+          onNavigateToReport={(repId, teamSlug) => {
+            if (teamSlug) {
+              setSelectedTeamSlug(teamSlug);
+            }
+            setEditingReportId(repId);
+            setActiveTab('create');
+          }}
+        />
+      )}
+
+      {/* ==================================================== */}
       {/* TAB 4: Media & Storage Cache Manager */}
       {/* ==================================================== */}
       {activeTab === 'storage' && (
@@ -7052,6 +7147,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           <AuditLogsTab
             showToast={showToast}
             onNavigateTab={(tab) => setActiveTab(tab as any)}
+          />
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Database vs Client State Audit & Debug Tool */}
+      {/* ==================================================== */}
+      {activeTab === 'db_audit' && (
+        <div className="space-y-6">
+          <DatabaseStateAuditTool
+            onRefreshParentState={(reports, teamsData) => {
+              setAllReports(reports);
+              setTeams(teamsData);
+            }}
           />
         </div>
       )}

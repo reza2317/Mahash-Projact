@@ -179,44 +179,14 @@ export const TEAM_GHORBANI_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURICompon
 
 export const TEAM_SILENCE_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
-    <defs>
-      <linearGradient id="tealRim" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#2dd4bf"/>
-        <stop offset="50%" stop-color="#0f766e"/>
-        <stop offset="100%" stop-color="#115e59"/>
-      </linearGradient>
-      <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#5eead4"/>
-        <stop offset="100%" stop-color="#0d9488"/>
-      </linearGradient>
-      <linearGradient id="tealBg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#f0fdfa"/>
-        <stop offset="100%" stop-color="#ccfbf1"/>
-      </linearGradient>
-    </defs>
-    
-    <!-- Outer Teal Shield -->
-    <circle cx="120" cy="120" r="114" fill="url(#tealBg)" stroke="url(#tealRim)" stroke-width="6"/>
-    <circle cx="120" cy="120" r="106" fill="none" stroke="#99f6e4" stroke-width="2"/>
-    
-    <!-- Sound Wave & Hearing Harmony Arc Contour -->
-    <g transform="translate(120, 102)">
-      <!-- Silhouette Listening Orbit -->
-      <path d="M0 -56 C-38 -56 -58 -25 -58 10 C-58 52 -20 74 0 74 C20 74 58 52 58 10 C58 -25 38 -56 0 -56 Z" fill="#ffffff" stroke="url(#tealRim)" stroke-width="4.5"/>
-      
-      <!-- Resonating sound gesture waves -->
-      <path d="M-26 32 L-8 12 L8 -5 L28 -25" stroke="url(#waveGrad)" stroke-width="5.5" stroke-linecap="round"/>
-      <path d="M-16 42 L2 22 L18 5 L38 -15" stroke="url(#waveGrad)" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
-      
-      <!-- Acoustic Node Core -->
-      <circle cx="0" cy="8" r="12" fill="#0f766e"/>
-      <circle cx="0" cy="8" r="6" fill="#ffffff"/>
+    <rect width="240" height="240" fill="#1e3a8a"/>
+    <g stroke-linecap="round" stroke-linejoin="round">
+      <path d="M100 45 C150 45 180 80 180 120 C180 160 150 190 120 190 C100 190 85 175 85 155 C85 140 95 130 110 130 C130 130 140 145 140 160 C140 120 115 85 85 85 C65 85 55 105 55 125" fill="none" stroke="#ffffff" stroke-width="16"/>
+      <path d="M90 75 C115 75 130 95 130 125" fill="none" stroke="#ffffff" stroke-width="12"/>
     </g>
-    
-    <!-- Typography -->
-    <text x="120" y="208" fill="#0f766e" font-family="Vazirmatn, Vazir, Tahoma, sans-serif" font-size="17" font-weight="900" text-anchor="middle">تیم آوای سکوت</text>
-  </svg>
-`)}`;
+    <line x1="30" y1="210" x2="210" y2="30" stroke="#1e3a8a" stroke-width="56"/>
+    <line x1="20" y1="220" x2="220" y2="20" stroke="#ffffff" stroke-width="36"/>
+  </svg>`)}`;
 
 /**
  * Official Mahash Youth Club Fallback Logo SVG (نشان گرافیکی پیش‌فرض باشگاه جوانان محاش)

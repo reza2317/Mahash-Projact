@@ -76,7 +76,7 @@ export function useResponsiveImage({
 
   const initialSrc = getInitialSource();
   const isDataOrBlob = Boolean(
-    initialSrc && (initialSrc.startsWith('data:') || initialSrc.startsWith('blob:') || initialSrc.startsWith('/'))
+    initialSrc && (initialSrc.startsWith('data:') || initialSrc.startsWith('blob:') || initialSrc.startsWith('<svg'))
   );
 
   const [isLoaded, setIsLoaded] = useState<boolean>(() => {
@@ -186,11 +186,13 @@ export function useResponsiveImage({
 
       img.onerror = () => {
         if (!active || !isMountedRef.current) return;
-        setHasError(true);
         const fb = normalizeImageSrc(fallbackSrc || '') || (teamSlugOrId ? getTeamLogoPlaceholder(teamSlugOrId) : MAHASH_YOUTH_CLUB_FALLBACK_LOGO_SVG);
         if (fb && fb !== currentSrc) {
           setCurrentSrc(fb);
+          setHasError(false);
           setIsLoaded(true);
+        } else {
+          setHasError(true);
         }
         onError?.();
       };

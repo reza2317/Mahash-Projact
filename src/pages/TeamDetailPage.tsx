@@ -48,16 +48,21 @@ import {
 
 interface TeamDetailPageProps {
   teamSlug: string;
+  targetReportId?: string;
   onNavigate: (page: PageId) => void;
 }
 
 export type { TeamVideoResourceItem };
 
-export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavigate }) => {
+export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, targetReportId, onNavigate }) => {
   const [team, setTeam] = useState<TeamData | undefined>(() => getTeam(teamSlug));
-  const [activeTab, setActiveTab] = useState<'about' | 'members' | 'activities'>('about');
+  const [activeTab, setActiveTab] = useState<'about' | 'members' | 'activities'>(() => targetReportId ? 'activities' : 'about');
   const [openReportId, setOpenReportId] = useState<string | null>(() => {
     const initial = getTeam(teamSlug);
+    if (targetReportId && initial?.reports?.some(r => r.id === targetReportId || r.id.endsWith(targetReportId) || targetReportId.endsWith(r.id))) {
+      const match = initial.reports.find(r => r.id === targetReportId || r.id.endsWith(targetReportId) || targetReportId.endsWith(r.id));
+      return match ? match.id : (initial?.reports?.[0]?.id || null);
+    }
     return initial?.reports?.[0]?.id || null;
   });
   const [versionHistoryReportId, setVersionHistoryReportId] = useState<string | null>(null);
@@ -86,11 +91,38 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
 
   const { success: showToastSuccess, error: showToastError } = useNotification();
 
-  // Keep open report synced when teamSlug changes, but PRESERVE user selection on store updates
+  // Keep open report synced when teamSlug or targetReportId changes, but PRESERVE user selection on store updates
   useEffect(() => {
     const initial = getTeam(teamSlug);
     setTeam(initial);
-    setOpenReportId(initial?.reports?.[0]?.id || null);
+    
+    // Check if targetReportId or window.location.hash specifies a report
+    const hash = window.location.hash || '';
+    let desiredReportId = targetReportId;
+    if (!desiredReportId && hash.includes('report-')) {
+      const parts = hash.split('report-');
+      const repId = parts[parts.length - 1]?.replace(/^#|\//g, '');
+      if (repId) {
+        desiredReportId = repId;
+      }
+    }
+
+    if (desiredReportId && initial?.reports?.some(r => r.id === desiredReportId || r.id.endsWith(desiredReportId!) || desiredReportId!.endsWith(r.id))) {
+      const match = initial.reports.find(r => r.id === desiredReportId || r.id.endsWith(desiredReportId!) || desiredReportId!.endsWith(r.id));
+      if (match) {
+        setOpenReportId(match.id);
+        setActiveTab('activities');
+        setTimeout(() => {
+          const el = document.getElementById(`report-card-${match.id}`) || document.getElementById(`report-${match.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 200);
+      }
+    } else {
+      setOpenReportId(initial?.reports?.[0]?.id || null);
+    }
+
     setTeamSummaryText(null);
     setShowSummaryModal(false);
     if (initial?.reports?.[0]?.summary) {
@@ -98,7 +130,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
     } else {
       setGeminiInputText('');
     }
-  }, [teamSlug]);
+  }, [teamSlug, targetReportId]);
 
   // Subscribe to live updates from store without resetting user's open report
   const [isAdmin, setIsAdmin] = useState<boolean>(() => isAdminAuthenticated());
@@ -398,8 +430,9 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
       {/* Main Grid: Info + Reports Side */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Team Identity & Members */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className={`lg:col-span-4 space-y-6 ${activeTab === 'activities' ? 'hidden lg:block' : 'block'}`}>
           {/* Visual Logo Card */}
+          <div className={`lg:block ${activeTab !== 'about' ? 'hidden' : 'block'}`}>
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 text-center shadow-xs space-y-4">
             <div className="team-logo-responsive mx-auto rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-md p-1 bg-white dark:bg-slate-800">
               <ImageLoader
@@ -460,7 +493,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
             )}
           </div>
 
+          </div>
+
           {/* Members Card */}
+          <div className={`lg:block ${activeTab !== 'members' ? 'hidden' : 'block'}`}>
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
@@ -489,9 +525,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, onNavi
             </div>
           </div>
         </div>
+        </div>
 
         {/* Right Column: Activities & Reports */}
-        <div className="lg:col-span-8 space-y-6">
+        <div className={`lg:col-span-8 space-y-6 ${activeTab === 'about' || activeTab === 'members' ? 'hidden lg:block' : 'block'}`}>
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
               <div>

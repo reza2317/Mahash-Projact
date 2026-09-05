@@ -988,17 +988,17 @@ export const KNOWN_MEDIA_MAPPINGS: Record<
     description: 'پروژه مشترک و تعامل تیمی باشگاه فردا'
   },
   'angels-03': {
-    video: '/uploads/file-1788063303183-909070848.mp4',
+    video: '/uploads/file-1788581058938-637124645.mp4',
     poster: '/uploads/score-angels-f860e0ad8a.webp',
     description: 'معرفی اعضای پرانرژی و هنرمند تیم فرشتگان ناشنوایان'
   },
   'angels-02': {
-    video: '/uploads/file-1788063141877-869516181.mp4',
+    video: '/uploads/file-1788580086633-502025870.mp4',
     poster: '/uploads/score-angels-f860e0ad8a.webp',
     description: 'مسیر یک رویا، از اشتیاق کودکی تا فتح سکوی قهرمانی'
   },
   'angels-01': {
-    video: '/uploads/file-1788063352946-218736197.mp4',
+    video: '/uploads/file-1788580054502-531839423.mp4',
     poster: '/uploads/score-angels-f860e0ad8a.webp',
     description: 'پیام ویدیویی انگیزشی «رویای یک کافه» (پروژه مشترک)'
   },
