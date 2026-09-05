@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { defineConfig, Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -11,7 +12,7 @@ function sitemapPlugin(): Plugin {
     closeBundle() {
       try {
         const scriptPath = path.resolve(__dirname, './scripts/generate-sitemap.mjs');
-        import(scriptPath).then((m) => {
+        import(pathToFileURL(scriptPath).href).then((m) => {
           if (typeof m.generateSitemap === 'function') {
             m.generateSitemap();
           }
@@ -32,7 +33,7 @@ function offlineBaselinePlugin(): Plugin {
     buildStart() {
       try {
         const scriptPath = path.resolve(__dirname, './scripts/generate-offline-baseline.mjs');
-        import(scriptPath).then((m) => {
+        import(pathToFileURL(scriptPath).href).then((m) => {
           if (typeof m.generateOfflineBaseline === 'function') {
             m.generateOfflineBaseline();
           }
@@ -46,7 +47,7 @@ function offlineBaselinePlugin(): Plugin {
     closeBundle() {
       try {
         const scriptPath = path.resolve(__dirname, './scripts/generate-offline-baseline.mjs');
-        import(scriptPath).then((m) => {
+        import(pathToFileURL(scriptPath).href).then((m) => {
           if (typeof m.generateOfflineBaseline === 'function') {
             m.generateOfflineBaseline();
           }
@@ -68,7 +69,8 @@ export default defineConfig(() => {
       injectRegister: 'auto',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
-        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        globIgnores: ['**/uploads/**', 'uploads/**'],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: /\.(?:mp4|webm|ogg)$/i,

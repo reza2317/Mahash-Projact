@@ -39,6 +39,7 @@
 /uploads/*
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
   Access-Control-Allow-Origin: *
+  Accept-Ranges: bytes
 
 # JSON data stores & sitemaps - always fresh
 /*.json

@@ -306,7 +306,7 @@ export const MembershipsManagementDashboard: React.FC = () => {
 
   // Unique list of teams and educations for filters
   const uniqueTeams = useMemo(() => {
-    return ['تیم مغز متفکر', 'باشگاه فردا', 'تیم فرشتگان ناشنوایان', 'تیم قربونی', 'تیم آوای سکوت'];
+    return ['تیم مغز متفکر', 'تیم باشگاه فردا', 'تیم فرشتگان ناشنوایان', 'تیم قربونی', 'تیم آوای سکوت'];
   }, []);
 
   const uniqueEducations = useMemo(() => {

@@ -304,13 +304,61 @@
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://mahash.org/#/team-team-silence?report=silence-01</loc>
+    <loc>https://mahash.org/#/team-team-angels?report=angels-01</loc>
     <lastmod>2026-09-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://mahash.org/#/team-team-ghorbani?report=ghorbani-01</loc>
+    <loc>https://mahash.org/#/team-team-angels?report=report-1788415737865</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-angels?report=report-1788415621673</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-angels?report=report-1788415821547</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=thinker-02</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=thinker-01</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=report-1788380971690</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=report-1788414757247</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=report-1788414281564</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=report-1788628151469</loc>
     <lastmod>2026-09-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.75</priority>
@@ -322,13 +370,37 @@
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://mahash.org/#/team-team-tomorrow?report=tomorrow-02</loc>
+    <loc>https://mahash.org/#/team-team-angels?report=report-1788628595661</loc>
     <lastmod>2026-09-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://mahash.org/#/team-team-tomorrow?report=tomorrow-01</loc>
+    <loc>https://mahash.org/#/team-team-thinker?report=report-1788628960446</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-thinker?report=report-1788629792288</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-tomorrow?report=report-1788634156949</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-tomorrow?report=report-1788634396777</loc>
+    <lastmod>2026-09-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://mahash.org/#/team-team-tomorrow?report=report-1788634834924</loc>
     <lastmod>2026-09-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.75</priority>

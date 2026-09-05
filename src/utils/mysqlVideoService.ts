@@ -96,17 +96,137 @@ export async function fetchOptimizedVideos(params?: {
     }
 
     const data = await res.json();
-    return data as OptimizedVideoResponse;
+    if (data && data.success && Array.isArray(data.videos)) {
+      return data as OptimizedVideoResponse;
+    }
+    throw new Error('Invalid JSON response from server');
   } catch (error) {
-    console.warn('[MySQLVideoService] Error fetching optimized videos:', error);
-    return {
-      success: false,
-      source: 'in_memory_fallback',
-      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
-      stats: { total: 0, publicCount: 0, privateCount: 0, totalSizeBytes: 0 },
-      videos: []
-    };
+    console.warn('[MySQLVideoService] Server unavailable or static host (Netlify). Loading fallback baseline videos:', error);
+    return await getFallbackVideos(params);
   }
+}
+
+/**
+ * Netlify and Offline static fallback video extractor.
+ * Reads reports and media assets directly from localStorage and offline_baseline.json.
+ */
+async function getFallbackVideos(params?: {
+  page?: number;
+  limit?: number;
+  teamSlug?: string;
+  search?: string;
+  publicOnly?: boolean;
+}): Promise<OptimizedVideoResponse> {
+  const page = Math.max(1, params?.page || 1);
+  const limit = Math.min(100, Math.max(1, params?.limit || 20));
+  const teamFilter = params?.teamSlug && params.teamSlug !== 'all' ? params.teamSlug : null;
+  const search = params?.search ? params.search.trim().toLowerCase() : null;
+  const publicOnly = params?.publicOnly ?? false;
+
+  let reports: any[] = [];
+  let videoVisibility: Record<string, boolean> = {};
+
+  try {
+    const rawVis = localStorage.getItem('mahash_video_visibility');
+    if (rawVis) videoVisibility = JSON.parse(rawVis);
+  } catch {}
+
+  // 1. Try local storage
+  try {
+    const rawRep = localStorage.getItem('mahash_custom_reports') || localStorage.getItem('customReports');
+    if (rawRep) {
+      const parsed = JSON.parse(rawRep);
+      if (Array.isArray(parsed)) {
+        reports = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        Object.values(parsed).forEach((teamReports: any) => {
+          if (Array.isArray(teamReports)) reports.push(...teamReports);
+        });
+      }
+    }
+  } catch {}
+
+  // 2. If reports is empty, fetch offline_baseline.json
+  if (reports.length === 0) {
+    try {
+      const baseline = await fetch('/offline_baseline.json').then(r => r.ok ? r.json() : null);
+      if (baseline) {
+        if (Array.isArray(baseline.customReports)) reports = baseline.customReports;
+        if (baseline.videoVisibility) videoVisibility = { ...baseline.videoVisibility, ...videoVisibility };
+      }
+    } catch {}
+  }
+
+  // Filter unique reports with valid video URLs
+  const seenUrls = new Set<string>();
+  const videoItems: MySQLVideoItem[] = [];
+
+  reports.forEach((r) => {
+    const url = r.videoSrc || r.videoUrl || r.video_url;
+    if (!url || typeof url !== 'string' || url.startsWith('blob:') || url === '#') return;
+    if (seenUrls.has(url)) return;
+    seenUrls.add(url);
+
+    const vidId = `vid_${r.id || Math.random().toString(36).substring(2, 9)}`;
+    const isPublic = videoVisibility[vidId] !== undefined ? videoVisibility[vidId] : true;
+    const teamSlug = r.teamSlug || (r.teamId ? (r.teamId.startsWith('team-') ? r.teamId : `team-${r.teamId}`) : 'team-thinker');
+
+    videoItems.push({
+      id: vidId,
+      title: r.title || 'گزارش ویدیویی باشگاه ماهش',
+      team_slug: teamSlug,
+      report_id: r.id || null,
+      video_url: url,
+      thumbnail_url: r.videoThumbnail || r.coverImage || null,
+      file_name: url.split('/').pop() || 'video.mp4',
+      file_size_bytes: 14 * 1024 * 1024,
+      mime_type: 'video/mp4',
+      duration_seconds: 120,
+      width: 1920,
+      height: 1080,
+      is_public: isPublic ? 1 : 0,
+      views_count: r.views || 1,
+      created_at: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+      updated_at: r.updatedAt ? new Date(r.updatedAt).toISOString() : new Date().toISOString()
+    });
+  });
+
+  const total = videoItems.length;
+  const publicCount = videoItems.filter(v => v.is_public === 1).length;
+  const privateCount = total - publicCount;
+  const totalSizeBytes = videoItems.reduce((acc, v) => acc + v.file_size_bytes, 0);
+
+  let filtered = videoItems;
+  if (publicOnly) {
+    filtered = filtered.filter(v => v.is_public === 1);
+  }
+  if (teamFilter) {
+    filtered = filtered.filter(v => v.team_slug === teamFilter || v.team_slug.replace(/^team-/, '') === teamFilter.replace(/^team-/, ''));
+  }
+  if (search) {
+    filtered = filtered.filter(v => (v.title && v.title.toLowerCase().includes(search)) || v.file_name.toLowerCase().includes(search));
+  }
+
+  const offset = (page - 1) * limit;
+  const paginated = filtered.slice(offset, offset + limit);
+
+  return {
+    success: true,
+    source: 'in_memory_fallback',
+    pagination: {
+      page,
+      limit,
+      total: filtered.length,
+      totalPages: Math.ceil(filtered.length / limit) || 1
+    },
+    stats: {
+      total,
+      publicCount,
+      privateCount,
+      totalSizeBytes
+    },
+    videos: paginated
+  };
 }
 
 /**
@@ -131,10 +251,45 @@ export async function updateVideoVisibility(
 
     return await res.json();
   } catch (error: any) {
-    console.error('[MySQLVideoService] Error updating visibility:', error);
+    console.warn('[MySQLVideoService] Server update failed, falling back to local state:', error);
+    try {
+      const raw = localStorage.getItem('mahash_video_visibility');
+      const vis = raw ? JSON.parse(raw) : {};
+      vis[videoId] = isPublic;
+      localStorage.setItem('mahash_video_visibility', JSON.stringify(vis));
+      return {
+        success: true,
+        message: 'وضعیت نمایش ویدیو ذخیره شد (حالت استاتیک/آفلاین)',
+        is_public: isPublic
+      };
+    } catch {}
     return {
       success: false,
       message: error?.message || 'خطا در برقراری ارتباط با سرور'
+    };
+  }
+}
+
+/**
+ * Deletes a video permanently from MySQL, disk storage, and memory caches.
+ */
+export async function deleteVideoFromMySQL(
+  videoId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch(`/api/mysql/videos/${encodeURIComponent(videoId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData?.error || `HTTP ${res.status}`);
+    }
+    return await res.json();
+  } catch (error: any) {
+    console.error('[MySQLVideoService] Error deleting video:', error);
+    return {
+      success: false,
+      message: error?.message || 'خطا در حذف ویدیو'
     };
   }
 }

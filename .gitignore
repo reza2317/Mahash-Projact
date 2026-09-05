@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 
+data_store.json
+mysql_database.json
+mysql_schema_registry.json
+mysql_report_versions.json

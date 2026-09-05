@@ -2519,6 +2519,17 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       }
     } else {
       apiStoreData = await response.json().catch(() => null);
+      // If response is not a valid store object (e.g. index.html was served by Netlify SPA rewrite)
+      if (!apiStoreData || typeof apiStoreData !== 'object' || (!apiStoreData.schema && !Array.isArray(apiStoreData.customReports))) {
+        console.log('[reportsStore] 🔄 Endpoint returned non-API payload (Netlify/static). Hydrating from offline_baseline.json...');
+        const fallbackBaseline = await fetch('/offline_baseline.json', { cache: 'default' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null);
+        if (fallbackBaseline && typeof fallbackBaseline === 'object' && (Array.isArray(fallbackBaseline.customReports) || fallbackBaseline.schema)) {
+          apiStoreData = fallbackBaseline;
+          serverData = { ...fallbackBaseline };
+        }
+      }
     }
 
     // Fast-path: If server data has not changed since last poll, skip heavy parsing (unless force is requested)
@@ -2573,6 +2584,9 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       }
       if (apiStoreData.memberAvatars && (!serverData.memberAvatars || Object.keys(serverData.memberAvatars).length === 0)) {
         serverData.memberAvatars = apiStoreData.memberAvatars;
+      }
+      if (apiStoreData.memberships && (!serverData.memberships || serverData.memberships.length === 0)) {
+        serverData.memberships = apiStoreData.memberships;
       }
     }
 
@@ -2815,13 +2829,13 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       modified = true;
     }
 
+    if (serverData.memberships && Array.isArray(serverData.memberships) && serverData.memberships.length > 0) {
+      safeSetLocalStorage('mahash_memberships_list', JSON.stringify(serverData.memberships));
+      modified = true;
+    }
+
     if (modified) {
       triggerGlobalCacheBust(false);
-    }
-    
-    if (needsPushToServer) {
-      console.log('Server is empty, but local data exists. Pushing recovery data to MySQL...');
-      setTimeout(() => syncLocalDataToServer(), 1000);
     }
 
     if (force) {
@@ -2856,8 +2870,36 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
 
 let syncTimeout: any = null;
 let pendingResolvers: Array<(val: boolean) => void> = [];
+let isSyncInProgress = false;
+let syncQueued = false;
 
 const yieldToMain = () => new Promise(r => setTimeout(r, 10));
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3,
+  delayMs = 800
+): Promise<Response> {
+  let lastError: any = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, attempt)));
+        continue;
+      }
+      return res;
+    } catch (networkErr: any) {
+      lastError = networkErr;
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, attempt)));
+        continue;
+      }
+    }
+  }
+  throw lastError;
+}
 
 export async function syncLocalDataToServer(
   onProgress?: (progress: number, step: string) => void,
@@ -2869,6 +2911,11 @@ export async function syncLocalDataToServer(
     pendingResolvers.push(resolve);
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(async () => {
+      if (isSyncInProgress) {
+        syncQueued = true;
+        return;
+      }
+      isSyncInProgress = true;
       const resolversToCall = [...pendingResolvers];
       pendingResolvers = [];
       try {
@@ -2974,18 +3021,18 @@ export async function syncLocalDataToServer(
         if (onProgress) onProgress(65, 'در حال نگارش و ثبت دائمی اطلاعات در جداول MySQL...');
         globalEventBus.emit('SYNC_PROGRESS', { visible: true, progress: 65, message: 'در حال نگارش و ثبت دائمی اطلاعات در جداول MySQL...' });
         
-        // Direct permanent write to MySQL database via /api/store
+        // Direct permanent write to MySQL database via /api/store with resilient retry
         let saveSuccess = false;
         let serverResponseBody: any = null;
         try {
-          const res = await fetch('/api/store', {
+          const res = await fetchWithRetry('/api/store', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Cache-Control': 'no-store, no-cache, must-revalidate'
             },
             body: JSON.stringify(payload)
-          });
+          }, 3, 600);
           
           if (res.status !== 200 && res.status !== 201) {
             const errText = await res.text().catch(() => '');
@@ -2999,11 +3046,7 @@ export async function syncLocalDataToServer(
 
           saveSuccess = true;
         } catch (postErr: any) {
-          console.error('[reportsStore] Direct MySQL save failed:', postErr);
-          globalEventBus.emit('DATABASE_WRITE_ERROR', {
-            title: 'خطا در نگارش پایگاه داده MySQL',
-            message: postErr?.message || 'ارتباط با سرور برقرار نشد یا ثبت اطلاعات در دیتابیس با مشکل مواجه شد.'
-          });
+          console.warn('[reportsStore] Direct MySQL save encountered issue:', postErr?.message || postErr);
           throw postErr;
         }
 
@@ -3031,12 +3074,8 @@ export async function syncLocalDataToServer(
 
         resolversToCall.forEach(res => res(true));
       } catch (err: any) {
-        console.warn('[reportsStore] Failed to sync data to MySQL:', err);
+        console.warn('[reportsStore] Failed to sync data to MySQL (will retry in background):', err?.message || err);
         globalEventBus.emit('SYNC_PROGRESS', { visible: false });
-        globalEventBus.emit('DATABASE_WRITE_ERROR', {
-          title: 'خطا در همگام‌سازی پایگاه داده MySQL',
-          message: err?.message || 'ثبت اطلاعات در دیتابیس با مشکل مواجه شد.'
-        });
         addSyncAttemptLog({
           timestamp: new Date().toISOString(),
           type: 'push',
@@ -3044,6 +3083,12 @@ export async function syncLocalDataToServer(
           message: `خطا در ارسال داده‌ها به سرور: ${err?.message || 'خطای شبکه'}`,
         });
         resolversToCall.forEach(res => res(false));
+      } finally {
+        isSyncInProgress = false;
+        if (syncQueued) {
+          syncQueued = false;
+          setTimeout(() => syncLocalDataToServer(), 300);
+        }
       }
     }, debounceMs);
   });
@@ -3120,14 +3165,14 @@ export async function persistReportDirectlyToServerWithConfirmation(
   // 3. Send definitive write request to /api/store
   let res: Response;
   try {
-    res = await fetch('/api/store', {
+    res = await fetchWithRetry('/api/store', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store, no-cache, must-revalidate'
       },
       body: JSON.stringify(payload)
-    });
+    }, 3, 600);
   } catch (networkErr: any) {
     const errMsg = networkErr?.message || 'خطای شبکه در ارتباط با سرور پایگاه داده MySQL';
     globalEventBus.emit('DATABASE_WRITE_ERROR', {

@@ -1699,10 +1699,11 @@ export const MySQLAdminDashboard: React.FC = () => {
                   onChange={e => setReportForm({ ...reportForm, teamSlug: e.target.value })}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white"
                 >
-                  <option value="team-thinker">تیم متفکران</option>
-                  <option value="team-angels">تیم فرشتگان</option>
-                  <option value="team-pioneer">تیم پیشگامان</option>
-                  <option value="team-novin">تیم نوین</option>
+                  <option value="team-thinker">تیم مغز متفکر</option>
+                  <option value="team-tomorrow">تیم باشگاه فردا</option>
+                  <option value="team-angels">تیم فرشتگان ناشنوایان</option>
+                  <option value="team-ghorbani">تیم قربونی</option>
+                  <option value="team-silence">تیم آوای سکوت</option>
                 </select>
               </div>
               <div className="md:col-span-2">
@@ -1750,10 +1751,11 @@ export const MySQLAdminDashboard: React.FC = () => {
                   className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white"
                 >
                   <option value="all">همه تیم‌ها / دسته‌ها</option>
-                  <option value="team-thinker">تیم متفکران</option>
-                  <option value="team-angels">تیم فرشتگان</option>
-                  <option value="team-pioneer">تیم پیشگامان</option>
-                  <option value="team-novin">تیم نوین</option>
+                  <option value="team-thinker">تیم مغز متفکر</option>
+                  <option value="team-tomorrow">تیم باشگاه فردا</option>
+                  <option value="team-angels">تیم فرشتگان ناشنوایان</option>
+                  <option value="team-ghorbani">تیم قربونی</option>
+                  <option value="team-silence">تیم آوای سکوت</option>
                 </select>
               </div>
             </div>
@@ -1796,8 +1798,12 @@ export const MySQLAdminDashboard: React.FC = () => {
                     <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                       <td className="p-3 font-semibold text-slate-900 dark:text-white">{r.title}</td>
                       <td className="p-3">
-                        <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 rounded-md text-xs font-mono">
-                          {r.teamSlug}
+                        <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 rounded-md text-[11px] font-bold">
+                          {r.teamSlug === 'team-thinker' ? 'مغز متفکر' :
+                           r.teamSlug === 'team-tomorrow' ? 'باشگاه فردا' :
+                           r.teamSlug === 'team-angels' ? 'فرشتگان ناشنوایان' :
+                           r.teamSlug === 'team-ghorbani' ? 'قربونی' :
+                           r.teamSlug === 'team-silence' ? 'آوای سکوت' : r.teamSlug}
                         </span>
                       </td>
                       <td className="p-3 text-slate-500 dark:text-slate-400 text-xs max-w-xs truncate">{r.summary || '-'}</td>
@@ -2000,10 +2006,11 @@ export const MySQLAdminDashboard: React.FC = () => {
                   onChange={e => setModalReportForm({ ...modalReportForm, teamSlug: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="team-thinker">تیم متفکران</option>
-                  <option value="team-angels">تیم فرشتگان</option>
-                  <option value="team-pioneer">تیم پیشگامان</option>
-                  <option value="team-novin">تیم نوین</option>
+                  <option value="team-thinker">تیم مغز متفکر</option>
+                  <option value="team-tomorrow">تیم باشگاه فردا</option>
+                  <option value="team-angels">تیم فرشتگان ناشنوایان</option>
+                  <option value="team-ghorbani">تیم قربونی</option>
+                  <option value="team-silence">تیم آوای سکوت</option>
                 </select>
               </div>
 

@@ -29,6 +29,13 @@ export function generateOfflineBaseline() {
     consultantPhotos: {},
     consultantsList: [],
     memberAvatars: {},
+    memberships: [],
+    videoVisibility: {},
+    deletedVideos: [],
+    reportViews: {},
+    activityLogs: [],
+    customBadges: [],
+    trashBin: [],
     mahashLogo: '',
     clubEmblem: '',
     metadata: {
@@ -55,6 +62,13 @@ export function generateOfflineBaseline() {
         if (dataStore.consultantPhotos && typeof dataStore.consultantPhotos === 'object') baseline.consultantPhotos = dataStore.consultantPhotos;
         if (Array.isArray(dataStore.consultantsList)) baseline.consultantsList = dataStore.consultantsList;
         if (dataStore.memberAvatars && typeof dataStore.memberAvatars === 'object') baseline.memberAvatars = dataStore.memberAvatars;
+        if (Array.isArray(dataStore.memberships)) baseline.memberships = dataStore.memberships;
+        if (dataStore.videoVisibility && typeof dataStore.videoVisibility === 'object') baseline.videoVisibility = dataStore.videoVisibility;
+        if (Array.isArray(dataStore.deletedVideos)) baseline.deletedVideos = dataStore.deletedVideos;
+        if (dataStore.reportViews && typeof dataStore.reportViews === 'object') baseline.reportViews = dataStore.reportViews;
+        if (Array.isArray(dataStore.activityLogs)) baseline.activityLogs = dataStore.activityLogs;
+        if (Array.isArray(dataStore.customBadges)) baseline.customBadges = dataStore.customBadges;
+        if (Array.isArray(dataStore.trashBin)) baseline.trashBin = dataStore.trashBin;
         if (dataStore.mahashLogo) baseline.mahashLogo = dataStore.mahashLogo;
         if (dataStore.clubEmblem) baseline.clubEmblem = dataStore.clubEmblem;
       }
@@ -98,7 +112,56 @@ export function generateOfflineBaseline() {
   baseline.metadata.totalLogos = Object.keys(baseline.teamLogos).length;
   baseline.metadata.totalConsultantPhotos = Object.keys(baseline.consultantPhotos).length;
 
-  // 5. Serialize to JSON format
+  // 5. Mirror all media assets from uploads/ into public/uploads and dist/uploads
+  const uploadsDir = path.join(rootDir, 'uploads');
+  const publicUploadsDir = path.join(publicDir, 'uploads');
+  const distUploadsDir = path.join(distDir, 'uploads');
+
+  if (fs.existsSync(uploadsDir)) {
+    if (!fs.existsSync(publicUploadsDir)) {
+      fs.mkdirSync(publicUploadsDir, { recursive: true });
+    }
+    const uploadFiles = fs.readdirSync(uploadsDir);
+    const deletedList = Array.isArray(baseline.deletedVideos) ? baseline.deletedVideos : [];
+    let copiedCount = 0;
+
+    for (const file of uploadFiles) {
+      if (file.endsWith('.zip') || deletedList.includes(file) || deletedList.includes(`/uploads/${file}`) || deletedList.includes(`vid_${file}`)) {
+        continue;
+      }
+      const srcFile = path.join(uploadsDir, file);
+      const destFile = path.join(publicUploadsDir, file);
+      try {
+        if (!fs.existsSync(destFile) || fs.statSync(srcFile).size !== fs.statSync(destFile).size) {
+          fs.copyFileSync(srcFile, destFile);
+          copiedCount++;
+        }
+      } catch (err) {
+        console.warn(`[OfflineBaseline] Failed copying media ${file}:`, err.message);
+      }
+    }
+    console.log(`[OfflineBaseline] 📦 Mirrored ${uploadFiles.length} media files (${copiedCount} new/updated) to ${publicUploadsDir}`);
+
+    if (fs.existsSync(distDir)) {
+      if (!fs.existsSync(distUploadsDir)) {
+        fs.mkdirSync(distUploadsDir, { recursive: true });
+      }
+      for (const file of uploadFiles) {
+        if (deletedList.includes(file) || deletedList.includes(`/uploads/${file}`) || deletedList.includes(`vid_${file}`)) {
+          continue;
+        }
+        const srcFile = path.join(uploadsDir, file);
+        const destFile = path.join(distUploadsDir, file);
+        try {
+          if (!fs.existsSync(destFile) || fs.statSync(srcFile).size !== fs.statSync(destFile).size) {
+            fs.copyFileSync(srcFile, destFile);
+          }
+        } catch {}
+      }
+    }
+  }
+
+  // 6. Serialize to JSON format
   const jsonContent = JSON.stringify(baseline, null, 2);
 
   // Ensure public directory exists

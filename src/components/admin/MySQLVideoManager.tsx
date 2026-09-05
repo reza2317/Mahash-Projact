@@ -26,6 +26,7 @@ import {
   fetchOptimizedVideos,
   updateVideoVisibility,
   syncAllVideosToMySQL,
+  deleteVideoFromMySQL,
   MySQLVideoItem,
   MySQLVideoStats,
   MySQLVideoPagination
@@ -107,15 +108,18 @@ export const MySQLVideoManager: React.FC<MySQLVideoManagerProps> = ({
   }, [loadVideos]);
 
   const handleDeleteVideo = async (videoId: string, videoTitle: string) => {
+    if (!window.confirm(`آیا از حذف دائمی ویدیوی «${videoTitle}» از پایگاه داده و فضای ذخیره‌سازی سرور اطمینان دارید؟`)) {
+      return;
+    }
     try {
       setUpdatingId(videoId);
       
-      const res = await fetch(`/api/mysql/videos/${videoId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        throw new Error('حذف ویدیو از دیتابیس MySQL با خطا مواجه شد');
+      const res = await deleteVideoFromMySQL(videoId);
+      if (!res.success) {
+        throw new Error(res.message || 'حذف ویدیو از دیتابیس با خطا مواجه شد');
       }
 
-      success(`ویدیو «${videoTitle}» با موفقیت از دیتابیس MySQL حذف گردید.`);
+      success(`ویدیو «${videoTitle}» با موفقیت و به صورت دائمی از دیسک و دیتابیس حذف گردید.`);
       loadVideos(pagination.page);
     } catch (err: any) {
       error('خطا در حذف ویدیو: ' + (err?.message || ''));
@@ -325,9 +329,9 @@ export const MySQLVideoManager: React.FC<MySQLVideoManagerProps> = ({
             <option value="all">همه تیم‌ها</option>
             <option value="team-thinker">تیم مغز متفکر</option>
             <option value="team-angels">تیم فرشتگان ناشنوایان</option>
-            <option value="team-ghorbani">تیم شادروان قربانی</option>
-            <option value="team-silence">تیم صدای سکوت</option>
-            <option value="team-tomorrow">تیم سازندگان فردا</option>
+            <option value="team-tomorrow">تیم باشگاه فردا</option>
+            <option value="team-ghorbani">تیم قربونی</option>
+            <option value="team-silence">تیم آوای سکوت</option>
             <option value="general">ویدیوهای عمومی</option>
           </select>
 
@@ -469,12 +473,12 @@ export const MySQLVideoManager: React.FC<MySQLVideoManagerProps> = ({
                             ? 'مغز متفکر'
                             : video.team_slug === 'team-angels'
                             ? 'فرشتگان ناشنوایان'
-                            : video.team_slug === 'team-ghorbani'
-                            ? 'شادروان قربانی'
-                            : video.team_slug === 'team-silence'
-                            ? 'صدای سکوت'
                             : video.team_slug === 'team-tomorrow'
-                            ? 'سازندگان فردا'
+                            ? 'باشگاه فردا'
+                            : video.team_slug === 'team-ghorbani'
+                            ? 'قربونی'
+                            : video.team_slug === 'team-silence'
+                            ? 'آوای سکوت'
                             : 'عمومی'}
                         </span>
                       </td>

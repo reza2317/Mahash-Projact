@@ -7,6 +7,7 @@ import AdmZip from 'adm-zip';
 import { GoogleGenAI } from '@google/genai';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+const publicUploadsDir = ""; const publicFilePath = ""; const cPubPath = ""; const pubLogo = ""; const pubEmblem = "";
 import mysql from 'mysql2/promise';
 // Server-side Official Assets & Vector SVGs for Mahash Institution and Youth Club
 export const OFFICIAL_MAHASH_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
@@ -251,220 +252,10 @@ function insertAuditLog(actionType: string, title: string, details: string, acto
 
 // Ensure permanent fallback video assets and official images exist on disk for all container instances
 function ensureUploadsAndHydrate() {
-  try {
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {}
-    }
-    const publicUploadsDir = path.join(process.cwd(), 'public', 'uploads');
-    if (!fs.existsSync(publicUploadsDir)) {
-      try { fs.mkdirSync(publicUploadsDir, { recursive: true }); } catch {}
-    }
-
-    // Bidirectional sync between root uploads/ and public/uploads/
-    try {
-      if (fs.existsSync(UPLOADS_DIR) && fs.existsSync(publicUploadsDir)) {
-        const uFiles = fs.readdirSync(UPLOADS_DIR);
-        for (const file of uFiles) {
-          const src = path.join(UPLOADS_DIR, file);
-          const dest = path.join(publicUploadsDir, file);
-          if (!fs.existsSync(dest)) {
-            try { fs.copyFileSync(src, dest); } catch {}
-          }
-        }
-        const pFiles = fs.readdirSync(publicUploadsDir);
-        for (const file of pFiles) {
-          const src = path.join(publicUploadsDir, file);
-          const dest = path.join(UPLOADS_DIR, file);
-          if (!fs.existsSync(dest)) {
-            try { fs.copyFileSync(src, dest); } catch {}
-          }
-        }
-      }
-    } catch {}
-
-    // 1. Write official Mahash logo and Youth Club emblem SVGs to disk
-    const mahashLogoDest = path.join(UPLOADS_DIR, 'mahash-96747ecd00.webp');
-    const mahashLogoSvgDest = path.join(UPLOADS_DIR, 'mahash-96747ecd00.svg');
-    const mahashLogoPngDest = path.join(UPLOADS_DIR, 'mahash-2193c09b41.png');
-    if (!fs.existsSync(mahashLogoDest)) {
-      try { fs.writeFileSync(mahashLogoDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(mahashLogoSvgDest)) {
-      try { fs.writeFileSync(mahashLogoSvgDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(mahashLogoPngDest)) {
-      try { fs.writeFileSync(mahashLogoPngDest, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
-    }
-
-    const emblemDest = path.join(UPLOADS_DIR, 'emblem-96747ecd00.webp');
-    const emblemSvgDest = path.join(UPLOADS_DIR, 'emblem-96747ecd00.svg');
-    const emblemPngDest = path.join(UPLOADS_DIR, 'emblem-2193c09b41.png');
-    if (!fs.existsSync(emblemDest)) {
-      try { fs.writeFileSync(emblemDest, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(emblemSvgDest)) {
-      try { fs.writeFileSync(emblemSvgDest, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(emblemPngDest)) {
-      try { fs.writeFileSync(emblemPngDest, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
-    }
-
-    // 2. Write Dr. Nazi Abbasian avatar to uploads
-    const naziPhotoDest = path.join(UPLOADS_DIR, 'consultant-284f763688.webp');
-    const naziSvgDest = path.join(UPLOADS_DIR, 'consultant-284f763688.svg');
-    const naziPngDest = path.join(UPLOADS_DIR, 'consultant-4385004063.png');
-    if (!fs.existsSync(naziPhotoDest)) {
-      try { fs.writeFileSync(naziPhotoDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(naziSvgDest)) {
-      try { fs.writeFileSync(naziSvgDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(naziPngDest)) {
-      try { fs.writeFileSync(naziPngDest, OFFICIAL_NAZI_AVATAR_SVG, 'utf-8'); } catch {}
-    }
-
-    // Write Radin Oroumi avatar to uploads
-    const radinPhotoDest = path.join(UPLOADS_DIR, 'consultant-01916cb489.webp');
-    const radinPngDest = path.join(UPLOADS_DIR, 'consultant-f513d1c735.png');
-    if (!fs.existsSync(radinPhotoDest)) {
-      try { fs.writeFileSync(radinPhotoDest, OFFICIAL_RADIN_AVATAR_SVG, 'utf-8'); } catch {}
-    }
-    if (!fs.existsSync(radinPngDest)) {
-      try { fs.writeFileSync(radinPngDest, OFFICIAL_RADIN_AVATAR_SVG, 'utf-8'); } catch {}
-    }
-
-    // 3. Write public standalone SVGs
-    try {
-      const pubDir = path.join(process.cwd(), 'public');
-      if (fs.existsSync(pubDir)) {
-        const pubLogo = path.join(pubDir, 'mahash-official-logo.svg');
-        const pubEmblem = path.join(pubDir, 'mahash-club-emblem.svg');
-        if (!fs.existsSync(pubLogo)) {
-          try { fs.writeFileSync(pubLogo, OFFICIAL_MAHASH_LOGO_SVG, 'utf-8'); } catch {}
-        }
-        if (!fs.existsSync(pubEmblem)) {
-          try { fs.writeFileSync(pubEmblem, OFFICIAL_MAHASH_EMBLEM_SVG, 'utf-8'); } catch {}
-        }
-      }
-    } catch {}
-
-    // 4. Hydrate consultant photos and team logos from data_store.json
-    try {
-      const dataStorePath = path.join(process.cwd(), 'data_store.json');
-      if (fs.existsSync(dataStorePath)) {
-        const dsContent = JSON.parse(fs.readFileSync(dataStorePath, 'utf-8'));
-        
-        // Consultant photos
-        if (dsContent.consultantPhotos && typeof dsContent.consultantPhotos === 'object') {
-          for (const [cName, cImg] of Object.entries(dsContent.consultantPhotos)) {
-            if (typeof cImg === 'string' && cImg.startsWith('data:image/')) {
-              const matches = cImg.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
-              if (matches) {
-                const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-                const hash = crypto.createHash('md5').update(matches[2]).digest('hex').substring(0, 10);
-                const cFile = `consultant-${hash}.${ext}`;
-                const cPath = path.join(UPLOADS_DIR, cFile);
-                const cPubPath = path.join(publicUploadsDir, cFile);
-                if (!fs.existsSync(cPath)) {
-                  try { fs.writeFileSync(cPath, Buffer.from(matches[2], 'base64')); } catch {}
-                }
-                if (!fs.existsSync(cPubPath)) {
-                  try { fs.writeFileSync(cPubPath, Buffer.from(matches[2], 'base64')); } catch {}
-                }
-              }
-            }
-          }
-        }
-
-        // Radin Oroumi photo
-        if (dsContent.consultantsList && dsContent.consultantsList[1] && dsContent.consultantsList[1].image) {
-          const imgStr = dsContent.consultantsList[1].image;
-          if (imgStr.startsWith('data:image/')) {
-            const clean = imgStr.replace(/^data:image\/[^;]+;base64,/, '');
-            const radinDest = path.join(UPLOADS_DIR, 'consultant-01916cb489.webp');
-            if (!fs.existsSync(radinDest)) {
-              try { fs.writeFileSync(radinDest, Buffer.from(clean, 'base64')); } catch {}
-            }
-          }
-        }
-
-        // Team logos
-        if (dsContent.teamOverrides) {
-          for (const [teamKey, override] of Object.entries(dsContent.teamOverrides)) {
-            if (override && (override as any).logo && (override as any).logo.startsWith('data:image/')) {
-              const m = (override as any).logo.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
-              if (m) {
-                const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
-                const hash = crypto.createHash('md5').update(m[2]).digest('hex').substring(0, 10);
-                const tName = `team-${hash}.${ext}`;
-                const tPath = path.join(UPLOADS_DIR, tName);
-                if (!fs.existsSync(tPath)) {
-                  try { fs.writeFileSync(tPath, Buffer.from(m[2], 'base64')); } catch {}
-                }
-                if (teamKey === 'team-silence' || teamKey === 'silence') {
-                  const sPath = path.join(UPLOADS_DIR, `score-silence-${hash}.${ext}`);
-                  if (!fs.existsSync(sPath)) {
-                    try { fs.writeFileSync(sPath, Buffer.from(m[2], 'base64')); } catch {}
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (dsHydrateErr) {
-      console.warn('⚠️ Warning during data_store hydration:', dsHydrateErr);
-    }
-
-    const publicSample = path.join(process.cwd(), 'public', 'mahash-sample-video.mp4');
-    const stableDest = path.join(UPLOADS_DIR, 'mahash-stable-video.mp4');
-
-    if (fs.existsSync(publicSample)) {
-      if (!fs.existsSync(stableDest)) {
-        try {
-          fs.copyFileSync(publicSample, stableDest);
-        } catch {}
-      }
-
-      // Pre-seed known historical report video files if missing on ephemeral disk
-      const legacyVideoNames = [
-        'file-1788063327590-917009814.mp4',
-        'file-1788063352946-218736197.mp4',
-        'file-1788063115012-791223571.mp4',
-        'file-1788063303183-909070848.mp4',
-        'file-1788063141877-869516181.mp4',
-        'file-1788194454093-106622230.mp4'
-      ];
-
-      for (const legName of legacyVideoNames) {
-        const dest = path.join(UPLOADS_DIR, legName);
-        if (!fs.existsSync(dest)) {
-          try {
-            fs.copyFileSync(publicSample, dest);
-          } catch {}
-        }
-      }
-    }
-
-    // Re-hydrate any in-memory / MySQL assets back to uploads folder if missing
-    if (typeof inMemoryAssets === 'object' && inMemoryAssets !== null) {
-      for (const [key, asset] of Object.entries(inMemoryAssets)) {
-        if (asset && asset.name && asset.data && typeof asset.data === 'string' && asset.data.startsWith('data:')) {
-          try {
-            const filePath = path.join(UPLOADS_DIR, asset.name);
-            if (!fs.existsSync(filePath)) {
-              const clean = asset.data.replace(/^data:[^;]+;base64,/, '');
-              fs.writeFileSync(filePath, Buffer.from(clean, 'base64'));
-            }
-          } catch {}
-        }
-      }
-    }
-  } catch (hydrationErr) {
-    console.warn('⚠️ Warning during uploads directory hydration:', hydrationErr);
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {} 
   }
 }
-
 // Initial hydration
 ensureUploadsAndHydrate();
 
@@ -495,12 +286,11 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 app.get('/uploads/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(UPLOADS_DIR, filename);
-  const publicFilePath = path.join(process.cwd(), 'public', 'uploads', filename);
   const distFilePath = path.join(process.cwd(), 'dist', 'uploads', filename);
 
   const resolvedPath = fs.existsSync(filePath)
     ? filePath
-    : (fs.existsSync(publicFilePath) ? publicFilePath : (fs.existsSync(distFilePath) ? distFilePath : null));
+    : (fs.existsSync(distFilePath) ? distFilePath : null);
 
   if (resolvedPath) {
     try {
@@ -531,7 +321,6 @@ app.get('/uploads/:filename', (req, res) => {
         try {
           fs.writeFileSync(filePath, buffer);
           if (fs.existsSync(path.join(process.cwd(), 'public', 'uploads'))) {
-            fs.writeFileSync(publicFilePath, buffer);
           }
         } catch {}
         res.setHeader('Content-Type', mime);
@@ -773,26 +562,37 @@ app.get('/robots.txt', (req, res) => {
   res.send(`User-agent: *\nAllow: /\nDisallow: /api/admin/\nDisallow: /#/admin\n\nSitemap: https://mahash.org/sitemap.xml\n`);
 });
 
-app.get(['/api/export-netlify-zip', '/api/export-dist-zip', '/mahash-production-dist.zip', '/dist.zip'], (req, res) => {
+app.get(['/api/export-netlify-zip', '/api/export-dist-zip', '/mahash-dist-netlify.zip', '/mahash-production-dist.zip', '/dist.zip'], (req, res) => {
   try {
-    const zip = new AdmZip();
     const projectRoot = process.cwd();
     const distPath = path.join(projectRoot, 'dist');
-    const publicPath = path.join(projectRoot, 'public');
+    const sourceDir = fs.existsSync(distPath) ? distPath : path.join(projectRoot, 'public');
 
-    if (fs.existsSync(distPath)) {
-      zip.addLocalFolder(distPath);
-    } else if (fs.existsSync(publicPath)) {
-      zip.addLocalFolder(publicPath);
+    const zip = new AdmZip();
+
+    if (fs.existsSync(sourceDir)) {
+      const items = fs.readdirSync(sourceDir);
+      for (const item of items) {
+        if (item.endsWith('.zip') || item === 'server.cjs' || item === 'server.cjs.map') continue;
+        const fullItem = path.join(sourceDir, item);
+        const st = fs.statSync(fullItem);
+        if (st.isDirectory()) {
+          zip.addLocalFolder(fullItem, item);
+        } else {
+          zip.addLocalFile(fullItem);
+        }
+      }
     }
 
     const zipBuffer = zip.toBuffer();
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="mahash-production-dist.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="mahash-dist-netlify.zip"');
     res.send(zipBuffer);
   } catch (error) {
     console.error('Error generating netlify export zip:', error);
-    res.status(500).json({ error: 'Failed to generate Netlify export package' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate Netlify export package' });
+    }
   }
 });
 
@@ -1017,6 +817,8 @@ interface ServerStoreData {
   memberships?: any[];
   preferences?: any;
   updatedAt?: string;
+  videoVisibility?: Record<string, boolean>;
+  deletedVideos?: string[];
 }
 
 const defaultSeedMemberships = [
@@ -1216,6 +1018,8 @@ let inMemoryStore: ServerStoreData = {
   activityLogs: [],
   memberships: [...defaultSeedMemberships],
   preferences: { theme: 'system', highContrast: false, textSize: 'normal' },
+  videoVisibility: {},
+  deletedVideos: [],
   updatedAt: new Date().toISOString()
 };
 
@@ -1420,6 +1224,21 @@ async function initMySQL() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Dedicated Team Scores & Points table in MySQL
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mahash_team_scores (
+        \`team_id\` VARCHAR(64) PRIMARY KEY,
+        \`team_name\` VARCHAR(128) NOT NULL,
+        \`score\` INT NOT NULL DEFAULT 0,
+        \`rank_order\` INT NOT NULL DEFAULT 0,
+        \`logo_url\` TEXT,
+        \`raw_data\` LONGTEXT,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_score (\`score\`),
+        INDEX idx_rank (\`rank_order\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Dedicated High-Performance Video Management & Visibility Registry table in MySQL
     await conn.query(`
       CREATE TABLE IF NOT EXISTS mahash_videos (
@@ -1555,7 +1374,9 @@ async function initMySQL() {
           memberAvatars: { ...(inMemoryStore.memberAvatars || {}), ...(parsed.memberAvatars || {}) },
           memberships: Array.isArray(parsed.memberships) && parsed.memberships.length > 0
             ? parsed.memberships
-            : (Array.isArray(inMemoryStore.memberships) && inMemoryStore.memberships.length > 0 ? inMemoryStore.memberships : [...defaultSeedMemberships])
+            : (Array.isArray(inMemoryStore.memberships) && inMemoryStore.memberships.length > 0 ? inMemoryStore.memberships : [...defaultSeedMemberships]),
+          videoVisibility: { ...(inMemoryStore.videoVisibility || {}), ...(parsed.videoVisibility || {}) },
+          deletedVideos: Array.isArray(parsed.deletedVideos) ? parsed.deletedVideos : (inMemoryStore.deletedVideos || [])
         };
         console.log('✅ Loaded persistent server store from disk.');
       }
@@ -1771,22 +1592,53 @@ async function saveStoreToMySQL() {
         ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`)
       `, [prefStr]).catch(() => {});
     }
+
+    // Direct permanent sync of team scores to mahash_team_scores in MySQL
+    if (Array.isArray(inMemoryStore.scores) && inMemoryStore.scores.length > 0) {
+      for (let idx = 0; idx < inMemoryStore.scores.length; idx++) {
+        const item = inMemoryStore.scores[idx];
+        if (item && item.id) {
+          await mysqlPool.query(`
+            INSERT INTO mahash_team_scores (\`team_id\`, \`team_name\`, \`score\`, \`rank_order\`, \`logo_url\`, \`raw_data\`)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              \`team_name\` = VALUES(\`team_name\`),
+              \`score\` = VALUES(\`score\`),
+              \`rank_order\` = VALUES(\`rank_order\`),
+              \`logo_url\` = VALUES(\`logo_url\`),
+              \`raw_data\` = VALUES(\`raw_data\`)
+          `, [
+            item.id,
+            item.name || item.id,
+            Number(item.score) || 0,
+            idx + 1,
+            item.logo || '',
+            JSON.stringify(item)
+          ]).catch(() => {});
+        }
+      }
+    }
   } catch (err) {
     console.warn('⚠️ Failed to sync store to MySQL:', err);
   }
 }
 
+let saveStoreTimer: NodeJS.Timeout | null = null;
 function saveStoreToDisk() {
-  try {
-    fs.writeFileSync(DATA_STORE_FILE, JSON.stringify(inMemoryStore, null, 2), 'utf-8');
-  } catch (err) {
+  if (saveStoreTimer) clearTimeout(saveStoreTimer);
+  saveStoreTimer = setTimeout(() => {
     try {
-      const fallbackFile = path.join('/tmp', 'mahash_data_store.json');
-      fs.writeFileSync(fallbackFile, JSON.stringify(inMemoryStore, null, 2), 'utf-8');
-    } catch (err2) {
+      const dataStr = JSON.stringify(inMemoryStore);
+      fs.writeFile(DATA_STORE_FILE, dataStr, 'utf-8', (err) => {
+        if (err) {
+          const fallbackFile = path.join('/tmp', 'mahash_data_store.json');
+          fs.writeFile(fallbackFile, dataStr, 'utf-8', () => {});
+        }
+      });
+    } catch (err) {
       console.warn('⚠️ Could not write data_store.json to disk:', err);
     }
-  }
+  }, 100);
   // Also save to MySQL database asynchronously
   saveStoreToMySQL();
 }
@@ -1800,7 +1652,6 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
         const hash = crypto.createHash('md5').update(matches[2]).digest('hex').substring(0, 10);
         const filename = `${prefix}-${hash}.${ext}`;
         const filePath = path.join(UPLOADS_DIR, filename);
-        const publicFilePath = path.join(process.cwd(), 'public', 'uploads', filename);
         let buffer;
         if (!fs.existsSync(filePath)) {
           buffer = Buffer.from(matches[2], 'base64');
@@ -1809,9 +1660,6 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
           buffer = fs.readFileSync(filePath);
         }
         try {
-          if (!fs.existsSync(publicFilePath)) {
-            fs.writeFileSync(publicFilePath, buffer);
-          }
         } catch {}
         
         // Persist to MySQL mahash_assets
@@ -3014,14 +2862,21 @@ try {
   }
 } catch (e) {}
 
+let saveVersionsTimer: NodeJS.Timeout | null = null;
 function saveVersionsToDisk() {
-  try {
-    fs.writeFileSync(MYSQL_VERSIONS_FILE, JSON.stringify(inMemoryReportVersions, null, 2), 'utf-8');
-  } catch (err) {
+  if (saveVersionsTimer) clearTimeout(saveVersionsTimer);
+  saveVersionsTimer = setTimeout(() => {
     try {
-      fs.writeFileSync(path.join('/tmp', 'mysql_report_versions.json'), JSON.stringify(inMemoryReportVersions, null, 2), 'utf-8');
-    } catch {}
-  }
+      const dataStr = JSON.stringify(inMemoryReportVersions);
+      fs.writeFile(MYSQL_VERSIONS_FILE, dataStr, 'utf-8', (err) => {
+        if (err) {
+          fs.writeFile(path.join('/tmp', 'mysql_report_versions.json'), dataStr, 'utf-8', () => {});
+        }
+      });
+    } catch (err) {
+      console.warn('⚠️ Could not write mysql_report_versions.json:', err);
+    }
+  }, 100);
 }
 
 // 1. Report Versions: GET all versions for a report
@@ -3521,6 +3376,54 @@ app.post('/api/mysql/preferences', async (req, res) => {
   }
 });
 
+// 8. Direct MySQL Team Scores & Aggregated Points Management
+app.get('/api/mysql/scores', async (req, res) => {
+  try {
+    if (mysqlPool && mysqlConnected) {
+      const [rows]: any = await mysqlPool.query('SELECT team_id, team_name, score, rank_order, logo_url, raw_data, updated_at FROM mahash_team_scores ORDER BY score DESC, rank_order ASC');
+      if (rows && rows.length > 0) {
+        const scores = rows.map((r: any) => {
+          let extra: any = {};
+          try {
+            if (r.raw_data) extra = JSON.parse(r.raw_data);
+          } catch {}
+          return {
+            id: r.team_id,
+            name: r.team_name,
+            score: Number(r.score) || 0,
+            logo: r.logo_url || extra.logo || '',
+            ...extra
+          };
+        });
+        return res.json({ success: true, scores, source: 'mysql' });
+      }
+    }
+    res.json({ success: true, scores: inMemoryStore.scores || [], source: 'memory_disk' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در دریافت امتیازات از MySQL', details: err?.message });
+  }
+});
+
+app.post('/api/mysql/scores', async (req, res) => {
+  try {
+    const { scores, teamId, score } = req.body || {};
+    if (Array.isArray(scores)) {
+      inMemoryStore.scores = scores;
+    } else if (teamId && typeof score === 'number') {
+      const current = Array.isArray(inMemoryStore.scores) ? inMemoryStore.scores : [];
+      const updated = current.map(s => s.id === teamId ? { ...s, score } : s);
+      updated.sort((a, b) => (b.score || 0) - (a.score || 0));
+      inMemoryStore.scores = updated;
+    }
+    inMemoryStore.updatedAt = new Date().toISOString();
+    saveStoreToDisk();
+
+    res.json({ success: true, message: 'امتیازات با موفقیت در پایگاه داده MySQL ذخیره و به‌روزرسانی شدند.', scores: inMemoryStore.scores });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در ذخیره امتیازات در MySQL', details: err?.message });
+  }
+});
+
 let inMemoryVideoErrors: any[] = [];
 
 // Video Monitor Telemetry Endpoints
@@ -3569,7 +3472,7 @@ app.get('/api/store', (req, res) => {
 });
 
 // Shared Server Store POST/Sync endpoint
-app.post('/api/store', async (req, res) => {
+app.post('/api/store', async (req, res) => {  
   try {
     const payload = req.body || {};
     
@@ -3734,7 +3637,13 @@ app.post('/api/store', async (req, res) => {
 
     inMemoryStore.updatedAt = new Date().toISOString();
     saveStoreToDisk();
-    syncAllAssetsToWordPress();
+    setImmediate(() => {
+      try {
+        syncAllAssetsToWordPress();
+      } catch (e) {
+        console.warn('⚠️ Background WordPress asset sync error:', e);
+      }
+    });
 
     res.json({ success: true, store: inMemoryStore });
   } catch (err: any) {
@@ -3901,26 +3810,42 @@ async function syncVideosToMySQLRegistry() {
   if (!mysqlPool || !mysqlConnected) return;
   try {
     const videoMap = new Map<string, any>();
+    const deletedList = Array.isArray(inMemoryStore.deletedVideos) ? inMemoryStore.deletedVideos : [];
 
     // 1. Scan uploads directory
     if (fs.existsSync(UPLOADS_DIR)) {
       const files = fs.readdirSync(UPLOADS_DIR);
       for (const file of files) {
         if (file.endsWith('.mp4') || file.endsWith('.webm') || file.endsWith('.mov')) {
+          const videoUrl = `/uploads/${file}`;
+          const videoId = `vid_${crypto.createHash('md5').update(file).digest('hex').substring(0, 12)}`;
+          // Skip if explicitly deleted
+          if (deletedList.includes(videoUrl) || deletedList.includes(videoId) || deletedList.includes(file)) {
+            continue;
+          }
+
           const filePath = path.join(UPLOADS_DIR, file);
           const stats = fs.statSync(filePath);
-          const videoId = `vid_${crypto.createHash('md5').update(file).digest('hex').substring(0, 12)}`;
-          videoMap.set(`/uploads/${file}`, {
+          // Default unlinked raw media files to 0 (private) so public video storage doesn't grow uncontrollably
+          const isPub = inMemoryStore.videoVisibility?.[videoId] !== undefined
+            ? (inMemoryStore.videoVisibility[videoId] ? 1 : 0)
+            : 0;
+
+          videoMap.set(videoUrl, {
             id: videoId,
             title: file.replace(/[-_]/g, ' ').replace(/\.(mp4|webm|mov)$/i, ''),
-            team_slug: file.includes('thinker') ? 'team-thinker' : (file.includes('angels') ? 'team-angels' : 'general'),
+            team_slug: file.includes('thinker') ? 'team-thinker' : 
+                       (file.includes('angels') ? 'team-angels' : 
+                       (file.includes('tomorrow') ? 'team-tomorrow' : 
+                       (file.includes('ghorbani') ? 'team-ghorbani' : 
+                       (file.includes('silence') ? 'team-silence' : 'general')))),
             report_id: null,
-            video_url: `/uploads/${file}`,
+            video_url: videoUrl,
             file_name: file,
             file_size_bytes: stats.size,
             mime_type: file.endsWith('.webm') ? 'video/webm' : 'video/mp4',
             duration_seconds: 45,
-            is_public: 1,
+            is_public: isPub,
             views_count: 0
           });
         }
@@ -3936,6 +3861,16 @@ async function syncVideosToMySQLRegistry() {
         if (vUrl.startsWith('indexeddb:') || vUrl.startsWith('blob:')) continue;
         const existing = videoMap.get(vUrl) || {};
         const videoId = existing.id || `vid_${rep.id || crypto.createHash('md5').update(vUrl).digest('hex').substring(0, 12)}`;
+
+        // Skip if explicitly deleted
+        if (deletedList.includes(vUrl) || deletedList.includes(videoId)) {
+          continue;
+        }
+
+        const isPub = inMemoryStore.videoVisibility?.[videoId] !== undefined
+          ? (inMemoryStore.videoVisibility[videoId] ? 1 : 0)
+          : (rep.isPublic !== undefined ? (rep.isPublic ? 1 : 0) : 1);
+
         videoMap.set(vUrl, {
           ...existing,
           id: videoId,
@@ -3948,7 +3883,7 @@ async function syncVideosToMySQLRegistry() {
           file_size_bytes: existing.file_size_bytes || 1128375,
           mime_type: 'video/mp4',
           duration_seconds: existing.duration_seconds || 60,
-          is_public: rep.isPublic !== undefined ? (rep.isPublic ? 1 : 0) : (existing.is_public !== undefined ? existing.is_public : 1),
+          is_public: isPub,
           views_count: inMemoryStore.reportViews?.[rep.id] || existing.views_count || 0
         });
       }
@@ -3993,35 +3928,112 @@ async function syncVideosToMySQLRegistry() {
 app.delete('/api/mysql/videos/:id', async (req, res) => {
   try {
     const videoId = req.params.id;
+    let videoUrl: string | null = null;
+    let fileName: string | null = null;
+
     if (mysqlPool && mysqlConnected) {
-      // Find the video URL to remove from reports
-      const [rows]: any = await mysqlPool.query('SELECT video_url FROM mahash_videos WHERE id = ?', [videoId]);
-      const videoUrl = rows && rows.length > 0 ? rows[0].video_url : null;
-      
-      await mysqlPool.query('DELETE FROM mahash_videos WHERE id = ?', [videoId]);
-      
-      // Update reports in memory to remove this video
-      if (videoUrl && Array.isArray(inMemoryStore.customReports)) {
-        let changed = false;
-        inMemoryStore.customReports.forEach((rep) => {
-          if (rep.videoSrc === videoUrl || rep.videoUrl === videoUrl) {
-            rep.videoSrc = '';
-            rep.videoUrl = '';
-            changed = true;
+      // Find the video URL & file name to completely purge from disk and reports
+      const [rows]: any = await mysqlPool.query('SELECT video_url, file_name FROM mahash_videos WHERE id = ?', [videoId]);
+      if (rows && rows.length > 0) {
+        videoUrl = rows[0].video_url;
+        fileName = rows[0].file_name;
+      }
+      await mysqlPool.query('DELETE FROM mahash_videos WHERE id = ?', [videoId]).catch(() => {});
+    }
+
+    // Fallback URL extraction if not in MySQL
+    if (!videoUrl && Array.isArray(inMemoryStore.customReports)) {
+      const rep = inMemoryStore.customReports.find(r => r.id === videoId || `vid_${r.id}` === videoId);
+      if (rep) {
+        videoUrl = rep.videoSrc || rep.videoUrl || null;
+      }
+    }
+    if (!videoUrl && videoId.startsWith('vid_')) {
+      const candidate = videoId.replace('vid_', '');
+      if (fs.existsSync(path.join(UPLOADS_DIR, candidate))) {
+        fileName = candidate;
+        videoUrl = `/uploads/${candidate}`;
+      }
+    }
+    if (!fileName && videoUrl && videoUrl.startsWith('/uploads/')) {
+      fileName = path.basename(videoUrl);
+    }
+
+    // 1. Physically delete video file from disk to prevent storage leaks and re-indexing
+    if (fileName) {
+      const pathsToClean = [
+        path.join(UPLOADS_DIR, fileName),
+        path.join(process.cwd(), 'public', 'uploads', fileName),
+        path.join(process.cwd(), 'dist', 'uploads', fileName)
+      ];
+      for (const targetPath of pathsToClean) {
+        if (fs.existsSync(targetPath)) {
+          try {
+            fs.unlinkSync(targetPath);
+            console.log(`🗑️ Physically deleted video file from disk: ${targetPath}`);
+          } catch (delErr) {
+            console.warn('Could not unlink video file:', delErr);
           }
-        });
-        if (changed) {
-          saveStoreToDisk();
         }
       }
-
-      res.json({ success: true, message: 'Video deleted successfully' });
-    } else {
-      res.status(503).json({ success: false, error: 'MySQL is not connected' });
     }
+
+    // 2. Clear video URL from any linked reports in memory
+    if (Array.isArray(inMemoryStore.customReports)) {
+      let changed = false;
+      inMemoryStore.customReports.forEach((rep) => {
+        if (
+          (videoUrl && (rep.videoSrc === videoUrl || rep.videoUrl === videoUrl)) ||
+          rep.id === videoId ||
+          `vid_${rep.id}` === videoId
+        ) {
+          rep.videoSrc = '';
+          rep.videoUrl = '';
+          changed = true;
+        }
+      });
+      if (changed) {
+        saveStoreToDisk();
+      }
+    }
+
+    // 3. Mark in deletedVideos blacklist so it never resurrects during background directory scans
+    if (!Array.isArray(inMemoryStore.deletedVideos)) {
+      inMemoryStore.deletedVideos = [];
+    }
+    if (videoId && !inMemoryStore.deletedVideos.includes(videoId)) {
+      inMemoryStore.deletedVideos.push(videoId);
+    }
+    if (videoUrl && !inMemoryStore.deletedVideos.includes(videoUrl)) {
+      inMemoryStore.deletedVideos.push(videoUrl);
+    }
+    if (fileName && !inMemoryStore.deletedVideos.includes(fileName)) {
+      inMemoryStore.deletedVideos.push(fileName);
+    }
+
+    // 4. Remove from visibility cache
+    if (inMemoryStore.videoVisibility) {
+      delete inMemoryStore.videoVisibility[videoId];
+      if (videoUrl) delete inMemoryStore.videoVisibility[videoUrl];
+    }
+
+    // 5. Remove from WordPress emulated database
+    if (Array.isArray(wpDbStore.wp_posts_media)) {
+      wpDbStore.wp_posts_media = wpDbStore.wp_posts_media.filter(
+        m => m.id !== videoId && m.url !== videoUrl && m.filename !== fileName
+      );
+    }
+
+    saveStoreToDisk();
+    saveWpDbToDisk();
+
+    res.json({
+      success: true,
+      message: 'ویدیو با موفقیت و به صورت دائمی از پایگاه داده و فضای دیسک حذف گردید.'
+    });
   } catch (err: any) {
     console.error('Error deleting video:', err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err?.message || 'خطا در حذف ویدیو' });
   }
 });
 
@@ -4124,22 +4136,57 @@ app.get('/api/mysql/videos/optimized', async (req, res) => {
 
     // In-memory fallback if MySQL temporarily disconnected
     let videos: any[] = [];
+    const deletedList = Array.isArray(inMemoryStore.deletedVideos) ? inMemoryStore.deletedVideos : [];
+
     if (fs.existsSync(UPLOADS_DIR)) {
       const files = fs.readdirSync(UPLOADS_DIR);
       files.forEach((file) => {
-        if (file.endsWith('.mp4') || file.endsWith('.webm')) {
+        if (file.endsWith('.mp4') || file.endsWith('.webm') || file.endsWith('.mov')) {
+          const videoUrl = `/uploads/${file}`;
+          const vidId = `vid_${file}`;
+          if (deletedList.includes(file) || deletedList.includes(videoUrl) || deletedList.includes(vidId)) {
+            return;
+          }
+
           const stats = fs.statSync(path.join(UPLOADS_DIR, file));
+          // Find if attached to any report
+          const attachedRep = Array.isArray(inMemoryStore.customReports)
+            ? inMemoryStore.customReports.find(r => r.videoSrc === videoUrl || r.videoUrl === videoUrl)
+            : null;
+
+          const isPub = inMemoryStore.videoVisibility?.[vidId] !== undefined
+            ? (inMemoryStore.videoVisibility[vidId] ? 1 : 0)
+            : (inMemoryStore.videoVisibility?.[videoUrl] !== undefined
+                ? (inMemoryStore.videoVisibility[videoUrl] ? 1 : 0)
+                : (attachedRep ? (attachedRep.isPublic !== false ? 1 : 0) : 0));
+
+          let videoTeamSlug = 'general';
+          if (attachedRep?.teamSlug) {
+            videoTeamSlug = attachedRep.teamSlug;
+          } else if (file.includes('thinker')) {
+            videoTeamSlug = 'team-thinker';
+          } else if (file.includes('angels')) {
+            videoTeamSlug = 'team-angels';
+          } else if (file.includes('tomorrow')) {
+            videoTeamSlug = 'team-tomorrow';
+          } else if (file.includes('ghorbani')) {
+            videoTeamSlug = 'team-ghorbani';
+          } else if (file.includes('silence')) {
+            videoTeamSlug = 'team-silence';
+          }
+
           videos.push({
-            id: `vid_${file}`,
-            title: file.replace(/[-_]/g, ' '),
-            team_slug: 'general',
-            video_url: `/uploads/${file}`,
+            id: vidId,
+            title: attachedRep?.title || file.replace(/[-_]/g, ' ').replace(/\.(mp4|webm|mov)$/i, ''),
+            team_slug: videoTeamSlug,
+            report_id: attachedRep?.id || null,
+            video_url: videoUrl,
             file_name: file,
             file_size_bytes: stats.size,
-            mime_type: 'video/mp4',
+            mime_type: file.endsWith('.webm') ? 'video/webm' : 'video/mp4',
             duration_seconds: 60,
-            is_public: 1,
-            views_count: 0,
+            is_public: isPub,
+            views_count: attachedRep ? (inMemoryStore.reportViews?.[attachedRep.id] || 0) : 0,
             created_at: stats.mtime.toISOString(),
             updated_at: stats.mtime.toISOString()
           });
@@ -4193,36 +4240,45 @@ app.patch('/api/mysql/videos/:id/visibility', async (req, res) => {
 
     let updatedVideo: any = null;
 
+    // 1. Always record in memory store so fallback & state stay synchronized
+    if (!inMemoryStore.videoVisibility) {
+      inMemoryStore.videoVisibility = {};
+    }
+    inMemoryStore.videoVisibility[videoId] = isPublic;
+
+    // 2. Reflect in MySQL if connected
     if (mysqlPool && mysqlConnected) {
       await mysqlPool.query(
         'UPDATE mahash_videos SET is_public = ?, updated_at = NOW() WHERE id = ?',
         [isPublicInt, videoId]
-      );
+      ).catch(() => {});
 
-      const [rows]: any = await mysqlPool.query('SELECT * FROM mahash_videos WHERE id = ?', [videoId]);
+      const [rows]: any = await mysqlPool.query('SELECT * FROM mahash_videos WHERE id = ?', [videoId]).catch(() => []);
       if (rows && rows.length > 0) {
         updatedVideo = rows[0];
-
-        // Also reflect in report if linked
-        if (updatedVideo.report_id) {
-          const repId = updatedVideo.report_id;
-          if (Array.isArray(inMemoryStore.customReports)) {
-            const match = inMemoryStore.customReports.find((r: any) => r.id === repId);
-            if (match) {
-              match.isPublic = isPublic;
-              saveStoreToDisk();
-            }
-          }
-        }
       }
     }
+
+    // 3. Reflect in customReports if linked
+    if (Array.isArray(inMemoryStore.customReports)) {
+      const match = inMemoryStore.customReports.find((r: any) => 
+        r.id === videoId || 
+        `vid_${r.id}` === videoId || 
+        (updatedVideo?.report_id && r.id === updatedVideo.report_id)
+      );
+      if (match) {
+        match.isPublic = isPublic;
+      }
+    }
+
+    saveStoreToDisk();
 
     res.json({
       success: true,
       message: `وضعیت انتشار ویدیو با موفقیت به «${isPublic ? 'عمومی (Public)' : 'خصوصی (Private)'}» تغییر یافت.`,
       videoId,
       is_public: isPublic,
-      video: updatedVideo
+      video: updatedVideo || { id: videoId, is_public: isPublicInt }
     });
   } catch (err: any) {
     console.error('Error updating video visibility:', err);
@@ -4355,14 +4411,19 @@ try {
   console.warn('⚠️ Could not load mysql_database.json, initializing fresh WordPress DB store:', err);
 }
 
+let saveWpDbTimer: NodeJS.Timeout | null = null;
 function saveWpDbToDisk() {
-  try {
-    fs.writeFileSync(MYSQL_DB_FILE, JSON.stringify(wpDbStore, null, 2), 'utf-8');
-  } catch (err) {
+  if (saveWpDbTimer) clearTimeout(saveWpDbTimer);
+  saveWpDbTimer = setTimeout(() => {
     try {
-      fs.writeFileSync(path.join('/tmp', 'mysql_database.json'), JSON.stringify(wpDbStore, null, 2), 'utf-8');
+      const dataStr = JSON.stringify(wpDbStore);
+      fs.writeFile(MYSQL_DB_FILE, dataStr, 'utf-8', (err) => {
+        if (err) {
+          fs.writeFile(path.join('/tmp', 'mysql_database.json'), dataStr, 'utf-8', () => {});
+        }
+      });
     } catch {}
-  }
+  }, 100);
 }
 
 function syncAllAssetsToWordPress() {
@@ -5814,14 +5875,6 @@ app.post('/api/upload-file', upload.single('file'), (req, res) => {
     }
     const publicUrl = `/uploads/${req.file.filename}`;
     const filename = req.file.filename;
-
-    // Mirror to public/uploads
-    try {
-      const pubDest = path.join(process.cwd(), 'public', 'uploads', filename);
-      if (!fs.existsSync(pubDest)) {
-        fs.copyFileSync(path.join(UPLOADS_DIR, filename), pubDest);
-      }
-    } catch {}
 
     // Persist to inMemoryAssets and MySQL/data_store if under 20MB for permanent cloud persistence
     if (req.file.size < 20 * 1024 * 1024) {

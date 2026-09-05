@@ -618,6 +618,15 @@ export const WordPressCMSPanel: React.FC = () => {
                       <HardDrive className="w-4 h-4" />
                       دانلود سورس کامل وبسایت (.zip)
                     </button>
+                    <button
+                      onClick={() => {
+                        window.open('/api/export-netlify-zip', '_blank');
+                      }}
+                      className="bg-teal-600 hover:bg-teal-500 text-white font-medium px-6 py-3 rounded-xl text-sm transition shadow flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      دانلود پکیج خروجی Netlify (.zip)
+                    </button>
                   </div>
 
                   {/* Migration Progress Chart & Status Section */}
