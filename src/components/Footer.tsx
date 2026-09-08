@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { PageId } from '../types';
 import { getMahashLogo, subscribeToStoreUpdates, isAdminAuthenticated } from '../utils/reportsStore';
+import { downloadNetlifyDeploymentZip } from '../utils/netlifyExport';
 import { MAHESH_LOGO_SVG } from '../utils/assets';
-import { Phone, Mail, MapPin, Clock, HeartHandshake } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, HeartHandshake, Download } from 'lucide-react';
 
 interface FooterProps {
   onNavigate: (page: PageId) => void;
+  currentPage?: PageId;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
+export const Footer: React.FC<FooterProps> = ({ onNavigate, currentPage }) => {
   const [logoSrc, setLogoSrc] = useState<string>(() => getMahashLogo() || MAHESH_LOGO_SVG);
   const [isAdmin, setIsAdmin] = useState<boolean>(isAdminAuthenticated());
+  const [downloadingZip, setDownloadingZip] = useState<boolean>(false);
 
   useEffect(() => {
     const updateFooterState = () => {
@@ -188,6 +191,27 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <p className="m-0">© {new Date().getFullYear()} موسسه محاش | تمامی حقوق محفوظ است.</p>
           <div className="flex items-center gap-3">
             <span className="text-slate-400">موسسه حمایت از افراد با افت شنوایی (تأسیس ۱۳۸۰)</span>
+            
+            {currentPage === 'admin' && (
+              <>
+                <span className="text-white/20" aria-hidden="true">|</span>
+                <button
+                  type="button"
+                  disabled={downloadingZip}
+                  onClick={async () => {
+                    setDownloadingZip(true);
+                    await downloadNetlifyDeploymentZip();
+                    setDownloadingZip(false);
+                  }}
+                  className="text-[#5eead4] hover:text-white transition flex items-center gap-1 font-bold cursor-pointer bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-md text-[11px]"
+                  title="دانلود مستقیم بسته خروجی برای آپلود در Netlify"
+                >
+                  <Download className={`w-3.5 h-3.5 ${downloadingZip ? 'animate-bounce' : ''}`} />
+                  <span>{downloadingZip ? 'در حال دریافت...' : 'دانلود پکیج Netlify'}</span>
+                </button>
+              </>
+            )}
+
             <span className="text-white/20" aria-hidden="true">|</span>
             <button
               type="button"

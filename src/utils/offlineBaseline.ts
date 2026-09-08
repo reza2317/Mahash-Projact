@@ -110,11 +110,30 @@ export function applyOfflineBaseline(baseline: OfflineBaselineState): {
       let photosChanged = false;
 
       for (const [key, photoData] of Object.entries(baseline.consultantPhotos)) {
-        if (!currentPhotos[key] && photoData) {
+        if (!photoData) continue;
+        const current = currentPhotos[key];
+        const isCurrentSvg = typeof current === 'string' && current.trim().startsWith('<svg');
+        const isNewRealImage = typeof photoData === 'string' && !photoData.trim().startsWith('<svg');
+
+        if (!current || (isCurrentSvg && isNewRealImage)) {
           currentPhotos[key] = photoData;
           photosAdded++;
           photosChanged = true;
           safeSetLocalStorage(`mahash_consultant_photo_${key}`, photoData);
+
+          if (key.includes('نازی') || key.includes('عباسیان') || key.toLowerCase().includes('nazi')) {
+            safeSetLocalStorage('mahash_consultant_photo_خانم دکتر نازی عباسیان', photoData);
+            safeSetLocalStorage('mahash_consultant_photo_نازی عباسیان', photoData);
+            safeSetLocalStorage('mahash_consultant_photo_consultant_nazi_abbasian', photoData);
+            currentPhotos['خانم دکتر نازی عباسیان'] = photoData;
+            currentPhotos['consultant_nazi_abbasian'] = photoData;
+          } else if (key.includes('رادین') || key.includes('اورومی') || key.toLowerCase().includes('radin')) {
+            safeSetLocalStorage('mahash_consultant_photo_آقای رادین اورومی', photoData);
+            safeSetLocalStorage('mahash_consultant_photo_رادین اورومی', photoData);
+            safeSetLocalStorage('mahash_consultant_photo_consultant_radin_oroumi', photoData);
+            currentPhotos['آقای رادین اورومی'] = photoData;
+            currentPhotos['consultant_radin_oroumi'] = photoData;
+          }
         }
       }
 

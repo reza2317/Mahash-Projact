@@ -93,7 +93,7 @@ export const ModernResponsiveVideoPlayer: React.FC<ModernResponsiveVideoPlayerPr
   // Normalize sources list
   const resolvedSources: VideoSourceOption[] = React.useMemo(() => {
     if (sources && sources.length > 0) return sources;
-    if (!src) return [{ src: '/uploads/mahash-stable-video.mp4', type: 'video/mp4' }];
+    if (!src) return [{ src: '/mahash-sample-video.mp4', type: 'video/mp4' }];
 
     const list: VideoSourceOption[] = [];
     const lower = src.toLowerCase();
@@ -108,7 +108,7 @@ export const ModernResponsiveVideoPlayer: React.FC<ModernResponsiveVideoPlayerPr
     }
 
     // Safety fallback
-    list.push({ src: '/uploads/mahash-stable-video.mp4', type: 'video/mp4' });
+    list.push({ src: '/mahash-sample-video.mp4', type: 'video/mp4' });
     return list;
   }, [src, sources]);
 

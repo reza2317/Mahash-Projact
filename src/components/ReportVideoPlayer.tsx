@@ -483,7 +483,7 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
                   <source src={effectiveVideoSrc.replace(/\.webm$/i, '.mp4')} type="video/mp4" />
                 )}
                 {/* Fail-safe high-availability stable video */}
-                <source src="/uploads/mahash-stable-video.mp4" type="video/mp4" />
+                <source src="/mahash-sample-video.mp4" type="video/mp4" />
                 {(vttBlobUrl || report.vttUrl) && (
                   <track
                     kind="subtitles"

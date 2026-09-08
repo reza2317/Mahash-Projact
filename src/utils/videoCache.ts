@@ -199,7 +199,7 @@ export async function getOrLoadCachedVideoUrl(
   // Fallback to remote URL or server stable video for public visitors
   let remoteUrl = rawVideoSrc && !rawVideoSrc.startsWith('indexeddb:') && !rawVideoSrc.startsWith('blob:') ? rawVideoSrc : '';
   if (!remoteUrl && (rawVideoSrc?.startsWith('indexeddb:') || rawVideoSrc?.startsWith('blob:'))) {
-    remoteUrl = '/uploads/mahash-stable-video.mp4';
+    remoteUrl = '/mahash-sample-video.mp4';
   }
   return {
     url: remoteUrl,

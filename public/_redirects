@@ -1,2 +1,5 @@
-# SPA fallback routing rule for Netlify, Cloudflare Pages, and static hosting
-/*    /index.html   200
+# Direct video stream proxy fallback for static Netlify deploys
+/api/video-stream*   /mahash-sample-video.mp4   200
+/mahash-sample-video.mp4  /mahash-sample-video.mp4  200
+/uploads/*           /uploads/:splat            200
+/*                   /index.html                200

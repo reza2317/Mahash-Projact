@@ -241,3 +241,22 @@ export interface MembershipStats {
   byService: Record<string, number>;
   weeklyTrend: { date: string; count: number }[];
 }
+
+export type NewsAnnouncementType = 'ticker' | 'news';
+
+export interface NewsAnnouncementItem {
+  id: string;
+  type: NewsAnnouncementType;
+  title: string;
+  content?: string;
+  summary?: string;
+  badge?: string; // e.g. "خبر فوری", "اطلاعیه رسمی", "رویداد ویژه", "گزارش زنده", "یادآوری"
+  category?: string; // e.g. "باشگاه جوانان", "آموزشی", "فرهنگی", "مسابقات", "مشاوره"
+  imageUrl?: string;
+  targetUrl?: string; // page id or external url e.g. "home", "scores", "consultation", "team-thinker"
+  isActive: boolean;
+  priority?: number; // 0 to 10 (higher appears first)
+  date?: string; // Jalali or readable date
+  createdAt?: string;
+  updatedAt?: string;
+}

@@ -1003,22 +1003,22 @@ export const KNOWN_MEDIA_MAPPINGS: Record<
     description: 'پیام ویدیویی انگیزشی «رویای یک کافه» (پروژه مشترک)'
   },
   'growth-01': {
-    video: '/uploads/mahash-stable-video.mp4',
+    video: '/mahash-sample-video.mp4',
     poster: '/uploads/score-thinker-bfc199291c.webp',
     description: 'گزارش مهارتی تیم مسیر رشد'
   },
   'samim-01': {
-    video: '/uploads/mahash-stable-video.mp4',
+    video: '/mahash-sample-video.mp4',
     poster: '/uploads/score-tomorrow-7c6a293a14.jpg',
     description: 'گزارش توانمندسازی تیم طنین صمیمیت'
   },
   'ghorbani-01': {
-    video: '/uploads/mahash-stable-video.mp4',
+    video: '/mahash-sample-video.mp4',
     poster: '/uploads/score-ghorbani-e5d14eae40.jpg',
     description: 'گزارش فعالیت تیم شهید ابراهیم هادی'
   },
   'silence-01': {
-    video: '/uploads/mahash-stable-video.mp4',
+    video: '/mahash-sample-video.mp4',
     poster: '/uploads/score-silence-dc7429cedc.jpg',
     description: 'گزارش فعالیت تیم طنین سکوت'
   },

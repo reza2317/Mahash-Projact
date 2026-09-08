@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { fetchAndMergeServerStore, getAllReports } from './utils/reportsStore';
 import { globalEventBus } from './utils/eventBus';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -199,21 +199,27 @@ function MainApp() {
       {/* Live News Ticker */}
       <NewsTicker onNavigate={navigateTo} />
 
-      {/* Main Page Body */}
-      <main id="mahesh-main-content" className="flex-1 overflow-x-hidden">
-        <motion.div
-          key={currentPage}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-        >
-          {renderContent()}
-        </motion.div>
+      {/* Main Page Body with Enhanced Page Transitions */}
+      <main id="mahesh-main-content" className="flex-1 overflow-x-hidden relative">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={currentPage}
+            initial={{ opacity: 0, y: 8, scale: 0.998 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.998 }}
+            transition={{
+              duration: 0.22,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            className="w-full flex-1"
+          >
+            {renderContent()}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Footer */}
-      <Footer onNavigate={navigateTo} />
+      <Footer onNavigate={navigateTo} currentPage={currentPage} />
 
       {/* Mobile Fixed Bottom Navigation Bar */}
       <MobileBottomBar currentPage={currentPage} onNavigate={navigateTo} />
@@ -239,8 +245,11 @@ export default function App() {
 
     const cleanupStorage = initStorageMonitor();
 
+    let lastRefocusSync = Date.now();
     const handleFocusOrVisible = () => {
-      if (document.visibilityState === 'visible') {
+      const now = Date.now();
+      if (document.visibilityState === 'visible' && now - lastRefocusSync > 30000) {
+        lastRefocusSync = now;
         fetchAndMergeServerStore().catch(() => {});
       }
     };

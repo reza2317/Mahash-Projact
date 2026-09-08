@@ -477,20 +477,22 @@ export const Header: React.FC<HeaderProps> = ({ currentPage, onNavigate }) => {
 
             {/* Admin Portal Shortcut Button - only visible when logged in or already on admin page */}
             {(isAdmin || currentPage === 'admin') && (
-              <button
-                type="button"
-                onClick={() => handleNav('admin')}
-                className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                  currentPage === 'admin'
-                    ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                    : 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100'
-                }`}
-                title="پنل مدیریت محاش"
-                aria-label="ورود به پنل مدیریت موسسه محاش"
-              >
-                <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span className="text-xs font-bold hidden md:inline">پنل مدیریت</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleNav('admin')}
+                  className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    currentPage === 'admin'
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                      : 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100'
+                  }`}
+                  title="پنل مدیریت محاش"
+                  aria-label="ورود به پنل مدیریت موسسه محاش"
+                >
+                  <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span className="text-xs font-bold hidden md:inline">پنل مدیریت</span>
+                </button>
+              </>
             )}
 
             {/* Action Button (عضویت در محاش) - Fully Responsive & Non-Stretching */}

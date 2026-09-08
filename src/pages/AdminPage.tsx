@@ -72,6 +72,7 @@ import {
   getConsultantPhotos,
   getConsultantPhoto,
   saveConsultantPhoto,
+  saveConsultantPhotoWithAutoCompression,
   resetConsultantPhoto,
   updateConsultantInfo,
   addConsultant,
@@ -90,9 +91,14 @@ import { VideoGalleryView } from '../components/VideoGalleryView';
 import { SyncStatusBadge } from '../components/SyncStatusBadge';
 import { AdminLogoManager } from '../components/admin/AdminLogoManager';
 import { MediaContentManager } from '../components/admin/MediaContentManager';
+import { MySQLMediaFileManager } from '../components/admin/MySQLMediaFileManager';
 import { MySQLVideoManager } from '../components/admin/MySQLVideoManager';
 import { MembershipsManagementDashboard } from '../components/admin/MembershipsManagementDashboard';
 import { DatabaseStateAuditTool } from '../components/admin/DatabaseStateAuditTool';
+import { DatabaseBackupExport } from '../components/admin/DatabaseBackupExport';
+import { ContentManager } from '../components/admin/ContentManager';
+import { AssetPersistenceManager } from '../components/admin/AssetPersistenceManager';
+import { ComprehensiveExportHub } from '../components/admin/ComprehensiveExportHub';
 import {
   saveMahashLogoToFirestore,
   saveYouthClubEmblemToFirestore,
@@ -213,7 +219,9 @@ import {
   ShieldAlert,
   Shield,
   CheckSquare,
-  Layers
+  Layers,
+  Package,
+  FolderArchive
 } from 'lucide-react';
 
 interface AdminPageProps {
@@ -242,7 +250,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [recoverySuccess, setRecoverySuccess] = useState<boolean>(false);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'members_dashboard' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'video_manager' | 'video_errors' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs' | 'audit_logs' | 'db_audit'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'reports' | 'drafts' | 'repair' | 'gallery' | 'monthly' | 'teams' | 'members_dashboard' | 'scores' | 'events' | 'analytics' | 'logos' | 'media' | 'video_manager' | 'video_errors' | 'health' | 'storage' | 'settings' | 'wordpress' | 'mysql' | 'mysql_logs' | 'audit_logs' | 'db_audit' | 'content_manager' | 'db_backup' | 'asset_persistence' | 'comprehensive_export'>('create');
   const [mysqlHealthStatus, setMysqlHealthStatus] = useState<{ connected: boolean; host?: string; database?: string; timestamp?: string } | null>(null);
 
   const [isSyncingServer, setIsSyncingServer] = useState(false);
@@ -1781,20 +1789,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     setMahashLogo(logoData);
     setMahashLogoSrc(logoData);
     
-    // WordPress API sync with explicit try-catch state rollback
     try {
-      await WordPressService.saveLogo('mahash_official_logo', logoData, 'logo', title || 'لوگوی رسمی مؤسسه محاش');
+      try {
+        await WordPressService.saveLogo('mahash_official_logo', logoData, 'logo', title || 'لوگوی رسمی مؤسسه محاش');
+      } catch (wpErr) {
+        console.info('WordPress sync optional/skipped:', wpErr);
+      }
       await saveMahashLogoToFirestore(logoData);
       setMahashSyncStatus('synced');
       setMahashLastSyncedAt(new Date());
-      showToast(`لوگوی اصلی مؤسسه محاش به «${title || 'طرح انتخابی'}» تغییر یافت و در دیتابیس وردپرس و فایربیس ثبت شد.`);
+      showToast(`لوگوی اصلی مؤسسه محاش به «${title || 'طرح انتخابی'}» تغییر یافت و ذخیره شد.`);
       setTimeout(() => setMahashSyncStatus('idle'), 3500);
     } catch (err) {
-      // Explicit state rollback to prevent 'Saving...' loop
       setMahashLogoSrc(previousLogo);
       setMahashLogo(previousLogo);
       setMahashSyncStatus('error');
-      showToast('خطا در ذخیره‌سازی لوگوی محاش در وردپرس. حالت قبلی با موفقیت بازیابی شد.', 'error');
+      showToast('خطا در ذخیره‌سازی لوگوی محاش. حالت قبلی بازیابی شد.', 'error');
     }
   };
 
@@ -1804,7 +1814,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     resetMahashLogo();
     setMahashLogoSrc(MAHESH_LOGO_SVG);
     try {
-      await WordPressService.saveLogo('mahash_official_logo', MAHESH_LOGO_SVG, 'logo', 'لوگوی رسمی مؤسسه محاش');
+      try {
+        await WordPressService.saveLogo('mahash_official_logo', MAHESH_LOGO_SVG, 'logo', 'لوگوی رسمی مؤسسه محاش');
+      } catch (wpErr) {
+        console.info('WordPress sync optional/skipped:', wpErr);
+      }
       await saveMahashLogoToFirestore('');
       setMahashSyncStatus('synced');
       setMahashLastSyncedAt(new Date());
@@ -1824,18 +1838,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     setYouthClubBadgeSrc(badgeData);
 
     try {
-      await WordPressService.saveLogo('mahash_youth_club_emblem', badgeData, 'badge', title || 'نشان رسمی باشگاه جوانان');
+      try {
+        await WordPressService.saveLogo('mahash_youth_club_emblem', badgeData, 'badge', title || 'نشان رسمی باشگاه جوانان');
+      } catch (wpErr) {
+        console.info('WordPress sync optional/skipped:', wpErr);
+      }
       await saveYouthClubEmblemToFirestore(badgeData);
       setYouthClubSyncStatus('synced');
       setYouthClubLastSyncedAt(new Date());
       showToast(`نشان اختصاصی باشگاه جوانان به «${title || 'طرح انتخابی'}» تغییر یافت و همگام شد.`);
       setTimeout(() => setYouthClubSyncStatus('idle'), 3500);
     } catch (err) {
-      // Explicit state rollback
       setYouthClubBadgeSrc(previousBadge);
       setYouthClubBadge(previousBadge);
       setYouthClubSyncStatus('error');
-      showToast('خطا در ذخیره‌سازی نشان باشگاه جوانان در وردپرس. حالت قبلی بازیابی شد.', 'error');
+      showToast('خطا در ذخیره‌سازی نشان باشگاه جوانان. حالت قبلی بازیابی شد.', 'error');
     }
   };
 
@@ -1845,7 +1862,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     resetYouthClubBadge();
     setYouthClubBadgeSrc(MAHESH_CLUB_EMBLEM_SVG);
     try {
-      await WordPressService.saveLogo('mahash_youth_club_emblem', MAHESH_CLUB_EMBLEM_SVG, 'badge', 'نشان رسمی باشگاه جوانان');
+      try {
+        await WordPressService.saveLogo('mahash_youth_club_emblem', MAHESH_CLUB_EMBLEM_SVG, 'badge', 'نشان رسمی باشگاه جوانان');
+      } catch (wpErr) {
+        console.info('WordPress sync optional/skipped:', wpErr);
+      }
       await saveYouthClubEmblemToFirestore('');
       setYouthClubSyncStatus('synced');
       setYouthClubLastSyncedAt(new Date());
@@ -3018,10 +3039,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               ? 'bg-gradient-to-l from-indigo-800 to-blue-700 text-white shadow-sm ring-2 ring-cyan-400/40'
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
-          aria-label="مدیریت تصاویر و مدیا"
+          aria-label="مدیریت رسانه‌های MySQL و فشرده‌سازی خودکار"
         >
           <ImageIcon className="w-4 h-4 text-cyan-400" />
-          <span>🖼️ مدیریت تصاویر و مدیا (WebP & MySQL)</span>
+          <span>🖼️ مدیریت رسانه‌های MySQL و فشرده‌سازی خودکار</span>
         </button>
 
         <button
@@ -3209,6 +3230,74 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         >
           <Database className="w-4 h-4 text-blue-400" />
           <span>🔍 دیباگ و تطبیق پایگاه داده با کلاینت</span>
+        </button>
+
+        <button
+          id="admin-tab-content-manager"
+          role="tab"
+          aria-selected={activeTab === 'content_manager'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('content_manager')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'content_manager'
+              ? 'bg-gradient-to-l from-amber-700 via-orange-600 to-amber-800 text-white shadow-sm ring-2 ring-amber-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="مدیریت اخبار صفحه اصلی و اطلاعیه‌های نوار متحرک Ticker در MySQL"
+        >
+          <BellRing className="w-4 h-4 text-amber-300" />
+          <span>📰 مدیریت اخبار و اطلاعیه‌های Ticker (MySQL)</span>
+        </button>
+
+        <button
+          id="admin-tab-asset-persistence"
+          role="tab"
+          aria-selected={activeTab === 'asset_persistence'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('asset_persistence')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'asset_persistence'
+              ? 'bg-gradient-to-l from-emerald-700 via-teal-600 to-cyan-700 text-white shadow-sm ring-2 ring-emerald-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="تثبیت و ذخیره‌سازی دائمی لوگوهای محاش و عکس‌های مشاوران در دیتابیس MySQL و پکیج Netlify"
+        >
+          <Sparkles className="w-4 h-4 text-emerald-300" />
+          <span>💎 ذخیره‌سازی لوگوها و مشاوران (MySQL & Netlify)</span>
+        </button>
+
+        <button
+          id="admin-tab-comprehensive-export"
+          role="tab"
+          aria-selected={activeTab === 'comprehensive_export'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('comprehensive_export')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'comprehensive_export'
+              ? 'bg-gradient-to-l from-indigo-700 via-purple-700 to-pink-700 text-white shadow-sm ring-2 ring-indigo-400/50'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="تولید بسته‌های خروجی، هاستینگ، لوکال، وردپرس و فایل‌های کامل مهاجرت"
+        >
+          <Package className="w-4 h-4 text-purple-300" />
+          <span>📦 خروجی جامع و مهاجرت (هاست، لوکال، وردپرس)</span>
+        </button>
+
+        <button
+          id="admin-tab-db-backup"
+          role="tab"
+          aria-selected={activeTab === 'db_backup'}
+          aria-controls="admin-panel-content"
+          onClick={() => setActiveTab('db_backup')}
+          className={`px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'db_backup'
+              ? 'bg-gradient-to-l from-blue-800 via-indigo-700 to-blue-900 text-white shadow-sm ring-2 ring-blue-400/40'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          aria-label="پشتیبان‌گیری کامل و خروجی اکسل CSV و JSON از دیتابیس فعلی MySQL"
+        >
+          <FileSpreadsheet className="w-4 h-4 text-blue-300" />
+          <span>💾 خروجی و پشتیبان‌گیری دیتابیس (JSON / CSV)</span>
         </button>
 
         <button
@@ -6233,10 +6322,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                                   throw new Error('حجم تصویر بیش از ۵ مگابایت است. لطفاً فایل کم‌حجم‌تری انتخاب فرمایید.');
                                 }
 
-                                const finalPhoto = await uploadAndProcessImageFile(file, 400, 0.85);
+                                const comp = await saveConsultantPhotoWithAutoCompression(consultant.name, file, {
+                                  maxWidth: 420,
+                                  maxHeight: 420,
+                                  quality: 0.82
+                                });
+                                const finalPhoto = comp.compressedDataUrl;
                                 
-                                // Optimistic local save
-                                saveConsultantPhoto(consultant.name, finalPhoto);
                                 setConsultantPhotos(getConsultantPhotos());
                                 setConsultantsList(getAllConsultants());
 
@@ -6245,10 +6337,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                                 if (ok) {
                                   setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'synced' }));
                                   setConsultantLastSyncedMap((prev) => ({ ...prev, [consultant.name]: new Date() }));
-                                  showToast(`عکس مشاور «${consultant.name}» با موفقیت در دیتابیس ابری ذخیره و پایدار گردید.`);
+                                  showToast(`عکس مشاور «${consultant.name}» با موفقیت فشرده‌سازی WebP (${comp.compressedSizeFormatted}) و در دیتابیس MySQL و ابری پایدار گردید.`);
                                 } else {
                                   setConsultantSyncStatusMap((prev) => ({ ...prev, [consultant.name]: 'synced' }));
-                                  showToast(`عکس مشاور «${consultant.name}» در حافظه پایدار ثبت شد.`);
+                                  showToast(`عکس مشاور «${consultant.name}» در حافظه و MySQL ثبت شد.`);
                                 }
 
                                 if (cPreview) URL.revokeObjectURL(cPreview);
@@ -6435,10 +6527,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ==================================================== */}
-      {/* TAB: WebP Media & MySQL Content Management */}
+      {/* TAB: MySQL Media & Consultant Auto-Compression Suite */}
       {/* ==================================================== */}
       {activeTab === 'media' && (
-        <MediaContentManager
+        <MySQLMediaFileManager
           onRefreshAll={() => {
             setConsultantPhotos(getConsultantPhotos());
             setConsultantsList(getAllConsultants());
@@ -7075,15 +7167,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 <span>دانلود نسخه پشتیبان کامل داده‌ها (JSON)</span>
               </button>
 
-              <a
-                href="/mahash-production-dist.zip"
-                download="mahash-production-dist.zip"
-                className="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Download className="w-4 h-4 text-emerald-600" />
-                <span>دانلود پکیج خروجی کامل سایت برای Netlify (ZIP)</span>
-              </a>
-
               <button
                 onClick={handleForceRefresh}
                 disabled={isForceRefreshing || isSyncingServer}
@@ -7186,6 +7269,42 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           }}
           showToast={showToast}
         />
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: News & Ticker Content Manager */}
+      {/* ==================================================== */}
+      {activeTab === 'content_manager' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <ContentManager onSuccessToast={(msg) => showToast(msg, 'success')} />
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Database Backup & CSV / JSON Export */}
+      {/* ==================================================== */}
+      {activeTab === 'db_backup' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <DatabaseBackupExport onSuccessToast={(msg) => showToast(msg, 'success')} />
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Comprehensive Export & Migration Hub            */}
+      {/* ==================================================== */}
+      {activeTab === 'comprehensive_export' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <ComprehensiveExportHub onSuccessToast={(msg) => showToast(msg, 'success')} />
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB: Permanent Asset Persistence to MySQL & Netlify */}
+      {/* ==================================================== */}
+      {activeTab === 'asset_persistence' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <AssetPersistenceManager onSuccessToast={(msg) => showToast(msg, 'success')} />
+        </div>
       )}
 
       {/* ==================================================== */}

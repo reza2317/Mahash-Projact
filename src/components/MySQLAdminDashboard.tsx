@@ -48,7 +48,7 @@ import {
 } from 'recharts';
 import { useNotification } from '../context/NotificationContext';
 import { toPersianDigits } from '../utils/persianDate';
-import { fetchAndMergeServerStore, subscribeToStoreUpdates } from '../utils/reportsStore';
+import { fetchAndMergeServerStore, subscribeToStoreUpdates, deleteReportPermanently } from '../utils/reportsStore';
 import { MySQLLiveLogsMonitor } from './admin/MySQLLiveLogsMonitor';
 import { MySQLSchemaManager } from './admin/MySQLSchemaManager';
 
@@ -592,15 +592,15 @@ export const MySQLAdminDashboard: React.FC = () => {
 
   const handleDeleteReport = async (id: string | number) => {
     try {
-      const res = await fetch(`/api/reports/${id}?permanent=true`, { method: 'DELETE' });
-      if (res.ok) {
-        const updated = customReports.filter(r => String(r.id) !== String(id));
-        setCustomReports(updated);
-        // We can just fetch the store data again to ensure everything is synced
-        fetchStoreData();
-      } else {
-        throw new Error('Failed to delete report from MySQL backend');
-      }
+      await deleteReportPermanently(String(id), undefined, {
+        operatorName: 'مدیر دیتابیس MySQL',
+        operatorRole: 'مدیر ارشد',
+        reason: 'حذف دائمی از داشبورد پایگاه داده MySQL'
+      });
+      const updated = customReports.filter(r => String(r.id) !== String(id));
+      setCustomReports(updated);
+      await fetchStoreData();
+      maintenanceSuccess('حذف موفق', `گزارش با شناسه ${id} به صورت قطعی و دائمی از پایگاه داده و حافظه حذف شد.`);
     } catch (err: any) {
       showError('خطا در حذف', err.message || 'خطا در حذف گزارش');
     }

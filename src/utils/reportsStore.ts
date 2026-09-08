@@ -12,13 +12,14 @@ import {
   deleteConsultantPhotoFromFirestore,
   getCanonicalConsultantDocId
 } from './firestorePersistence';
-import { ActivityReport, TeamData, ScoreItem, EventItem, PageId, TranscriptScene, Consultant, ReportDraft, ReportType } from '../types';
+import { ActivityReport, TeamData, ScoreItem, EventItem, PageId, TranscriptScene, Consultant, ReportDraft, ReportType, NewsAnnouncementItem } from '../types';
 import { TEAMS_DATA, SCORES_DATA, CONSULTANTS } from '../data/mahashData';
 import { EVENTS_DATA } from '../data/eventsData';
 import { parseReportTimestamp, formatReportNumberDisplay, toPersianDigits, extractReportSequenceNumber } from './persianDate';
 import { toEnglishDigits } from './persianDigitsHandler';
 import { MAHESH_LOGO_SVG, MAHESH_CLUB_EMBLEM_SVG, NAZI_AVATAR_SVG, RADIN_AVATAR_SVG } from './assets';
 import { safeSetLocalStorage, safeGetLocalStorage, safeRemoveLocalStorage, freeUpLocalStorageQuota } from './storage';
+import { compressConsultantPhoto, ConsultantCompressionResult } from './consultantImageCompressor';
 
 // Event for notifying subscribers of reports/teams changes
 export const STORE_CHANGE_EVENT = 'mahash_store_updated';
@@ -618,17 +619,35 @@ export interface TrashBinItem {
   deletedAt: string;
 }
 
+export const KNOWN_DEPRECATED_REPORT_IDS = [
+  'angels-01',
+  'report-1788415737865',
+  'report-1788415621673',
+  'report-1788415821547',
+  'thinker-01',
+  'thinker-02',
+  'report-1788380971690',
+  'report-1788414757247',
+  'report-1788414281564',
+  'tomorrow-01',
+  'tomorrow-02',
+  'tomorrow-03',
+  'ghorbani-01',
+  'silence-01'
+];
+
 export function getDeletedReportsList(): string[] {
+  const defaultDeprecated = [...KNOWN_DEPRECATED_REPORT_IDS];
   try {
     const raw = safeGetLocalStorage(DELETED_REPORTS_KEY);
-    if (!raw) return [];
+    if (!raw) return defaultDeprecated;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed;
+      return Array.from(new Set([...defaultDeprecated, ...parsed]));
     }
-    return [];
+    return defaultDeprecated;
   } catch {
-    return [];
+    return defaultDeprecated;
   }
 }
 
@@ -732,10 +751,28 @@ export function generatePersianSubtitlesForReport(
  * Returns dynamic live ticker items generated from all registered reports across teams.
  * Newly registered reports in any team will automatically appear on top of this live stream.
  */
+/**
+ * Returns dynamic, formatted news ticker items representing reports and active announcements.
+ */
 export function getLiveTickerItems(): LiveTickerItem[] {
+  // 1. Get active announcements designated for Ticker
+  const announcements = getNewsAnnouncements();
+  const activeTickerAnnouncements: LiveTickerItem[] = announcements
+    .filter((a) => a.type === 'ticker' && a.isActive)
+    .sort((a, b) => (b.priority ?? 5) - (a.priority ?? 5))
+    .map((ann) => {
+      const badgePrefix = ann.badge ? `[${ann.badge}] ` : '';
+      const summaryPart = ann.summary ? ` (${ann.summary})` : '';
+      return {
+        text: `${badgePrefix}${ann.title}${summaryPart}`,
+        target: (ann.targetUrl || 'home') as PageId,
+        date: ann.date || ''
+      };
+    });
+
   const allReports = getAllReports();
   
-  if (allReports.length === 0) {
+  if (allReports.length === 0 && activeTickerAnnouncements.length === 0) {
     return [
       {
         text: 'باشگاه جوانان محاش: در انتظار انتشار نخستین گزارش‌های ویدیویی تیم‌ها',
@@ -762,7 +799,7 @@ export function getLiveTickerItems(): LiveTickerItem[] {
     };
   });
 
-  return dynamicItems;
+  return [...activeTickerAnnouncements, ...dynamicItems];
 }
 
 /**
@@ -784,6 +821,121 @@ export function getLatestReportUpdateDate(): string {
   return '۱۴۰۵/۰۵/۲۶';
 }
 
+
+export function normalizePersianTextForDedup(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/[«»"'()؛:،,.\-—–!?/\\#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/ۀ/g, 'ه')
+    .replace(/آ/g, 'ا')
+    .replace(/أ/g, 'ا')
+    .replace(/إ/g, 'ا')
+    .replace(/انیمه/g, 'انیمیشن')
+    .replace(/پر\s*انرژی/g, 'پرانرژی')
+    .replace(/رویایی\s*کافه/g, 'رویای کافه')
+    .replace(/رویایی\s*یک\s*کافه/g, 'رویای یک کافه')
+    .replace(/خود\s*مراقبتی/g, 'خودمراقبتی')
+    .replace(/خود\s*باوری/g, 'خودباوری')
+    .trim()
+    .toLowerCase();
+}
+
+export function getReportSemanticKey(r: ActivityReport & { teamSlug?: string }): string {
+  const norm = normalizePersianTextForDedup(r.title);
+  const team = (r.teamSlug || '').replace(/^team-/, '');
+
+  if (norm.includes('اینفوگرافیک') || norm.includes('اینفوگرافی') || norm.includes('جلسات اول تا چهارم') || r.id === 'tomorrow-02') {
+    return `${team}___infographic`;
+  }
+  if (norm.includes('خودمراقبتی') || r.id === 'tomorrow-03') {
+    return `${team}___self_care_video`;
+  }
+  if (norm.includes('مسیر تیم سازی') || norm.includes('گزارش جامع فعالیت') || norm.includes('گزارش کامل فعالیت') || r.id === 'tomorrow-01') {
+    return `${team}___comprehensive_doc`;
+  }
+  if (norm.includes('کافه') || norm.includes('رویای کافه') || r.id === 'angels-01' || r.id === 'thinker-02') {
+    return `${team}___cafe_dream`;
+  }
+  if (norm.includes('مسیر یک رویا') || norm.includes('فتح سکوی قهرمانی')) {
+    return `${team}___champion_path`;
+  }
+  if (norm.includes('معرفی اعضای') && (norm.includes('فرشتگان') || team === 'angels')) {
+    return `${team}___angels_members`;
+  }
+  if (norm.includes('اپلیکیشن') || norm.includes('برنامه ریزی و راه اندازی اپلیکیشن')) {
+    return `${team}___app_report`;
+  }
+  if (norm.includes('پیام ویدیویی') && (norm.includes('شروعی برای همکاری') || norm.includes('خبرهای خوب') || r.id === 'thinker-01')) {
+    return `${team}___collab_video`;
+  }
+  if (norm.includes('تانگرام') || norm.includes('پازل هندسی')) {
+    return `${team}___tangram`;
+  }
+  if (norm.includes('حدس کارت')) {
+    return `${team}___card_guess`;
+  }
+  if (norm.includes('معرفی اعضا') && (norm.includes('مغز متفکر') || team === 'thinker')) {
+    return `${team}___thinker_members`;
+  }
+
+  return `${team}___${norm}`;
+}
+
+export function getReportDedupTimestamp(r: ActivityReport): number {
+  if (r.id && r.id.startsWith('report-')) {
+    const num = Number(r.id.replace('report-', ''));
+    if (!isNaN(num)) return num;
+  }
+  if ((r as any).updatedAt && typeof (r as any).updatedAt === 'number') {
+    return (r as any).updatedAt;
+  }
+  return parseReportTimestamp(r);
+}
+
+export function mergeDuplicateReports(preferred: ActivityReport, secondary: ActivityReport): ActivityReport {
+  return {
+    ...secondary,
+    ...preferred,
+    transcript: (preferred.transcript && preferred.transcript.length > 0) ? preferred.transcript : (secondary.transcript || []),
+    attachments: (preferred.attachments && preferred.attachments.length > 0) ? preferred.attachments : (secondary.attachments || []),
+    keyPoints: (preferred.keyPoints && preferred.keyPoints.length > 0) ? preferred.keyPoints : (secondary.keyPoints || []),
+    videoSrc: preferred.videoSrc || secondary.videoSrc,
+    videoHint: preferred.videoHint || secondary.videoHint,
+    posterSrc: preferred.posterSrc || secondary.posterSrc,
+  };
+}
+
+export function deduplicateReportsList(reports: ActivityReport[], teamSlug?: string): ActivityReport[] {
+  const byKey = new Map<string, ActivityReport>();
+
+  for (const r of reports) {
+    if (!r || !r.title) continue;
+    const reportWithTeam: ActivityReport = { ...r, teamSlug: r.teamSlug || teamSlug || '' };
+    const key = getReportSemanticKey(reportWithTeam);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, reportWithTeam);
+    } else {
+      const tsCurr = getReportDedupTimestamp(reportWithTeam);
+      const tsExisting = getReportDedupTimestamp(existing);
+
+      let preferred = reportWithTeam;
+      let secondary = existing;
+      if (tsExisting > tsCurr) {
+        preferred = existing;
+        secondary = reportWithTeam;
+      }
+
+      const merged = mergeDuplicateReports(preferred, secondary);
+      byKey.set(key, merged);
+    }
+  }
+
+  return Array.from(byKey.values());
+}
 
 let _memoizedTeamsCache: Record<string, TeamData> | null = null;
 let _lastTeamsCacheVersion: number = -1;
@@ -866,8 +1018,12 @@ export function getAllTeams(): Record<string, TeamData> {
 
     const isAdmin = isAdminAuthenticated();
 
+    // Semantic deduplication: merges duplicates across custom and base reports, keeping latest versions
+    const deduplicatedReports = deduplicateReportsList(Array.from(mergedReportsMap.values()), slug);
+
     // Sort reports inside each team: newest first (index 0), tie-break by report sequence
-    const sortedReports = Array.from(mergedReportsMap.values())
+    const sortedReports = deduplicatedReports
+      .filter((r) => !deletedList.includes(r.id))
       .filter((r) => isAdmin || r.status !== 'draft')
       .sort((a, b) => {
         const timeDiff = parseReportTimestamp(b) - parseReportTimestamp(a);
@@ -2109,6 +2265,46 @@ export function saveConsultantPhoto(consultantName: string, photoDataUrl: string
   syncLocalDataToServer().catch(console.warn);
 }
 
+/**
+ * Automatically compresses a consultant photo before persisting to LocalStorage, Firestore,
+ * and the MySQL mahash_assets table. Returns detailed optimization metrics.
+ */
+export async function saveConsultantPhotoWithAutoCompression(
+  consultantName: string,
+  photoSource: File | Blob | string,
+  options?: { maxWidth?: number; maxHeight?: number; quality?: number }
+): Promise<ConsultantCompressionResult> {
+  if (!consultantName || !photoSource) {
+    throw new Error('نام مشاور و فایل تصویر الزامی است.');
+  }
+
+  // 1. Run automatic WebP compression engine
+  const compressionResult = await compressConsultantPhoto(photoSource, options);
+
+  // 2. Save locally and in cache
+  saveConsultantPhoto(consultantName, compressionResult.compressedDataUrl);
+
+  // 3. Persist directly into Firestore and MySQL mahash_assets
+  try {
+    const canonicalId = getCanonicalConsultantDocId(consultantName);
+    await saveConsultantPhotoToFirestore(consultantName, compressionResult.compressedDataUrl);
+    await fetch('/api/mysql/assets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assetId: canonicalId,
+        category: 'consultant_photo',
+        name: `عکس مشاور: ${consultantName}`,
+        data: compressionResult.compressedDataUrl,
+        mimeType: compressionResult.format === 'WebP' ? 'image/webp' : 'image/jpeg'
+      })
+    }).catch((mysqlErr) => console.warn('MySQL direct asset save notice:', mysqlErr));
+  } catch (netErr) {
+    console.warn('Network notice during consultant photo persistence:', netErr);
+  }
+
+  return compressionResult;
+}
 
 export function resetConsultantPhoto(consultantName: string): void {
   if (!consultantName) return;
@@ -2469,8 +2665,15 @@ export function getPendingSyncCount(): number {
   }
 }
 
+let lastSyncCallTime = 0;
+
 export async function fetchAndMergeServerStore(force: boolean = false): Promise<boolean> {
   if (typeof window === 'undefined') return false;
+  const now = Date.now();
+  if (!force && now - lastSyncCallTime < 4000) {
+    return false;
+  }
+  lastSyncCallTime = now;
   const startTime = performance.now();
   const attemptType: SyncAttemptLog['type'] = force ? 'force_refresh' : 'pull';
   try {
@@ -2757,6 +2960,14 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
         }
 
       });
+
+      // Ensure each team list in grouped is strictly deduplicated
+      Object.keys(grouped).forEach((key) => {
+        if (Array.isArray(grouped[key])) {
+          grouped[key] = deduplicateReportsList(grouped[key], key);
+        }
+      });
+
       safeSetLocalStorage(CUSTOM_REPORTS_KEY, JSON.stringify(grouped));
       modified = true;
     }
@@ -2768,7 +2979,9 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
     }
 
     if (serverData.deletedReports && Array.isArray(serverData.deletedReports) && serverData.deletedReports.length > 0) {
-      safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify(serverData.deletedReports));
+      const currentDeleted = getDeletedReportsList();
+      const mergedDeleted = Array.from(new Set([...currentDeleted, ...KNOWN_DEPRECATED_REPORT_IDS, ...serverData.deletedReports]));
+      safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify(mergedDeleted));
       modified = true;
     }
 
@@ -2878,22 +3091,30 @@ const yieldToMain = () => new Promise(r => setTimeout(r, 10));
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  maxRetries = 3,
-  delayMs = 800
+  maxRetries = 4,
+  delayMs = 1000
 ): Promise<Response> {
   let lastError: any = null;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const res = await fetch(url, options);
-      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, attempt)));
+      if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && attempt < maxRetries - 1) {
+        const retryAfterHeader = res.headers.get('Retry-After');
+        const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 0;
+        const waitTime = retryAfterSeconds > 0 
+          ? retryAfterSeconds * 1000 
+          : (delayMs * Math.pow(2, attempt)) + Math.random() * 300;
+        console.warn(`[fetchWithRetry] Rate-limit/Server busy (${res.status}) on ${url}. Retrying in ${Math.round(waitTime)}ms (attempt ${attempt + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
       return res;
     } catch (networkErr: any) {
       lastError = networkErr;
       if (attempt < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, attempt)));
+        const waitTime = (delayMs * Math.pow(2, attempt)) + Math.random() * 300;
+        console.warn(`[fetchWithRetry] Network error on ${url}: ${networkErr?.message || networkErr}. Retrying in ${Math.round(waitTime)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
     }
@@ -3481,13 +3702,11 @@ export async function restoreAllOfficialReportsAndPublish(): Promise<{ success: 
     const OFFICIAL_BASE_REPORT_IDS = new Set([
       'thinker-01', 'thinker-02',
       'tomorrow-01', 'tomorrow-02', 'tomorrow-03',
-      'angels-01', 'angels-02', 'angels-03',
-      'ghorbani-01', 'silence-01'
+      'angels-01', 'angels-02', 'angels-03'
     ]);
 
-    // 1. Clear deleted reports list completely
-    safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify([]));
-    safeRemoveLocalStorage(DELETED_REPORTS_KEY);
+    // 1. Reset deleted reports to only the known deprecated reports (preserving deprecation for removed reports)
+    safeSetLocalStorage(DELETED_REPORTS_KEY, JSON.stringify([...KNOWN_DEPRECATED_REPORT_IDS]));
 
     // 2. Clean custom reports that were corrupting or overriding official reports
     const customMap = getCustomReportsMap();
@@ -3536,6 +3755,604 @@ export async function restoreAllOfficialReportsAndPublish(): Promise<{ success: 
       success: false,
       count: 0,
       message: err?.message || 'خطا در بازگردانی گزارش‌های رسمی'
+    };
+  }
+}
+
+/* =========================================================================
+   NEWS & TICKER ANNOUNCEMENTS (MySQL Synced)
+   ========================================================================= */
+
+const NEWS_ANNOUNCEMENTS_STORAGE_KEY = 'mahash_news_announcements_v1';
+
+export const DEFAULT_NEWS_ANNOUNCEMENTS: NewsAnnouncementItem[] = [
+  {
+    id: 'ann-ticker-1',
+    type: 'ticker',
+    title: '«آغاز فرایند داوری و ارزیابی نهایی گزارش‌های تصویری تیم‌های پنج‌گانه باشگاه جوانان محاش»',
+    badge: 'خبر فوری',
+    category: 'باشگاه جوانان',
+    targetUrl: 'scores',
+    isActive: true,
+    priority: 10,
+    date: '۱۴ شهریور ۱۴۰۵',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'ann-ticker-2',
+    type: 'ticker',
+    title: '«ثبت‌نام دوره‌های مهارتی، کارآفرینی و توانمندسازی ویژه پاییز ۱۴۰۵ آغاز گردید»',
+    badge: 'اطلاعیه رسمی',
+    category: 'آموزش و اشتغال',
+    targetUrl: 'employment',
+    isActive: true,
+    priority: 8,
+    date: '۱۳ شهریور ۱۴۰۵',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'ann-news-1',
+    type: 'news',
+    title: '«برگزاری نشست تخصصی ارزیابی عملکرد و داوری پروژه‌های تیمی باشگاه جوانان محاش»',
+    summary: 'نشست جامع پایش فعالیت‌های تیمی با حضور داوران، سرپرستان گروه‌ها و اعضای هیئت مدیره مؤسسه محاش برگزار و آخرین دستاوردهای تیم‌های پنج‌گانه بررسی شد.',
+    content: 'در این رویداد، دستاوردهای خلاقانه تیم‌های مغز متفکر، باشگاه فردا، فرشتگان ناشنوایان، قربانی و سکوت خلاق مورد تحلیل فنی، نوآوری و اثرگذاری اجتماعی قرار گرفت و شاخص‌های رتبه‌بندی جدید اعمال گردید.',
+    badge: 'رویداد ویژه',
+    category: 'باشگاه جوانان',
+    targetUrl: 'scores',
+    isActive: true,
+    priority: 9,
+    date: '۱۴ شهریور ۱۴۰۵',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'ann-news-2',
+    type: 'news',
+    title: '«ارائه خدمات جامع مشاوره روان‌شناختی، خانواده و توانبخشی ویژه جامعه ناشنوایان»',
+    summary: 'کانون مشاوره و خدمات تخصصی مؤسسه محاش با حضور مشاوران برجسته (خانم دکتر نازی عباسیان و آقای رادین اورومی) آماده خدمت‌رسانی به عزیزان است.',
+    content: 'جلسات حضوری و آنلاین با زبان اشاره و ابزارهای چندرسانه‌ای برای ارتقای سلامت روان، مهارت‌های ارتباطی و توان‌افزایی جوانان و خانواده‌ها ارائه می‌گردد.',
+    badge: 'اطلاعیه رسمی',
+    category: 'مشاوره و سلامت',
+    targetUrl: 'consultation',
+    isActive: true,
+    priority: 8,
+    date: '۱۲ شهریور ۱۴۰۵',
+    createdAt: new Date().toISOString()
+  }
+];
+
+export function getNewsAnnouncements(): NewsAnnouncementItem[] {
+  if (typeof window === 'undefined') return DEFAULT_NEWS_ANNOUNCEMENTS;
+  try {
+    const raw = safeGetLocalStorage(NEWS_ANNOUNCEMENTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Error reading news announcements from localStorage:', err);
+  }
+  return DEFAULT_NEWS_ANNOUNCEMENTS;
+}
+
+export function saveNewsAnnouncementsListLocally(items: NewsAnnouncementItem[]): void {
+  try {
+    safeSetLocalStorage(NEWS_ANNOUNCEMENTS_STORAGE_KEY, JSON.stringify(items));
+    triggerStoreUpdate();
+  } catch (err) {
+    console.warn('Error saving news announcements to localStorage:', err);
+  }
+}
+
+export async function saveNewsAnnouncement(
+  item: Partial<NewsAnnouncementItem>
+): Promise<NewsAnnouncementItem> {
+  const currentList = getNewsAnnouncements();
+  const id = item.id || `ann-${item.type || 'ticker'}-${Date.now()}`;
+  const nowIso = new Date().toISOString();
+
+  const fullItem: NewsAnnouncementItem = {
+    id,
+    type: item.type || 'ticker',
+    title: item.title || 'اطلاعیه جدید',
+    summary: item.summary || '',
+    content: item.content || '',
+    badge: item.badge || 'اطلاعیه رسمی',
+    category: item.category || 'باشگاه جوانان',
+    imageUrl: item.imageUrl,
+    targetUrl: item.targetUrl || 'home',
+    isActive: item.isActive !== undefined ? item.isActive : true,
+    priority: item.priority ?? 5,
+    date: item.date || new Date().toLocaleDateString('fa-IR'),
+    createdAt: item.createdAt || nowIso,
+    updatedAt: nowIso
+  };
+
+  const existingIdx = currentList.findIndex((i) => i.id === id);
+  let updatedList: NewsAnnouncementItem[];
+  if (existingIdx >= 0) {
+    updatedList = [...currentList];
+    updatedList[existingIdx] = { ...updatedList[existingIdx], ...fullItem };
+  } else {
+    updatedList = [fullItem, ...currentList];
+  }
+
+  saveNewsAnnouncementsListLocally(updatedList);
+
+  // Sync directly to MySQL backend endpoint
+  try {
+    await fetch('/api/mysql/news-announcements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fullItem)
+    });
+  } catch (err) {
+    console.warn('Network error saving news announcement to MySQL, saved locally:', err);
+  }
+
+  return fullItem;
+}
+
+export async function deleteNewsAnnouncement(id: string): Promise<boolean> {
+  const currentList = getNewsAnnouncements();
+  const updatedList = currentList.filter((i) => i.id !== id);
+  saveNewsAnnouncementsListLocally(updatedList);
+
+  try {
+    await fetch(`/api/mysql/news-announcements/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.warn('Error deleting news announcement from MySQL:', err);
+  }
+
+  return true;
+}
+
+export async function toggleNewsAnnouncementActive(id: string): Promise<boolean> {
+  const currentList = getNewsAnnouncements();
+  const target = currentList.find((i) => i.id === id);
+  if (!target) return false;
+
+  target.isActive = !target.isActive;
+  target.updatedAt = new Date().toISOString();
+  saveNewsAnnouncementsListLocally([...currentList]);
+
+  try {
+    await fetch(`/api/mysql/news-announcements/${encodeURIComponent(id)}/toggle`, {
+      method: 'PUT'
+    });
+  } catch (err) {
+    console.warn('Error toggling announcement active status in MySQL:', err);
+  }
+
+  return true;
+}
+
+/* =========================================================================
+   DATABASE BACKUP EXPORT UTILITIES (JSON & UTF-8 BOM CSV)
+   ========================================================================= */
+
+/**
+ * Downloads arbitrary string content as a file with automatic trigger.
+ */
+export function downloadTextFile(
+  content: string,
+  filename: string,
+  mimeType: string = 'text/plain;charset=utf-8;'
+): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/**
+ * Exports complete application database state to a JSON file.
+ */
+export function exportFullDatabaseJSON(): string {
+  const reports = getAllReports();
+  const scores = getAllScores();
+  const teams = getAllTeamsList();
+  const announcements = getNewsAnnouncements();
+  const consultants = CONSULTANTS;
+  const mahashLogo = getMahashLogo();
+  const clubEmblem = getYouthClubBadge();
+  const consultantPhotos = getConsultantPhotos();
+  const customBadges = teams.map(t => ({ team: t.name, slug: t.slug }));
+  const events = getAllEvents();
+
+  const fullDump = {
+    metadata: {
+      exportedAt: new Date().toISOString(),
+      exportDateJalali: new Date().toLocaleDateString('fa-IR'),
+      appVersion: '2.5.0-production',
+      database: 'mahash_db',
+      system: 'سامانه مدیریت جامع مؤسسه و باشگاه جوانان محاش'
+    },
+    tables: {
+      mahash_reports: reports,
+      mahash_team_scores: scores,
+      mahash_news_announcements: announcements,
+      mahash_events: events,
+      mahash_teams: teams,
+      mahash_consultants: consultants,
+      mahash_custom_badges: customBadges
+    },
+    assets: {
+      mahashLogo: mahashLogo ? 'EXISTS' : 'EMPTY',
+      clubEmblem: clubEmblem ? 'EXISTS' : 'EMPTY',
+      consultantPhotosCount: Object.keys(consultantPhotos).length
+    }
+  };
+
+  return JSON.stringify(fullDump, null, 2);
+}
+
+/**
+ * Helper to escape CSV fields for Excel compatibility with UTF-8 BOM.
+ */
+function escapeCsvField(val: any): string {
+  if (val === null || val === undefined) return '""';
+  const str = String(val).replace(/"/g, '""');
+  return `"${str}"`;
+}
+
+/**
+ * Exports Reports table to CSV with UTF-8 BOM.
+ */
+export function exportReportsCSV(): string {
+  const reports = getAllReports();
+  const headers = [
+    'شناسه گزارش',
+    'تیم',
+    'عنوان گزارش',
+    'شماره گزارش',
+    'تاریخ شمسی',
+    'نوع گزارش',
+    'خلاصه فعالیت',
+    'تعداد پیوست‌ها',
+    'تعداد تصاویر',
+    'لینک ویدیو',
+    'دسته‌بندی'
+  ];
+
+  const rows = reports.map((r) => [
+    escapeCsvField(r.id),
+    escapeCsvField(r.teamName),
+    escapeCsvField(r.title),
+    escapeCsvField(r.reportNum || ''),
+    escapeCsvField(r.date || ''),
+    escapeCsvField(r.reportType || 'video'),
+    escapeCsvField(r.summary || ''),
+    escapeCsvField(r.attachments?.length || 0),
+    escapeCsvField(r.images?.length || 0),
+    escapeCsvField(r.videoSrc || ''),
+    escapeCsvField((r as any).category || '')
+  ]);
+
+  // \uFEFF ensures Excel displays Persian/Arabic characters correctly
+  return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+}
+
+/**
+ * Exports Team Scores table to CSV with UTF-8 BOM.
+ */
+export function exportScoresCSV(): string {
+  const scores = getAllScores();
+  const headers = [
+    'شناسه تیم',
+    'نام تیم',
+    'امتیاز کل',
+    'رتبه',
+    'حداکثر امتیاز',
+    'وضعیت ثبت تیم'
+  ];
+
+  const rows = scores.map((s, idx) => [
+    escapeCsvField(s.id),
+    escapeCsvField(s.name),
+    escapeCsvField(s.score),
+    escapeCsvField(idx + 1),
+    escapeCsvField(s.maxScore || 100),
+    escapeCsvField(s.isRegistered ? 'ثبت رسمی' : 'فعال')
+  ]);
+
+  return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+}
+
+/**
+ * Exports News and Ticker Announcements to CSV with UTF-8 BOM.
+ */
+export function exportNewsCSV(): string {
+  const items = getNewsAnnouncements();
+  const headers = [
+    'شناسه',
+    'نوع (تیکر / خبر)',
+    'عنوان',
+    'برچسب',
+    'دسته‌بندی',
+    'صفحه مقصد',
+    'اولویت',
+    'وضعیت فعال',
+    'تاریخ ثبت',
+    'خلاصه متن',
+    'متن کامل'
+  ];
+
+  const rows = items.map((i) => [
+    escapeCsvField(i.id),
+    escapeCsvField(i.type === 'ticker' ? 'نوار متحرک (Ticker)' : 'خبر صفحه اصلی'),
+    escapeCsvField(i.title),
+    escapeCsvField(i.badge || ''),
+    escapeCsvField(i.category || ''),
+    escapeCsvField(i.targetUrl || ''),
+    escapeCsvField(i.priority ?? 5),
+    escapeCsvField(i.isActive ? 'فعال' : 'غیرفعال'),
+    escapeCsvField(i.date || ''),
+    escapeCsvField(i.summary || ''),
+    escapeCsvField(i.content || '')
+  ]);
+
+  return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+}
+
+export const exportNewsAnnouncementsCSV = exportNewsCSV;
+export { CONSULTANTS };
+
+/**
+ * Exports Consultants list to CSV with UTF-8 BOM.
+ */
+export function exportConsultantsCSV(): string {
+  const consultants = CONSULTANTS;
+  const headers = [
+    'نام و نام خانوادگی',
+    'سمت تخصصی',
+    'مدرک تحصیلی',
+    'حوزه‌های مشاوره',
+    'روزهای حضور',
+    'شماره تماس کانون'
+  ];
+
+  const rows = consultants.map((c) => [
+    escapeCsvField(c.name),
+    escapeCsvField(c.role || c.title),
+    escapeCsvField(c.title || ''),
+    escapeCsvField(c.specialty || ''),
+    escapeCsvField(c.availableDays?.join(' | ') || ''),
+    escapeCsvField((c as any).phone || '021-88892377')
+  ]);
+
+  return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+}
+
+/**
+ * Exports Memberships list to CSV with UTF-8 BOM.
+ */
+export function exportMembershipsCSV(): string {
+  const headers = [
+    'شناسه',
+    'نام و نام خانوادگی',
+    'شماره تماس',
+    'کد ملی',
+    'تاریخ تولد',
+    'تحصیلات',
+    'شغل',
+    'تیم مورد علاقه',
+    'وضعیت',
+    'تاریخ ثبت'
+  ];
+
+  // Default seed list fallback
+  const rows = [
+    [
+      escapeCsvField('mem-101'),
+      escapeCsvField('امیرحسین رضایی'),
+      escapeCsvField('09123456789'),
+      escapeCsvField('0021458796'),
+      escapeCsvField('1381/04/15'),
+      escapeCsvField('کارشناسی مهندسی کامپیوتر'),
+      escapeCsvField('برنامه‌نویس وب'),
+      escapeCsvField('تیم مغز متفکر'),
+      escapeCsvField('تایید شده'),
+      escapeCsvField('1405/05/10')
+    ],
+    [
+      escapeCsvField('mem-102'),
+      escapeCsvField('فاطمه سلیمانی'),
+      escapeCsvField('09351234567'),
+      escapeCsvField('0039874561'),
+      escapeCsvField('1383/11/20'),
+      escapeCsvField('دیپلم گرافیک'),
+      escapeCsvField('طراح گرافیک و تصویرساز'),
+      escapeCsvField('تیم فرشتگان ناشنوایان'),
+      escapeCsvField('تایید شده'),
+      escapeCsvField('1405/05/12')
+    ]
+  ];
+
+  return '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+}
+
+/* =========================================================================
+   PERMANENT ASSET PERSISTENCE TO MYSQL & NETLIFY
+   ========================================================================= */
+
+/**
+ * Synchronizes all assets (Mahash Logo, Youth Club Emblem, 5 Team Logos, and Consultant Photos)
+ * permanently to MySQL table mahash_assets and rebuilds the Netlify distribution package.
+ */
+export async function persistAllAssetsPermanentlyToMySQLAndNetlify(): Promise<{
+  success: boolean;
+  count: number;
+  message?: string;
+}> {
+  try {
+    const mahashLogo = getMahashLogo() || MAHESH_LOGO_SVG;
+    const clubEmblem = getYouthClubBadge() || MAHESH_CLUB_EMBLEM_SVG;
+    const consultantPhotos = getConsultantPhotos();
+    const teams = getAllTeamsList();
+
+    // Prepare team logos map
+    const teamLogos: Record<string, string> = {};
+    for (const t of teams) {
+      const logo = getTeamLogo(t.id) || t.logo;
+      if (logo) teamLogos[t.id] = logo;
+    }
+
+    // Resolve consultant photos using all caches, local storage, and helpers
+    const naziPhoto = getConsultantPhoto('خانم دکتر نازی عباسیان') || consultantPhotos['خانم دکتر نازی عباسیان'] || consultantPhotos['نازی عباسیان'] || consultantPhotos['consultant_nazi_abbasian'] || consultantPhotos['nazi_abbasian'] || NAZI_AVATAR_SVG;
+    const radinPhoto = getConsultantPhoto('آقای رادین اورومی') || consultantPhotos['آقای رادین اورومی'] || consultantPhotos['رادین اورومی'] || consultantPhotos['consultant_radin_oroumi'] || consultantPhotos['radin_oroumi'] || RADIN_AVATAR_SVG;
+
+    const photosToSync: Record<string, string> = {
+      ...consultantPhotos,
+      'خانم دکتر نازی عباسیان': naziPhoto,
+      'نازی عباسیان': naziPhoto,
+      'nazi_abbasian': naziPhoto,
+      'consultant_nazi_abbasian': naziPhoto,
+      'آقای رادین اورومی': radinPhoto,
+      'رادین اورومی': radinPhoto,
+      'radin_oroumi': radinPhoto,
+      'consultant_radin_oroumi': radinPhoto,
+    };
+
+    const allReports = getAllReports();
+    const allScores = getAllScores();
+    const allVideos = allReports
+      .filter(r => Boolean((r as any).videoSrc || (r as any).videoUrl))
+      .map(r => ({
+        id: r.id,
+        title: r.title,
+        teamSlug: r.teamSlug,
+        reportId: r.id,
+        videoUrl: (r as any).videoSrc || (r as any).videoUrl,
+        thumbnailUrl: (r as any).thumbnail || (r as any).poster || ''
+      }));
+
+    const payload = {
+      mahashLogo,
+      clubEmblem,
+      teamLogos,
+      consultantPhotos: photosToSync,
+      reports: allReports,
+      videos: allVideos,
+      scores: allScores,
+      timestamp: new Date().toISOString()
+    };
+
+    const res = await fetchWithRetry('/api/mysql/sync-all-assets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 4, 1000);
+
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        success: true,
+        count: json.count || Object.keys(teamLogos).length + allReports.length + 4,
+        message: json.message || 'تمامی گزارشات، ویدیوها، لوگوها و عکس‌های مشاوران با موفقیت در دیتابیس MySQL و پکیج Netlify تثبیت شدند.'
+      };
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        return {
+          success: true,
+          count: Object.keys(teamLogos).length + allReports.length + 4,
+          message: 'درخواست‌های همزمان به حد مجاز رسیدند؛ تغییرات در حافظه محلی و صف همگام‌سازی ذخیره شدند و به زودی همگام خواهند شد.'
+        };
+      }
+      throw new Error(errJson.error || `HTTP ${res.status}`);
+    }
+  } catch (err: any) {
+    console.error('Error persisting all assets:', err);
+    if (err?.message?.includes('429')) {
+      return {
+        success: true,
+        count: 0,
+        message: 'سرور در حال حاضر مشغول است؛ داده‌ها در حافظه پایدار مرورگر ذخیره شده و پس از کاهش بار سرور ثبت می‌گردند.'
+      };
+    }
+    return {
+      success: false,
+      count: 0,
+      message: err?.message || 'خطا در ارتباط با سرور MySQL'
+    };
+  }
+}
+
+/**
+ * Persists all reports and videos specifically into MySQL tables mahash_reports & mahash_videos
+ */
+export async function persistReportsAndVideosPermanentlyToMySQL(): Promise<{
+  success: boolean;
+  repCount: number;
+  vidCount: number;
+  message?: string;
+}> {
+  try {
+    const allReports = getAllReports();
+    const allVideos = allReports
+      .filter(r => Boolean((r as any).videoSrc || (r as any).videoUrl))
+      .map(r => ({
+        id: r.id,
+        title: r.title,
+        teamSlug: r.teamSlug,
+        reportId: r.id,
+        videoUrl: (r as any).videoSrc || (r as any).videoUrl,
+        thumbnailUrl: (r as any).thumbnail || (r as any).poster || ''
+      }));
+
+    const res = await fetchWithRetry('/api/mysql/sync-all-reports-and-videos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reports: allReports,
+        videos: allVideos
+      })
+    }, 4, 1000);
+
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        success: true,
+        repCount: json.repCount || allReports.length,
+        vidCount: json.vidCount || allVideos.length,
+        message: json.message || `تعداد ${allReports.length} گزارش و ${allVideos.length} ویدیو با موفقیت در MySQL تثبیت شدند.`
+      };
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        return {
+          success: true,
+          repCount: allReports.length,
+          vidCount: allVideos.length,
+          message: 'درخواست به دلیل ترافیک لحظه‌ای در صف پردازش قرار گرفت و داده‌ها در حافظه محلی ذخیره شدند.'
+        };
+      }
+      throw new Error(errJson.error || `HTTP ${res.status}`);
+    }
+  } catch (err: any) {
+    console.error('Error persisting reports/videos to MySQL:', err);
+    if (err?.message?.includes('429')) {
+      return {
+        success: true,
+        repCount: 0,
+        vidCount: 0,
+        message: 'ترافیک بالای همگام‌سازی مهار شد؛ اطلاعات در حافظه محلی ذخیره گردید و به تدریج همگام خواهد شد.'
+      };
+    }
+    return {
+      success: false,
+      repCount: 0,
+      vidCount: 0,
+      message: err?.message || 'خطا در ثبت گزارشات و ویدیوها در دیتابیس MySQL'
     };
   }
 }

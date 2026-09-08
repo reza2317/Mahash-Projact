@@ -213,8 +213,8 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-// Immediate infrastructure health probes (Always return 200 OK fast for Cloud Run)
-app.get(['/healthz', '/api/health', '/api/ping'], (req, res) => {
+// Immediate infrastructure health probes (Always return 200 OK fast for Cloud Run and load balancers)
+app.get(['/health', '/healthz', '/livez', '/_health', '/api/health', '/api/ping'], (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -565,6 +565,20 @@ app.get('/robots.txt', (req, res) => {
 app.get(['/api/export-netlify-zip', '/api/export-dist-zip', '/mahash-dist-netlify.zip', '/mahash-production-dist.zip', '/dist.zip'], (req, res) => {
   try {
     const projectRoot = process.cwd();
+    const staticZipDist = path.join(projectRoot, 'dist', 'mahash-dist-netlify.zip');
+    const staticZipPublic = path.join(projectRoot, 'public', 'mahash-dist-netlify.zip');
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="mahash-dist-netlify.zip"');
+
+    if (fs.existsSync(staticZipDist) && fs.statSync(staticZipDist).size > 1000) {
+      return res.sendFile(staticZipDist);
+    }
+    if (fs.existsSync(staticZipPublic) && fs.statSync(staticZipPublic).size > 1000) {
+      return res.sendFile(staticZipPublic);
+    }
+
     const distPath = path.join(projectRoot, 'dist');
     const sourceDir = fs.existsSync(distPath) ? distPath : path.join(projectRoot, 'public');
 
@@ -584,9 +598,34 @@ app.get(['/api/export-netlify-zip', '/api/export-dist-zip', '/mahash-dist-netlif
       }
     }
 
+    // Ensure essential uploads directory exists in ZIP
+    const uploadsDir = path.join(projectRoot, 'uploads');
+    if (fs.existsSync(uploadsDir) && !zip.getEntry('uploads/')) {
+      zip.addLocalFolder(uploadsDir, 'uploads');
+    }
+
+    // Ensure essential Netlify and deployment files exist in ZIP even if dist was partial
+    const indexHtmlRoot = path.join(projectRoot, 'index.html');
+    if (!zip.getEntry('index.html') && fs.existsSync(indexHtmlRoot)) {
+      zip.addLocalFile(indexHtmlRoot);
+    }
+
+    if (!zip.getEntry('_redirects')) {
+      zip.addFile('_redirects', Buffer.from('/*    /index.html   200\n', 'utf8'));
+    }
+
+    if (!zip.getEntry('_headers')) {
+      const headersContent = `/*\n  X-Content-Type-Options: nosniff\n  X-Frame-Options: SAMEORIGIN\n  Referrer-Policy: strict-origin-when-cross-origin\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n`;
+      zip.addFile('_headers', Buffer.from(headersContent, 'utf8'));
+    }
+
+    if (!zip.getEntry('DEPLOYMENT_INSTRUCTIONS_FA.md')) {
+      const readme = `# راهنمای استقرار پایگاه داده و وب‌سایت محاش در Netlify\n\n۱. این فایل زیپ را مستقیما در پنل Netlify بخش Deploys بکشید و رها کنید (Drag & Drop).\n۲. سیستم SPA و ریدایرکت‌ها به صورت خودکار فعال خواهند شد.\n`;
+      zip.addFile('DEPLOYMENT_INSTRUCTIONS_FA.md', Buffer.from(readme, 'utf8'));
+    }
+
     const zipBuffer = zip.toBuffer();
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="mahash-dist-netlify.zip"');
+    res.setHeader('Content-Length', String(zipBuffer.length));
     res.send(zipBuffer);
   } catch (error) {
     console.error('Error generating netlify export zip:', error);
@@ -786,6 +825,24 @@ app.get('/api/probe-url', handleUrlProbe);
 // Persistent Server Data Store (MySQL Database & Disk Backup)
 // ----------------------------------------------------
 const DATA_STORE_FILE = path.join(process.cwd(), 'data_store.json');
+const ASSETS_STORE_FILE = path.join(process.cwd(), 'assets_store.json');
+
+export const KNOWN_DEPRECATED_REPORT_IDS = [
+  'angels-01',
+  'report-1788415737865',
+  'report-1788415621673',
+  'report-1788415821547',
+  'thinker-01',
+  'thinker-02',
+  'report-1788380971690',
+  'report-1788414757247',
+  'report-1788414281564',
+  'tomorrow-01',
+  'tomorrow-02',
+  'tomorrow-03',
+  'ghorbani-01',
+  'silence-01'
+];
 
 export interface TrashItem {
   id: string;
@@ -816,6 +873,7 @@ interface ServerStoreData {
   activityLogs?: any[];
   memberships?: any[];
   preferences?: any;
+  newsAnnouncements?: any[];
   updatedAt?: string;
   videoVisibility?: Record<string, boolean>;
   deletedVideos?: string[];
@@ -1006,7 +1064,7 @@ let inMemoryStore: ServerStoreData = {
   mahashLogo: null,
   clubEmblem: null,
   customReports: [],
-  deletedReports: [],
+  deletedReports: [...KNOWN_DEPRECATED_REPORT_IDS],
   trashBin: [],
   scores: [],
   events: [],
@@ -1018,6 +1076,7 @@ let inMemoryStore: ServerStoreData = {
   activityLogs: [],
   memberships: [...defaultSeedMemberships],
   preferences: { theme: 'system', highContrast: false, textSize: 'normal' },
+  newsAnnouncements: [],
   videoVisibility: {},
   deletedVideos: [],
   updatedAt: new Date().toISOString()
@@ -1265,6 +1324,29 @@ async function initMySQL() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Dedicated News and Ticker Announcements table in MySQL
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mahash_news_announcements (
+        \`id\` VARCHAR(128) PRIMARY KEY,
+        \`type\` VARCHAR(32) NOT NULL DEFAULT 'ticker',
+        \`title\` VARCHAR(255) NOT NULL,
+        \`content\` LONGTEXT,
+        \`summary\` TEXT,
+        \`badge\` VARCHAR(64) DEFAULT NULL,
+        \`category\` VARCHAR(64) DEFAULT NULL,
+        \`image_url\` LONGTEXT,
+        \`target_url\` VARCHAR(255) DEFAULT 'home',
+        \`is_active\` TINYINT DEFAULT 1,
+        \`priority\` INT DEFAULT 0,
+        \`date\` VARCHAR(64) DEFAULT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_news_type (\`type\`),
+        INDEX idx_news_active (\`is_active\`),
+        INDEX idx_news_priority (\`priority\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     conn.release();
     mysqlConnected = true;
     console.log('✅ Connected successfully to MySQL database with 1GB packet & 100-pool capacity:', database);
@@ -1306,8 +1388,10 @@ async function initMySQL() {
             ...parsed,
             teamLogos: parsed.teamLogos || {},
             teamOverrides: parsed.teamOverrides || {},
-            customReports: Array.isArray(parsed.customReports) ? parsed.customReports : [],
-            deletedReports: Array.isArray(parsed.deletedReports) ? parsed.deletedReports : [],
+            deletedReports: Array.from(new Set([...KNOWN_DEPRECATED_REPORT_IDS, ...(Array.isArray(parsed.deletedReports) ? parsed.deletedReports : [])])),
+            customReports: (Array.isArray(parsed.customReports) ? parsed.customReports : []).filter(
+              (r: any) => r && r.id && !KNOWN_DEPRECATED_REPORT_IDS.includes(r.id) && !(Array.isArray(parsed.deletedReports) && parsed.deletedReports.includes(r.id))
+            ),
             trashBin: Array.isArray(parsed.trashBin) ? parsed.trashBin : [],
             scores: Array.isArray(parsed.scores) ? parsed.scores : [],
             events: Array.isArray(parsed.events) ? parsed.events : [],
@@ -1341,19 +1425,26 @@ async function initMySQL() {
           clubEmblem: parsed.clubEmblem || inMemoryStore.clubEmblem || '/uploads/emblem-96747ecd00.webp',
           teamLogos: { ...(inMemoryStore.teamLogos || {}), ...(parsed.teamLogos || {}) },
           teamOverrides: { ...(inMemoryStore.teamOverrides || {}), ...(parsed.teamOverrides || {}) },
+          deletedReports: Array.from(new Set([
+            ...KNOWN_DEPRECATED_REPORT_IDS,
+            ...(Array.isArray(inMemoryStore.deletedReports) ? inMemoryStore.deletedReports : []),
+            ...(Array.isArray(parsed.deletedReports) ? parsed.deletedReports : [])
+          ])),
           customReports: (() => {
+            const currentDeleted = new Set([
+              ...KNOWN_DEPRECATED_REPORT_IDS,
+              ...(Array.isArray(inMemoryStore.deletedReports) ? inMemoryStore.deletedReports : []),
+              ...(Array.isArray(parsed.deletedReports) ? parsed.deletedReports : [])
+            ]);
             const raw = Array.isArray(inMemoryStore.customReports) && inMemoryStore.customReports.length > 0
               ? inMemoryStore.customReports
               : (Array.isArray(parsed.customReports) ? parsed.customReports : []);
             const m = new Map();
             for (const r of raw) {
-              if (r && r.id) m.set(r.id, r);
+              if (r && r.id && !currentDeleted.has(r.id)) m.set(r.id, r);
             }
             return Array.from(m.values());
           })(),
-          deletedReports: Array.isArray(inMemoryStore.deletedReports) && inMemoryStore.deletedReports.length > 0
-            ? inMemoryStore.deletedReports
-            : (Array.isArray(parsed.deletedReports) ? parsed.deletedReports : []),
           trashBin: Array.isArray(inMemoryStore.trashBin) && inMemoryStore.trashBin.length > 0
             ? inMemoryStore.trashBin
             : (Array.isArray(parsed.trashBin) ? parsed.trashBin : []),
@@ -1385,6 +1476,20 @@ async function initMySQL() {
     console.warn('⚠️ Could not load data_store.json, starting with current memory store:', err);
   }
 
+  // Load persistent media assets from disk
+  try {
+    if (fs.existsSync(ASSETS_STORE_FILE)) {
+      const rawAssets = fs.readFileSync(ASSETS_STORE_FILE, 'utf-8');
+      const parsedAssets = JSON.parse(rawAssets);
+      if (parsedAssets && typeof parsedAssets === 'object') {
+        inMemoryAssets = { ...inMemoryAssets, ...parsedAssets };
+        console.log(`✅ Loaded ${Object.keys(parsedAssets).length} media assets from disk backup.`);
+      }
+    }
+  } catch (assetsErr) {
+    console.warn('⚠️ Could not load assets_store.json:', assetsErr);
+  }
+
   // Cross-hydrate assets from inMemoryAssets and MySQL mahash_assets table into inMemoryStore so logos never revert
   try {
     for (const [assetId, asset] of Object.entries(inMemoryAssets)) {
@@ -1410,6 +1515,67 @@ async function initMySQL() {
         inMemoryStore.memberAvatars[mKey] = dataStr;
       }
     }
+
+    // Reverse hydration: populate inMemoryAssets from inMemoryStore if missing
+    if (inMemoryStore.mahashLogo && !inMemoryAssets['mahash_official_logo']) {
+      inMemoryAssets['mahash_official_logo'] = {
+        id: 'mahash_official_logo',
+        category: 'logo',
+        name: 'لوگوی رسمی کانون ماهش',
+        data: inMemoryStore.mahashLogo,
+        mime_type: 'image/webp',
+        size_bytes: inMemoryStore.mahashLogo.length,
+        updated_at: new Date().toISOString()
+      };
+    }
+    if (inMemoryStore.clubEmblem && !inMemoryAssets['mahash_youth_club_emblem']) {
+      inMemoryAssets['mahash_youth_club_emblem'] = {
+        id: 'mahash_youth_club_emblem',
+        category: 'badge',
+        name: 'نشان رسمی باشگاه جوانان',
+        data: inMemoryStore.clubEmblem,
+        mime_type: 'image/webp',
+        size_bytes: inMemoryStore.clubEmblem.length,
+        updated_at: new Date().toISOString()
+      };
+    }
+    if (inMemoryStore.consultantPhotos && typeof inMemoryStore.consultantPhotos === 'object') {
+      for (const [cName, photo] of Object.entries(inMemoryStore.consultantPhotos)) {
+        if (!photo || typeof photo !== 'string') continue;
+        let cId = `consultant_${cName.replace(/[\s\u200c]+/g, '_')}`;
+        if (cName.includes('نازی') || cName.includes('nazi')) cId = 'consultant_nazi_abbasian';
+        else if (cName.includes('رادین') || cName.includes('radin')) cId = 'consultant_radin_oroumi';
+        if (!inMemoryAssets[cId]) {
+          inMemoryAssets[cId] = {
+            id: cId,
+            category: 'consultant_photo',
+            name: `عکس مشاور ${cName}`,
+            data: photo,
+            mime_type: 'image/webp',
+            size_bytes: photo.length,
+            updated_at: new Date().toISOString()
+          };
+        }
+      }
+    }
+    if (inMemoryStore.teamLogos && typeof inMemoryStore.teamLogos === 'object') {
+      for (const [tKey, logo] of Object.entries(inMemoryStore.teamLogos)) {
+        if (!logo || typeof logo !== 'string') continue;
+        const normKey = tKey.replace(/^team-/, '').replace(/^logo-/, '');
+        const assetId = `team_${normKey}_logo`;
+        if (!inMemoryAssets[assetId]) {
+          inMemoryAssets[assetId] = {
+            id: assetId,
+            category: 'logo',
+            name: `لوگوی تیم ${normKey}`,
+            data: logo,
+            mime_type: 'image/webp',
+            size_bytes: logo.length,
+            updated_at: new Date().toISOString()
+          };
+        }
+      }
+    }
   } catch (hydrateErr) {
     console.warn('⚠️ Error cross-hydrating assets into inMemoryStore:', hydrateErr);
   }
@@ -1421,7 +1587,7 @@ async function initMySQL() {
       if (repRows && Array.isArray(repRows) && repRows.length > 0) {
         const existingRepMap = new Map((inMemoryStore.customReports || []).map((r: any) => [r.id, r]));
         for (const row of repRows) {
-          if (row && row.id && !existingRepMap.has(row.id)) {
+          if (row && row.id && !existingRepMap.has(row.id) && !inMemoryStore.deletedReports.includes(row.id)) {
             existingRepMap.set(row.id, {
               id: row.id,
               teamSlug: row.team_slug,
@@ -1501,10 +1667,10 @@ async function saveStoreToMySQL() {
     // Direct permanent sync of custom reports to structured mahash_reports table
     if (Array.isArray(inMemoryStore.customReports) && inMemoryStore.customReports.length > 0) {
       for (const rep of inMemoryStore.customReports) {
-        if (rep && rep.id) {
+        if (rep && rep.id && !inMemoryStore.deletedReports.includes(rep.id)) {
           await mysqlPool.query(`
             INSERT INTO mahash_reports (\`id\`, \`team_slug\`, \`title\`, \`summary\`, \`content\`, \`video_url\`, \`thumbnail_url\`, \`attachments\`, \`report_date\`, \`is_deleted\`)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON DUPLICATE KEY UPDATE
               \`title\` = VALUES(\`title\`),
               \`summary\` = VALUES(\`summary\`),
@@ -1513,7 +1679,7 @@ async function saveStoreToMySQL() {
               \`thumbnail_url\` = VALUES(\`thumbnail_url\`),
               \`attachments\` = VALUES(\`attachments\`),
               \`report_date\` = VALUES(\`report_date\`),
-              \`is_deleted\` = VALUES(\`is_deleted\`)
+              \`is_deleted\` = 0
           `, [
             rep.id,
             rep.teamSlug || 'team-thinker',
@@ -1523,10 +1689,17 @@ async function saveStoreToMySQL() {
             rep.videoSrc || rep.videoUrl || '',
             rep.posterSrc || rep.thumbnailUrl || '',
             JSON.stringify(rep.attachments || []),
-            rep.date || '',
-            rep.isDeleted ? 1 : 0
+            rep.date || ''
           ]).catch(() => {});
         }
+      }
+    }
+
+    // Direct permanent purge of deleted reports from mahash_reports table
+    if (Array.isArray(inMemoryStore.deletedReports) && inMemoryStore.deletedReports.length > 0) {
+      for (const delId of inMemoryStore.deletedReports) {
+        await mysqlPool.query('UPDATE mahash_reports SET is_deleted = 1 WHERE `id` = ?', [delId]).catch(() => {});
+        await mysqlPool.query('DELETE FROM mahash_reports WHERE `id` = ?', [delId]).catch(() => {});
       }
     }
 
@@ -1635,6 +1808,13 @@ function saveStoreToDisk() {
           fs.writeFile(fallbackFile, dataStr, 'utf-8', () => {});
         }
       });
+      // Also persist inMemoryAssets to disk backup
+      try {
+        const assetsStr = JSON.stringify(inMemoryAssets);
+        fs.writeFile(ASSETS_STORE_FILE, assetsStr, 'utf-8', () => {});
+      } catch (assetsWriteErr) {
+        console.warn('⚠️ Could not write assets_store.json:', assetsWriteErr);
+      }
     } catch (err) {
       console.warn('⚠️ Could not write data_store.json to disk:', err);
     }
@@ -3246,6 +3426,41 @@ app.get('/api/mysql/assets/:assetId', async (req, res) => {
       }
     }
 
+    // Resilient fallback: Check inMemoryStore or synthesize from known logo/emblem/consultant keys
+    if (assetId === 'mahash_official_logo' || assetId === 'mahash_logo') {
+      const logo = inMemoryStore.mahashLogo;
+      if (logo) {
+        const record = { id: assetId, category: 'logo', name: 'لوگوی رسمی کانون ماهش', data: logo, mime_type: 'image/webp', size_bytes: logo.length, updated_at: new Date().toISOString() };
+        inMemoryAssets[assetId] = record;
+        return res.json({ success: true, asset: record });
+      }
+    } else if (assetId === 'mahash_youth_club_emblem' || assetId === 'youth_club_emblem') {
+      const emblem = inMemoryStore.clubEmblem;
+      if (emblem) {
+        const record = { id: assetId, category: 'badge', name: 'نشان رسمی باشگاه جوانان', data: emblem, mime_type: 'image/webp', size_bytes: emblem.length, updated_at: new Date().toISOString() };
+        inMemoryAssets[assetId] = record;
+        return res.json({ success: true, asset: record });
+      }
+    } else if (assetId.startsWith('consultant_')) {
+      const cKey = assetId.replace(/^consultant_/, '');
+      const photo = inMemoryStore.consultantPhotos[cKey] ||
+                    (cKey.includes('nazi') ? (inMemoryStore.consultantPhotos['خانم دکتر نازی عباسیان'] || inMemoryStore.consultantPhotos['nazi_abbasian']) : null) ||
+                    (cKey.includes('radin') ? (inMemoryStore.consultantPhotos['آقای رادین اورومی'] || inMemoryStore.consultantPhotos['radin_oroumi']) : null);
+      if (photo) {
+        const record = { id: assetId, category: 'consultant_photo', name: `عکس مشاور: ${cKey}`, data: photo, mime_type: 'image/webp', size_bytes: photo.length, updated_at: new Date().toISOString() };
+        inMemoryAssets[assetId] = record;
+        return res.json({ success: true, asset: record });
+      }
+    } else if (assetId.startsWith('team_') && assetId.endsWith('_logo')) {
+      const tKey = assetId.replace(/^team_/, '').replace(/_logo$/, '');
+      const logo = inMemoryStore.teamLogos[tKey] || inMemoryStore.teamLogos[`team-${tKey}`];
+      if (logo) {
+        const record = { id: assetId, category: 'logo', name: `لوگوی تیم ${tKey}`, data: logo, mime_type: 'image/webp', size_bytes: logo.length, updated_at: new Date().toISOString() };
+        inMemoryAssets[assetId] = record;
+        return res.json({ success: true, asset: record });
+      }
+    }
+
     res.status(404).json({ error: 'فایل مدیا در پایگاه داده MySQL یافت نشد' });
   } catch (err: any) {
     res.status(500).json({ error: 'خطا در واکشی فایل از MySQL', details: err?.message });
@@ -3259,11 +3474,12 @@ app.post('/api/mysql/assets', async (req, res) => {
       return res.status(400).json({ error: 'شناسه و دیتای مدیا الزامی است' });
     }
 
-    const cleanId = String(assetId).replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 120);
+    // Preserve Persian/Arabic characters and alphanumeric characters
+    const cleanId = String(assetId).trim().replace(/[^\p{L}\p{N}_\-]/gu, '_').slice(0, 120);
     const cat = category || 'general';
     const n = name || cleanId;
     const mType = mimeType || 'image/webp';
-    const sizeBytes = data.length;
+    const sizeBytes = typeof data === 'string' ? data.length : 0;
     const assetRecord = {
       id: cleanId,
       category: cat,
@@ -3276,22 +3492,54 @@ app.post('/api/mysql/assets', async (req, res) => {
 
     inMemoryAssets[cleanId] = assetRecord;
 
+    // Save as physical file if base64 image data
+    if (data && typeof data === 'string' && data.startsWith('data:image/')) {
+      try {
+        const matches = data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const rawExt = matches[1].split('/')[1] || 'webp';
+          const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+          const buffer = Buffer.from(matches[2], 'base64');
+          const safeFileId = String(assetId).replace(/[^\p{L}\p{N}_\-]/gu, '_');
+          const filename = `asset-${safeFileId}.${ext}`;
+          
+          fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
+
+          const pubUploads = path.join(process.cwd(), 'public', 'uploads');
+          if (!fs.existsSync(pubUploads)) fs.mkdirSync(pubUploads, { recursive: true });
+          fs.writeFileSync(path.join(pubUploads, filename), buffer);
+
+          const distUploads = path.join(process.cwd(), 'dist', 'uploads');
+          if (fs.existsSync(distUploads)) {
+            fs.writeFileSync(path.join(distUploads, filename), buffer);
+          }
+        }
+      } catch (fErr: any) {
+        console.warn('Warning saving asset file to disk:', fErr?.message);
+      }
+    }
+
     // Cross-populate inMemoryStore so logos, badges, and photos are instantly updated across all views
-    if (cleanId === 'mahash_official_logo' || cleanId === 'mahash_logo') {
+    if (cleanId === 'mahash_official_logo' || cleanId === 'mahash_logo' || cat === 'logo') {
       inMemoryStore.mahashLogo = data;
-    } else if (cleanId === 'mahash_youth_club_emblem' || cleanId === 'youth_club_emblem') {
+    } else if (cleanId === 'mahash_youth_club_emblem' || cleanId === 'youth_club_emblem' || cat === 'club_emblem') {
       inMemoryStore.clubEmblem = data;
-    } else if (cleanId.startsWith('team_') && cleanId.endsWith('_logo')) {
-      const teamKey = cleanId.replace(/^team_/, '').replace(/_logo$/, '');
+    } else if (cleanId.startsWith('team_') || cleanId.startsWith('logo-') || cat === 'team_logo') {
+      const teamKey = cleanId.replace(/^team_/, '').replace(/^logo-/, '').replace(/_logo$/, '');
       inMemoryStore.teamLogos[teamKey] = data;
       inMemoryStore.teamLogos[`team-${teamKey}`] = data;
-    } else if (cleanId.startsWith('logo-')) {
-      const teamKey = cleanId.replace(/^logo-/, '');
-      inMemoryStore.teamLogos[teamKey] = data;
-      inMemoryStore.teamLogos[`team-${teamKey}`] = data;
-    } else if (cleanId.startsWith('consultant_')) {
+    } else if (cleanId.startsWith('consultant_') || cat === 'consultant') {
       const cKey = cleanId.replace(/^consultant_/, '');
       inMemoryStore.consultantPhotos[cKey] = data;
+      if (cKey.includes('نازی') || cKey.includes('عباسیان') || cKey.includes('nazi')) {
+        inMemoryStore.consultantPhotos['خانم دکتر نازی عباسیان'] = data;
+        inMemoryStore.consultantPhotos['نازی عباسیان'] = data;
+        inMemoryStore.consultantPhotos['nazi_abbasian'] = data;
+      } else if (cKey.includes('رادین') || cKey.includes('اورومی') || cKey.includes('radin')) {
+        inMemoryStore.consultantPhotos['آقای رادین اورومی'] = data;
+        inMemoryStore.consultantPhotos['رادین اورومی'] = data;
+        inMemoryStore.consultantPhotos['radin_oroumi'] = data;
+      }
     } else if (cleanId.startsWith('member_avatar_')) {
       const mKey = cleanId.replace(/^member_avatar_/, '');
       inMemoryStore.memberAvatars[mKey] = data;
@@ -3311,6 +3559,11 @@ app.post('/api/mysql/assets', async (req, res) => {
           \`updated_at\` = NOW()
       `, [cleanId, cat, n, data, mType, sizeBytes]);
     }
+
+    // Refresh Netlify zip asynchronously in background
+    setTimeout(() => {
+      refreshAssetsAndNetlifyPackage();
+    }, 100);
 
     res.json({ success: true, assetId: cleanId, sizeBytes });
   } catch (err: any) {
@@ -3334,6 +3587,367 @@ app.delete('/api/mysql/assets/:assetId', async (req, res) => {
     res.json({ success: true, message: 'فایل مدیا با موفقیت از MySQL حذف شد.' });
   } catch (err: any) {
     res.status(500).json({ error: 'خطا در حذف فایل از MySQL', details: err?.message });
+  }
+});
+
+// 6.1. Unified MySQL Media Manager (Browse, Upload, Delete images and videos stored in MySQL)
+app.get('/api/mysql/media-unified', async (req, res) => {
+  try {
+    const { category, search } = req.query;
+    const mediaList: any[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Fetch Assets (Images, Logos, Consultant Photos, Badges) from MySQL mahash_assets
+    if (mysqlPool && mysqlConnected) {
+      try {
+        const [assetRows]: any = await mysqlPool.query(
+          'SELECT id, category, name, mime_type, size_bytes, updated_at, data FROM mahash_assets ORDER BY updated_at DESC'
+        );
+        if (Array.isArray(assetRows)) {
+          for (const row of assetRows) {
+            seenIds.add(row.id);
+            const isVideo = row.mime_type?.startsWith('video/') || row.id?.includes('video');
+            const dataStr = typeof row.data === 'string' ? row.data : '';
+            const isWebP = row.mime_type === 'image/webp' || dataStr.startsWith('data:image/webp');
+            const sizeBytes = row.size_bytes || (dataStr ? Math.round((dataStr.length * 3) / 4) : 0);
+
+            // Determine direct URL
+            let directUrl = '';
+            if (dataStr.startsWith('data:')) {
+              directUrl = dataStr;
+            } else if (dataStr.startsWith('http://') || dataStr.startsWith('https://') || dataStr.startsWith('/')) {
+              directUrl = dataStr;
+            } else {
+              directUrl = `/api/mysql/assets/${row.id}`;
+            }
+
+            mediaList.push({
+              id: row.id,
+              name: row.name || row.id,
+              type: isVideo ? 'video' : 'image',
+              category: row.category || 'general',
+              url: directUrl,
+              thumbnailUrl: isVideo ? '' : directUrl,
+              mimeType: row.mime_type || (isVideo ? 'video/mp4' : 'image/webp'),
+              sizeBytes,
+              updatedAt: row.updated_at || new Date().toISOString(),
+              sourceTable: 'mahash_assets',
+              isOptimized: isWebP || sizeBytes < 75 * 1024,
+              tableName: 'mahash_assets'
+            });
+          }
+        }
+      } catch (assetErr) {
+        console.warn('Could not query mahash_assets in media-unified:', assetErr);
+      }
+
+      // 2. Fetch Videos from MySQL mahash_videos table
+      try {
+        const [videoRows]: any = await mysqlPool.query(
+          'SELECT id, title, team_slug, report_id, video_url, thumbnail_url, file_name, file_size_bytes, mime_type, duration_seconds, is_public, views_count, created_at, updated_at FROM mahash_videos ORDER BY created_at DESC'
+        );
+        if (Array.isArray(videoRows)) {
+          for (const v of videoRows) {
+            if (!seenIds.has(v.id)) {
+              seenIds.add(v.id);
+              mediaList.push({
+                id: v.id,
+                name: v.title || v.file_name || v.id,
+                type: 'video',
+                category: 'video',
+                url: v.video_url,
+                thumbnailUrl: v.thumbnail_url || '',
+                mimeType: v.mime_type || 'video/mp4',
+                sizeBytes: v.file_size_bytes || 0,
+                durationSeconds: v.duration_seconds || 0,
+                teamSlug: v.team_slug || '',
+                reportId: v.report_id || '',
+                isPublic: Boolean(v.is_public),
+                viewsCount: v.views_count || 0,
+                updatedAt: v.updated_at || v.created_at || new Date().toISOString(),
+                sourceTable: 'mahash_videos',
+                isOptimized: true,
+                tableName: 'mahash_videos'
+              });
+            }
+          }
+        }
+      } catch (vidErr) {
+        console.warn('Could not query mahash_videos in media-unified:', vidErr);
+      }
+    } else {
+      // Memory fallback when MySQL pool is offline
+      for (const [key, val] of Object.entries(inMemoryAssets)) {
+        const row = val as any;
+        const isVideo = row.mime_type?.startsWith('video/') || row.id?.includes('video');
+        mediaList.push({
+          id: row.id,
+          name: row.name || row.id,
+          type: isVideo ? 'video' : 'image',
+          category: row.category || 'general',
+          url: row.data || `/api/mysql/assets/${row.id}`,
+          thumbnailUrl: isVideo ? '' : row.data,
+          mimeType: row.mime_type || 'image/webp',
+          sizeBytes: row.size_bytes || (row.data ? Math.round((row.data.length * 3) / 4) : 0),
+          updatedAt: row.updated_at || new Date().toISOString(),
+          sourceTable: 'mahash_assets (memory)',
+          isOptimized: true,
+          tableName: 'mahash_assets'
+        });
+      }
+    }
+
+    // Filter by category or search query
+    let filtered = mediaList;
+    if (category && category !== 'all') {
+      const catStr = String(category).toLowerCase();
+      if (catStr === 'video') {
+        filtered = filtered.filter(m => m.type === 'video');
+      } else if (catStr === 'image') {
+        filtered = filtered.filter(m => m.type === 'image');
+      } else {
+        filtered = filtered.filter(m => m.category === catStr || m.category?.includes(catStr));
+      }
+    }
+
+    if (search && String(search).trim()) {
+      const q = String(search).trim().toLowerCase();
+      filtered = filtered.filter(m => 
+        m.name?.toLowerCase().includes(q) || 
+        m.id?.toLowerCase().includes(q) || 
+        m.category?.toLowerCase().includes(q) ||
+        m.teamSlug?.toLowerCase().includes(q)
+      );
+    }
+
+    const totalSizeBytes = filtered.reduce((acc, curr) => acc + (curr.sizeBytes || 0), 0);
+    const imagesCount = filtered.filter(m => m.type === 'image').length;
+    const videosCount = filtered.filter(m => m.type === 'video').length;
+
+    res.json({
+      success: true,
+      count: filtered.length,
+      stats: {
+        total: filtered.length,
+        imagesCount,
+        videosCount,
+        totalSizeBytes
+      },
+      media: filtered
+    });
+  } catch (err: any) {
+    console.error('Error fetching unified media from MySQL:', err);
+    res.status(500).json({ error: 'خطا در واکشی مدیاهای MySQL', details: err?.message });
+  }
+});
+
+// Multipart file upload specifically for MySQL Media Manager
+app.post('/api/mysql/media-unified/upload', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    const body = req.body || {};
+    const category = body.category || 'general';
+    const customName = body.name || '';
+    const consultantName = body.consultantName || '';
+    const teamSlug = body.teamSlug || '';
+
+    // If client supplied direct base64 instead of multipart
+    if (!file && body.base64Data) {
+      const base64Data = body.base64Data;
+      const isVideo = base64Data.startsWith('data:video/') || body.mimeType?.startsWith('video/');
+      const rawExt = isVideo ? 'mp4' : (base64Data.startsWith('data:image/webp') ? 'webp' : 'png');
+      const filename = `media_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${rawExt}`;
+      const assetId = body.assetId || (consultantName ? `consultant_${consultantName.replace(/\s+/g, '_')}` : `media_${Date.now()}`);
+      const mimeType = body.mimeType || (isVideo ? 'video/mp4' : 'image/webp');
+      const sizeBytes = Math.round((base64Data.length * 3) / 4);
+
+      // Save physical file
+      try {
+        const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const buffer = Buffer.from(matches[2], 'base64');
+          fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
+          const pubUploads = path.join(process.cwd(), 'public', 'uploads');
+          if (!fs.existsSync(pubUploads)) fs.mkdirSync(pubUploads, { recursive: true });
+          fs.writeFileSync(path.join(pubUploads, filename), buffer);
+        }
+      } catch (fErr) {
+        console.warn('Notice saving base64 to disk:', fErr);
+      }
+
+      // Save in MySQL mahash_assets
+      if (mysqlPool && mysqlConnected) {
+        await mysqlPool.query(`
+          INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`, \`updated_at\`)
+          VALUES (?, ?, ?, ?, ?, ?, NOW())
+          ON DUPLICATE KEY UPDATE \`category\` = VALUES(\`category\`), \`name\` = VALUES(\`name\`), \`data\` = VALUES(\`data\`), \`mime_type\` = VALUES(\`mime_type\`), \`size_bytes\` = VALUES(\`size_bytes\`), \`updated_at\` = NOW()
+        `, [assetId, category, customName || filename, base64Data, mimeType, sizeBytes]);
+      }
+
+      // Update in-memory store
+      if (category === 'consultant' && consultantName) {
+        inMemoryStore.consultantPhotos[consultantName] = base64Data;
+        saveStoreToDisk();
+      } else if (category === 'official_logo' || assetId.includes('mahash_official')) {
+        inMemoryStore.mahashLogo = base64Data;
+        saveStoreToDisk();
+      }
+
+      insertAuditLog('UPLOAD_ATTACHMENT', 'بارگذاری رسانه در MySQL', `فایل ${customName || filename} در MySQL ثبت گردید.`);
+
+      return res.json({
+        success: true,
+        message: 'فایل رسانه‌ای با موفقیت در دیتابیس MySQL ثبت شد.',
+        item: {
+          id: assetId,
+          name: customName || filename,
+          type: isVideo ? 'video' : 'image',
+          category,
+          url: `/uploads/${filename}`,
+          mimeType,
+          sizeBytes,
+          updatedAt: new Date().toISOString(),
+          sourceTable: 'mahash_assets'
+        }
+      });
+    }
+
+    if (!file) {
+      return res.status(400).json({ error: 'هیچ فایلی برای بارگذاری ارسال نشده است.' });
+    }
+
+    const filename = file.filename;
+    const isVideo = file.mimetype?.startsWith('video/') || filename.endsWith('.mp4') || filename.endsWith('.webm');
+    const publicUrl = `/uploads/${filename}`;
+    const assetId = body.assetId || `${isVideo ? 'vid' : 'asset'}_${filename.replace(/\.[^.]+$/, '')}`;
+    const friendlyName = customName || file.originalname || filename;
+
+    // Persist to MySQL based on type
+    if (isVideo) {
+      if (mysqlPool && mysqlConnected) {
+        await mysqlPool.query(`
+          INSERT INTO mahash_videos 
+            (id, title, team_slug, report_id, video_url, thumbnail_url, file_name, file_size_bytes, mime_type, is_public, views_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)
+          ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            team_slug = VALUES(team_slug),
+            video_url = VALUES(video_url),
+            file_name = VALUES(file_name),
+            file_size_bytes = VALUES(file_size_bytes),
+            mime_type = VALUES(mime_type)
+        `, [assetId, friendlyName, teamSlug || 'all', '', publicUrl, '', filename, file.size, file.mimetype || 'video/mp4']);
+      }
+      insertAuditLog('UPLOAD_VIDEO', 'بارگذاری ویدیوی MySQL', `ویدیوی ${friendlyName} با حجم ${file.size} بایت در MySQL ثبت گردید.`);
+    } else {
+      // Image or asset: read buffer and store in mahash_assets
+      let dataUri = '';
+      try {
+        const fileBuf = fs.readFileSync(file.path);
+        dataUri = `data:${file.mimetype || 'image/webp'};base64,${fileBuf.toString('base64')}`;
+      } catch (rErr) {
+        dataUri = publicUrl;
+      }
+
+      if (mysqlPool && mysqlConnected) {
+        await mysqlPool.query(`
+          INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`, \`updated_at\`)
+          VALUES (?, ?, ?, ?, ?, ?, NOW())
+          ON DUPLICATE KEY UPDATE
+            \`category\` = VALUES(\`category\`),
+            \`name\` = VALUES(\`name\`),
+            \`data\` = VALUES(\`data\`),
+            \`mime_type\` = VALUES(\`mime_type\`),
+            \`size_bytes\` = VALUES(\`size_bytes\`),
+            \`updated_at\` = NOW()
+        `, [assetId, category, friendlyName, dataUri, file.mimetype || 'image/webp', file.size]);
+      }
+
+      // If consultant photo, link to consultant store
+      if (category === 'consultant' && consultantName) {
+        inMemoryStore.consultantPhotos[consultantName] = dataUri;
+        saveStoreToDisk();
+      }
+
+      insertAuditLog('UPLOAD_ATTACHMENT', 'بارگذاری تصویر در MySQL', `تصویر ${friendlyName} با حجم ${file.size} بایت در MySQL ثبت شد.`);
+    }
+
+    res.json({
+      success: true,
+      message: 'فایل رسانه‌ای با موفقیت در دیتابیس MySQL بارگذاری و پایدار شد.',
+      item: {
+        id: assetId,
+        name: friendlyName,
+        type: isVideo ? 'video' : 'image',
+        category,
+        url: publicUrl,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        updatedAt: new Date().toISOString(),
+        sourceTable: isVideo ? 'mahash_videos' : 'mahash_assets'
+      }
+    });
+  } catch (err: any) {
+    console.error('Error uploading media in media-unified:', err);
+    res.status(500).json({ error: 'خطا در ذخیره‌سازی رسانه در MySQL', details: err?.message });
+  }
+});
+
+// Delete media item from MySQL (whether mahash_assets or mahash_videos)
+app.delete('/api/mysql/media-unified/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'شناسه رسانه الزامی است.' });
+
+    let deletedFrom = [];
+    let fileNameToClean: string | null = null;
+
+    // 1. Check & delete from mahash_assets
+    if (inMemoryAssets[id]) {
+      delete inMemoryAssets[id];
+      deletedFrom.push('inMemoryAssets');
+    }
+
+    if (mysqlPool && mysqlConnected) {
+      const [assetRows]: any = await mysqlPool.query('SELECT data, name FROM mahash_assets WHERE id = ?', [id]);
+      if (assetRows && assetRows.length > 0) {
+        await mysqlPool.query('DELETE FROM mahash_assets WHERE id = ?', [id]);
+        deletedFrom.push('mahash_assets');
+      }
+
+      // 2. Check & delete from mahash_videos
+      const [videoRows]: any = await mysqlPool.query('SELECT file_name, video_url FROM mahash_videos WHERE id = ?', [id]);
+      if (videoRows && videoRows.length > 0) {
+        fileNameToClean = videoRows[0].file_name || path.basename(videoRows[0].video_url || '');
+        await mysqlPool.query('DELETE FROM mahash_videos WHERE id = ?', [id]);
+        deletedFrom.push('mahash_videos');
+      }
+    }
+
+    // 3. Clean up physical file on disk if exists
+    if (fileNameToClean) {
+      const paths = [
+        path.join(UPLOADS_DIR, fileNameToClean),
+        path.join(process.cwd(), 'public', 'uploads', fileNameToClean),
+        path.join(process.cwd(), 'dist', 'uploads', fileNameToClean)
+      ];
+      for (const p of paths) {
+        if (fs.existsSync(p)) {
+          try { fs.unlinkSync(p); } catch {}
+        }
+      }
+    }
+
+    insertAuditLog('DELETE_ATTACHMENT', 'حذف رسانه از MySQL', `رسانه با شناسه ${id} از دیتابیس MySQL حذف شد.`);
+
+    res.json({
+      success: true,
+      message: `رسانه «${id}» با موفقیت از پایگاه داده MySQL حذف شد.`,
+      deletedFrom
+    });
+  } catch (err: any) {
+    console.error('Error deleting media unified:', err);
+    res.status(500).json({ error: 'خطا در حذف رسانه از MySQL', details: err?.message });
   }
 });
 
@@ -3424,6 +4038,794 @@ app.post('/api/mysql/scores', async (req, res) => {
   }
 });
 
+/* =========================================================================
+   ASSET PACKAGING & NETLIFY DEPLOYMENT SYNC HELPER
+   ========================================================================= */
+
+function refreshAssetsAndNetlifyPackage() {
+  try {
+    const projectRoot = process.cwd();
+
+    // Call generateOfflineBaseline script if present
+    const genScript = path.join(projectRoot, 'scripts', 'generate-offline-baseline.mjs');
+    const packScript = path.join(projectRoot, 'scripts', 'pack-netlify-zip.mjs');
+
+    if (fs.existsSync(genScript)) {
+      import('child_process').then(({ exec }) => {
+        exec(`node "${genScript}"`, (err) => {
+          if (err) console.warn('Warning generating offline baseline:', err.message);
+          else {
+            console.log('✅ Offline baseline updated for public Netlify link.');
+            if (fs.existsSync(packScript)) {
+              exec(`node "${packScript}"`, (pErr) => {
+                if (pErr) console.warn('Warning packing Netlify zip:', pErr.message);
+                else console.log('✅ Netlify deployment package (ZIP) regenerated successfully.');
+              });
+            }
+          }
+        });
+      });
+    }
+
+    // Baseline generation complete. Dynamic ZIP download is provided on-demand via /api/export-netlify-zip
+    console.log('✅ Offline baseline and static asset registry updated.');
+  } catch (err: any) {
+    console.warn('Warning in refreshAssetsAndNetlifyPackage:', err?.message);
+  }
+}
+
+/* =========================================================================
+   PERMANENT ASSET SYNCHRONIZATION TO MYSQL AND NETLIFY
+   ========================================================================= */
+
+app.post('/api/mysql/sync-all-assets', async (req, res) => {
+  try {
+    const { mahashLogo, clubEmblem, teamLogos, consultantPhotos } = req.body || {};
+    let savedCount = 0;
+
+    // 1. Mahash official logo
+    if (mahashLogo && typeof mahashLogo === 'string') {
+      inMemoryStore.mahashLogo = mahashLogo;
+      inMemoryAssets['mahash_official_logo'] = {
+        id: 'mahash_official_logo',
+        category: 'logo',
+        name: 'نشان و لوگوی رسمی مؤسسه محاش',
+        data: mahashLogo,
+        mime_type: 'image/webp',
+        size_bytes: mahashLogo.length,
+        updated_at: new Date().toISOString()
+      };
+      savedCount++;
+    }
+
+    // 2. Youth Club Emblem
+    if (clubEmblem && typeof clubEmblem === 'string') {
+      inMemoryStore.clubEmblem = clubEmblem;
+      inMemoryAssets['mahash_youth_club_emblem'] = {
+        id: 'mahash_youth_club_emblem',
+        category: 'club_emblem',
+        name: 'نشان و آرم حلقوی باشگاه جوانان محاش',
+        data: clubEmblem,
+        mime_type: 'image/webp',
+        size_bytes: clubEmblem.length,
+        updated_at: new Date().toISOString()
+      };
+      savedCount++;
+    }
+
+    // 3. Team Logos
+    if (teamLogos && typeof teamLogos === 'object') {
+      for (const [teamSlug, logoData] of Object.entries(teamLogos)) {
+        if (typeof logoData === 'string' && logoData.trim()) {
+          inMemoryStore.teamLogos[teamSlug] = logoData;
+          inMemoryStore.teamLogos[`team-${teamSlug}`] = logoData;
+          const assetKey = `team_${teamSlug}_logo`;
+          inMemoryAssets[assetKey] = {
+            id: assetKey,
+            category: 'team_logo',
+            name: `نشان اختصاصی تیم ${teamSlug}`,
+            data: logoData,
+            mime_type: 'image/webp',
+            size_bytes: logoData.length,
+            updated_at: new Date().toISOString()
+          };
+          savedCount++;
+        }
+      }
+    }
+
+    // 4. Consultant Photos
+    if (consultantPhotos && typeof consultantPhotos === 'object') {
+      for (const [cName, photoData] of Object.entries(consultantPhotos)) {
+        if (typeof photoData === 'string' && photoData.trim()) {
+          const isSvg = photoData.trim().startsWith('<svg');
+          const isNazi = cName.includes('نازی') || cName.includes('عباسیان') || cName.toLowerCase().includes('nazi');
+          const isRadin = cName.includes('رادین') || cName.includes('اورومی') || cName.toLowerCase().includes('radin');
+
+          const existingNazi = inMemoryStore.consultantPhotos['خانم دکتر نازی عباسیان'] || inMemoryStore.consultantPhotos['consultant_nazi_abbasian'];
+          const existingRadin = inMemoryStore.consultantPhotos['آقای رادین اورومی'] || inMemoryStore.consultantPhotos['consultant_radin_oroumi'];
+
+          // Never overwrite a custom uploaded photo with the fallback SVG
+          if (isSvg) {
+            if (isNazi && existingNazi && !existingNazi.trim().startsWith('<svg')) continue;
+            if (isRadin && existingRadin && !existingRadin.trim().startsWith('<svg')) continue;
+          }
+
+          inMemoryStore.consultantPhotos[cName] = photoData;
+
+          if (isNazi) {
+            inMemoryStore.consultantPhotos['خانم دکتر نازی عباسیان'] = photoData;
+            inMemoryStore.consultantPhotos['نازی عباسیان'] = photoData;
+            inMemoryStore.consultantPhotos['nazi_abbasian'] = photoData;
+            inMemoryStore.consultantPhotos['consultant_nazi_abbasian'] = photoData;
+            inMemoryAssets['consultant_nazi_abbasian'] = {
+              id: 'consultant_nazi_abbasian',
+              category: 'consultant_photo',
+              name: 'تصویر اختصاصی خانم دکتر نازی عباسیان',
+              data: photoData,
+              mime_type: 'image/webp',
+              size_bytes: photoData.length,
+              updated_at: new Date().toISOString()
+            };
+          } else if (isRadin) {
+            inMemoryStore.consultantPhotos['آقای رادین اورومی'] = photoData;
+            inMemoryStore.consultantPhotos['رادین اورومی'] = photoData;
+            inMemoryStore.consultantPhotos['radin_oroumi'] = photoData;
+            inMemoryStore.consultantPhotos['consultant_radin_oroumi'] = photoData;
+            inMemoryAssets['consultant_radin_oroumi'] = {
+              id: 'consultant_radin_oroumi',
+              category: 'consultant_photo',
+              name: 'تصویر اختصاصی آقای رادین اورومی',
+              data: photoData,
+              mime_type: 'image/webp',
+              size_bytes: photoData.length,
+              updated_at: new Date().toISOString()
+            };
+          }
+
+          const cleanNameKey = cName.trim().replace(/[^\p{L}\p{N}_\-]/gu, '_');
+          const assetKey = `consultant_${cleanNameKey}`;
+          inMemoryAssets[assetKey] = {
+            id: assetKey,
+            category: 'consultant_photo',
+            name: `تصویر مشاور - ${cName}`,
+            data: photoData,
+            mime_type: 'image/webp',
+            size_bytes: photoData.length,
+            updated_at: new Date().toISOString()
+          };
+
+          // Also persist directly to MySQL table mahash_assets
+          if (mysqlPool && mysqlConnected) {
+            try {
+              if (isNazi) {
+                await mysqlPool.query(`
+                  INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`, \`updated_at\`)
+                  VALUES ('consultant_nazi_abbasian', 'consultant_photo', 'تصویر خانم دکتر نازی عباسیان', ?, 'image/webp', ?, NOW())
+                  ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`updated_at\` = NOW()
+                `, [photoData, photoData.length]);
+              } else if (isRadin) {
+                await mysqlPool.query(`
+                  INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`, \`updated_at\`)
+                  VALUES ('consultant_radin_oroumi', 'consultant_photo', 'تصویر آقای رادین اورومی', ?, 'image/webp', ?, NOW())
+                  ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`updated_at\` = NOW()
+                `, [photoData, photoData.length]);
+              }
+              await mysqlPool.query(`
+                INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`, \`updated_at\`)
+                VALUES (?, 'consultant_photo', ?, ?, 'image/webp', ?, NOW())
+                ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`updated_at\` = NOW()
+              `, [assetKey, `تصویر مشاور - ${cName}`, photoData, photoData.length]);
+            } catch (mErr) {
+              console.warn('[MySQL] Notice saving consultant asset to DB:', mErr);
+            }
+          }
+
+          // Also write to physical uploads folder and public/uploads / dist/uploads
+          if (photoData.startsWith('data:image/')) {
+            try {
+              const match = photoData.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+              if (match) {
+                const ext = match[1].split('/')[1] === 'jpeg' ? 'jpg' : match[1].split('/')[1] || 'webp';
+                const buffer = Buffer.from(match[2], 'base64');
+                const filenames = [`consultant-${cleanNameKey}.${ext}`];
+                if (isNazi) {
+                  filenames.push(`asset-consultant_nazi_abbasian.${ext}`, `consultant-nazi_abbasian.${ext}`);
+                } else if (isRadin) {
+                  filenames.push(`asset-consultant_radin_oroumi.${ext}`, `consultant-radin_oroumi.${ext}`);
+                }
+                const rootDir = process.cwd();
+                const targetDirs = [UPLOADS_DIR, path.join(rootDir, 'public', 'uploads'), path.join(rootDir, 'dist', 'uploads')];
+                for (const tDir of targetDirs) {
+                  if (!fs.existsSync(tDir)) fs.mkdirSync(tDir, { recursive: true });
+                  for (const fn of filenames) {
+                    fs.writeFileSync(path.join(tDir, fn), buffer);
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          savedCount++;
+        }
+      }
+    }
+
+    // 5. Reports & Documents (Persist to MySQL mahash_reports)
+    const { reports, videos, scores } = req.body;
+    let reportsCount = 0;
+    if (Array.isArray(reports) && reports.length > 0) {
+      inMemoryStore.customReports = reports;
+      reportsCount = reports.length;
+      savedCount += reportsCount;
+
+      if (mysqlPool && mysqlConnected) {
+        for (const rep of reports) {
+          if (rep && rep.id) {
+            try {
+              await mysqlPool.query(`
+                INSERT INTO mahash_reports (
+                  \`id\`, \`team_slug\`, \`title\`, \`summary\`, \`content\`, \`video_url\`, \`thumbnail_url\`, \`images\`, \`attachments\`, \`report_date\`, \`is_deleted\`, \`created_at\`, \`updated_at\`
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                  \`team_slug\` = VALUES(\`team_slug\`),
+                  \`title\` = VALUES(\`title\`),
+                  \`summary\` = VALUES(\`summary\`),
+                  \`content\` = VALUES(\`content\`),
+                  \`video_url\` = VALUES(\`video_url\`),
+                  \`thumbnail_url\` = VALUES(\`thumbnail_url\`),
+                  \`images\` = VALUES(\`images\`),
+                  \`attachments\` = VALUES(\`attachments\`),
+                  \`report_date\` = VALUES(\`report_date\`),
+                  \`is_deleted\` = 0,
+                  \`updated_at\` = NOW()
+              `, [
+                rep.id,
+                rep.teamSlug || 'general',
+                rep.title || 'بدون عنوان',
+                rep.summary || '',
+                rep.content || rep.transcript || '',
+                rep.videoSrc || rep.videoUrl || '',
+                rep.thumbnail || rep.cover || rep.poster || '',
+                JSON.stringify(rep.images || []),
+                JSON.stringify(rep.attachments || []),
+                rep.date || '',
+                0
+              ]);
+            } catch (errRep: any) {
+              console.warn('Warning inserting report into MySQL:', errRep?.message);
+            }
+          }
+        }
+      }
+    }
+
+    // 6. Videos & Media (Persist to MySQL mahash_videos)
+    let videosCount = 0;
+    if (Array.isArray(videos) && videos.length > 0) {
+      videosCount = videos.length;
+      savedCount += videosCount;
+
+      if (mysqlPool && mysqlConnected) {
+        for (const v of videos) {
+          if (v && (v.id || v.videoUrl || v.url)) {
+            try {
+              const vidId = v.id ? `vid-${v.id}` : `vid-${Date.now()}`;
+              await mysqlPool.query(`
+                INSERT INTO mahash_videos (
+                  \`id\`, \`title\`, \`team_slug\`, \`report_id\`, \`video_url\`, \`thumbnail_url\`, \`is_public\`, \`created_at\`, \`updated_at\`
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                  \`title\` = VALUES(\`title\`),
+                  \`team_slug\` = VALUES(\`team_slug\`),
+                  \`report_id\` = VALUES(\`report_id\`),
+                  \`video_url\` = VALUES(\`video_url\`),
+                  \`thumbnail_url\` = VALUES(\`thumbnail_url\`),
+                  \`is_public\` = VALUES(\`is_public\`),
+                  \`updated_at\` = NOW()
+              `, [
+                vidId,
+                v.title || 'ویدیو بدون عنوان',
+                v.teamSlug || 'general',
+                v.reportId || v.id || null,
+                v.videoUrl || v.videoSrc || v.url || '',
+                v.thumbnailUrl || v.thumbnail || v.poster || null,
+                1
+              ]);
+            } catch (errVid: any) {
+              console.warn('Warning inserting video into MySQL:', errVid?.message);
+            }
+          }
+        }
+      }
+    }
+
+    // 7. Team Scores (Persist to MySQL mahash_team_scores)
+    if (Array.isArray(scores) && scores.length > 0) {
+      inMemoryStore.scores = scores;
+      if (mysqlPool && mysqlConnected) {
+        for (let idx = 0; idx < scores.length; idx++) {
+          const s = scores[idx];
+          if (s && s.id) {
+            try {
+              await mysqlPool.query(`
+                INSERT INTO mahash_team_scores (
+                  \`team_id\`, \`team_name\`, \`score\`, \`rank_order\`, \`logo_url\`, \`updated_at\`
+                ) VALUES (?, ?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE
+                  \`team_name\` = VALUES(\`team_name\`),
+                  \`score\` = VALUES(\`score\`),
+                  \`rank_order\` = VALUES(\`rank_order\`),
+                  \`logo_url\` = VALUES(\`logo_url\`),
+                  \`updated_at\` = NOW()
+              `, [
+                s.id,
+                s.name || s.id,
+                s.score || 0,
+                idx + 1,
+                s.logo || ''
+              ]);
+            } catch (errSc: any) {
+              console.warn('Warning inserting score into MySQL:', errSc?.message);
+            }
+          }
+        }
+      }
+    }
+
+    saveStoreToDisk();
+
+    // Persist all into MySQL table mahash_assets
+    if (mysqlPool && mysqlConnected) {
+      for (const asset of Object.values(inMemoryAssets)) {
+        if (asset && asset.id && asset.data) {
+          await mysqlPool.query(`
+            INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`, \`updated_at\`)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+              \`category\` = VALUES(\`category\`),
+              \`name\` = VALUES(\`name\`),
+              \`data\` = VALUES(\`data\`),
+              \`mime_type\` = VALUES(\`mime_type\`),
+              \`size_bytes\` = VALUES(\`size_bytes\`),
+              \`updated_at\` = NOW()
+          `, [asset.id, asset.category || 'general', asset.name || asset.id, asset.data, asset.mime_type || 'image/webp', asset.size_bytes || asset.data.length]);
+        }
+      }
+    }
+
+    // Refresh Netlify ZIP and baseline
+    refreshAssetsAndNetlifyPackage();
+
+    res.json({
+      success: true,
+      count: savedCount,
+      reportsCount,
+      videosCount,
+      message: `تعداد ${savedCount} مورد از گزارشات، ویدیوها، لوگوها و تصاویر مشاوران برای همیشه در دیتابیس MySQL و پکیج Netlify ذخیره و تثبیت شدند.`
+    });
+  } catch (err: any) {
+    console.error('Error syncing all assets to MySQL:', err);
+    res.status(500).json({ error: 'خطا در ثبت نشان‌ها در MySQL', details: err?.message });
+  }
+});
+
+// Dedicated Endpoint for Syncing Reports and Videos to MySQL
+app.post('/api/mysql/sync-all-reports-and-videos', async (req, res) => {
+  try {
+    const { reports, videos } = req.body;
+    let repCount = 0;
+    let vidCount = 0;
+
+    if (Array.isArray(reports) && reports.length > 0) {
+      inMemoryStore.customReports = reports;
+      repCount = reports.length;
+
+      if (mysqlPool && mysqlConnected) {
+        for (const rep of reports) {
+          if (rep && rep.id) {
+            await mysqlPool.query(`
+              INSERT INTO mahash_reports (
+                \`id\`, \`team_slug\`, \`title\`, \`summary\`, \`content\`, \`video_url\`, \`thumbnail_url\`, \`images\`, \`attachments\`, \`report_date\`, \`is_deleted\`, \`created_at\`, \`updated_at\`
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+              ON DUPLICATE KEY UPDATE
+                \`team_slug\` = VALUES(\`team_slug\`),
+                \`title\` = VALUES(\`title\`),
+                \`summary\` = VALUES(\`summary\`),
+                \`content\` = VALUES(\`content\`),
+                \`video_url\` = VALUES(\`video_url\`),
+                \`thumbnail_url\` = VALUES(\`thumbnail_url\`),
+                \`images\` = VALUES(\`images\`),
+                \`attachments\` = VALUES(\`attachments\`),
+                \`report_date\` = VALUES(\`report_date\`),
+                \`is_deleted\` = 0,
+                \`updated_at\` = NOW()
+            `, [
+              rep.id,
+              rep.teamSlug || 'general',
+              rep.title || 'بدون عنوان',
+              rep.summary || '',
+              rep.content || rep.transcript || '',
+              rep.videoSrc || rep.videoUrl || '',
+              rep.thumbnail || rep.cover || rep.poster || '',
+              JSON.stringify(rep.images || []),
+              JSON.stringify(rep.attachments || []),
+              rep.date || '',
+              0
+            ]);
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(videos) && videos.length > 0) {
+      vidCount = videos.length;
+      if (mysqlPool && mysqlConnected) {
+        for (const v of videos) {
+          if (v && (v.id || v.videoUrl || v.url)) {
+            const vidId = v.id ? `vid-${v.id}` : `vid-${Date.now()}`;
+            await mysqlPool.query(`
+              INSERT INTO mahash_videos (
+                \`id\`, \`title\`, \`team_slug\`, \`report_id\`, \`video_url\`, \`thumbnail_url\`, \`is_public\`, \`created_at\`, \`updated_at\`
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+              ON DUPLICATE KEY UPDATE
+                \`title\` = VALUES(\`title\`),
+                \`team_slug\` = VALUES(\`team_slug\`),
+                \`report_id\` = VALUES(\`report_id\`),
+                \`video_url\` = VALUES(\`video_url\`),
+                \`thumbnail_url\` = VALUES(\`thumbnail_url\`),
+                \`is_public\` = VALUES(\`is_public\`),
+                \`updated_at\` = NOW()
+            `, [
+              vidId,
+              v.title || 'ویدیو بدون عنوان',
+              v.teamSlug || 'general',
+              v.reportId || v.id || null,
+              v.videoUrl || v.videoSrc || v.url || '',
+              v.thumbnailUrl || v.thumbnail || v.poster || null,
+              1
+            ]);
+          }
+        }
+      }
+    }
+
+    saveStoreToDisk();
+    refreshAssetsAndNetlifyPackage();
+
+    res.json({
+      success: true,
+      repCount,
+      vidCount,
+      message: `تعداد ${repCount} گزارش و ${vidCount} ویدیو با موفقیت در دیتابیس MySQL و پکیج Netlify ذخیره و تثبیت شدند.`
+    });
+  } catch (err: any) {
+    console.error('Error syncing reports/videos to MySQL:', err);
+    res.status(500).json({ error: 'خطا در ثبت گزارشات و ویدیوها در MySQL', details: err?.message });
+  }
+});
+
+// Dedicated Live SQL Dump Endpoint
+app.get('/api/mysql/export/sql-dump', (req, res) => {
+  try {
+    const reports = inMemoryStore.customReports || [];
+    const scores = inMemoryStore.scores || [];
+    const news = inMemoryStore.newsAnnouncements || [];
+
+    const escapeSql = (str: any): string => {
+      if (str === null || str === undefined) return 'NULL';
+      if (typeof str === 'number') return String(str);
+      if (typeof str === 'boolean') return str ? '1' : '0';
+      return "'" + String(str).replace(/\\/g, '\\\\').replace(/'/g, "''").replace(/\n/g, '\\n').replace(/\r/g, '\\r') + "'";
+    };
+
+    let sql = `-- =========================================================================\n`;
+    sql += `-- پایگاه داده جامع مؤسسه و باشگاه جوانان محاش (MySQL Dump)\n`;
+    sql += `-- Generated: ${new Date().toISOString()}\n`;
+    sql += `-- =========================================================================\n\n`;
+    sql += `SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n`;
+
+    // Reports
+    sql += `DROP TABLE IF EXISTS \`mahash_reports\`;\n`;
+    sql += `CREATE TABLE \`mahash_reports\` (\n`;
+    sql += `  \`id\` varchar(128) NOT NULL,\n`;
+    sql += `  \`team_slug\` varchar(64) NOT NULL,\n`;
+    sql += `  \`title\` varchar(255) NOT NULL,\n`;
+    sql += `  \`summary\` longtext,\n`;
+    sql += `  \`content\` longtext,\n`;
+    sql += `  \`video_url\` longtext,\n`;
+    sql += `  \`thumbnail_url\` longtext,\n`;
+    sql += `  \`images\` longtext,\n`;
+    sql += `  \`attachments\` longtext,\n`;
+    sql += `  \`report_date\` varchar(64) DEFAULT '',\n`;
+    sql += `  \`is_deleted\` tinyint(1) DEFAULT 0,\n`;
+    sql += `  \`created_at\` timestamp DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  PRIMARY KEY (\`id\`)\n`;
+    sql += `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    reports.forEach((r: any) => {
+      sql += `INSERT INTO \`mahash_reports\` (\`id\`, \`team_slug\`, \`title\`, \`summary\`, \`content\`, \`video_url\`, \`thumbnail_url\`, \`report_date\`, \`is_deleted\`) VALUES (${escapeSql(r.id)}, ${escapeSql(r.teamSlug || 'general')}, ${escapeSql(r.title)}, ${escapeSql(r.summary || '')}, ${escapeSql(r.content || '')}, ${escapeSql(r.videoSrc || '')}, ${escapeSql(r.thumbnail || '')}, ${escapeSql(r.date || '')}, 0);\n`;
+    });
+
+    // Team Scores
+    sql += `\nDROP TABLE IF EXISTS \`mahash_team_scores\`;\n`;
+    sql += `CREATE TABLE \`mahash_team_scores\` (\n`;
+    sql += `  \`team_id\` varchar(64) NOT NULL,\n`;
+    sql += `  \`team_name\` varchar(128) NOT NULL,\n`;
+    sql += `  \`score\` int(11) NOT NULL DEFAULT 0,\n`;
+    sql += `  \`rank_order\` int(11) NOT NULL DEFAULT 1,\n`;
+    sql += `  \`logo_url\` text,\n`;
+    sql += `  PRIMARY KEY (\`team_id\`)\n`;
+    sql += `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;\n\n`;
+
+    scores.forEach((s: any, idx: number) => {
+      sql += `INSERT INTO \`mahash_team_scores\` (\`team_id\`, \`team_name\`, \`score\`, \`rank_order\`, \`logo_url\`) VALUES (${escapeSql(s.id)}, ${escapeSql(s.name)}, ${s.score || 0}, ${idx + 1}, ${escapeSql(s.logo || '')});\n`;
+    });
+
+    sql += `\nSET FOREIGN_KEY_CHECKS = 1;\n`;
+
+    res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="mahash_full_database_dump_${Date.now()}.sql"`);
+    res.send(sql);
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در تولید اسکریپت SQL', details: err?.message });
+  }
+});
+
+/* =========================================================================
+   NEWS & TICKER ANNOUNCEMENTS CRUD (MySQL Synced)
+   ========================================================================= */
+
+app.get('/api/mysql/news-announcements', async (req, res) => {
+  try {
+    if (mysqlPool && mysqlConnected) {
+      const [rows]: any = await mysqlPool.query(
+        'SELECT * FROM mahash_news_announcements ORDER BY priority DESC, created_at DESC'
+      );
+      if (rows && rows.length > 0) {
+        const mapped = rows.map((r: any) => ({
+          id: r.id,
+          type: r.type,
+          title: r.title,
+          content: r.content,
+          summary: r.summary,
+          badge: r.badge,
+          category: r.category,
+          imageUrl: r.image_url,
+          targetUrl: r.target_url,
+          isActive: Boolean(r.is_active),
+          priority: r.priority,
+          date: r.date,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at
+        }));
+        inMemoryStore.newsAnnouncements = mapped;
+        return res.json({ success: true, items: mapped, source: 'mysql' });
+      }
+    }
+
+    const current = inMemoryStore.newsAnnouncements || [];
+    res.json({ success: true, items: current, source: 'memory_disk' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در واکشی اخبار از MySQL', details: err?.message });
+  }
+});
+
+app.post('/api/mysql/news-announcements', async (req, res) => {
+  try {
+    const item = req.body || {};
+    if (!item.title) {
+      return res.status(400).json({ error: 'عنوان خبر یا اطلاعیه الزامی است' });
+    }
+
+    const id = item.id || `ann-${item.type || 'ticker'}-${Date.now()}`;
+    const type = item.type || 'ticker';
+    const title = item.title;
+    const content = item.content || '';
+    const summary = item.summary || '';
+    const badge = item.badge || (type === 'ticker' ? 'خبر فوری' : 'اطلاعیه رسمی');
+    const category = item.category || 'باشگاه جوانان';
+    const imageUrl = item.imageUrl || null;
+    const targetUrl = item.targetUrl || 'home';
+    const isActive = item.isActive !== undefined ? (item.isActive ? 1 : 0) : 1;
+    const priority = Number(item.priority) || 5;
+    const date = item.date || new Date().toLocaleDateString('fa-IR');
+
+    const formattedItem = {
+      id,
+      type,
+      title,
+      content,
+      summary,
+      badge,
+      category,
+      imageUrl,
+      targetUrl,
+      isActive: Boolean(isActive),
+      priority,
+      date,
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const currentList = Array.isArray(inMemoryStore.newsAnnouncements) ? inMemoryStore.newsAnnouncements : [];
+    const idx = currentList.findIndex((i: any) => i.id === id);
+    if (idx >= 0) {
+      currentList[idx] = { ...currentList[idx], ...formattedItem };
+    } else {
+      currentList.unshift(formattedItem);
+    }
+    inMemoryStore.newsAnnouncements = currentList;
+    saveStoreToDisk();
+
+    if (mysqlPool && mysqlConnected) {
+      await mysqlPool.query(`
+        INSERT INTO mahash_news_announcements (
+          \`id\`, \`type\`, \`title\`, \`content\`, \`summary\`, \`badge\`, \`category\`, \`image_url\`, \`target_url\`, \`is_active\`, \`priority\`, \`date\`, \`created_at\`, \`updated_at\`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          \`type\` = VALUES(\`type\`),
+          \`title\` = VALUES(\`title\`),
+          \`content\` = VALUES(\`content\`),
+          \`summary\` = VALUES(\`summary\`),
+          \`badge\` = VALUES(\`badge\`),
+          \`category\` = VALUES(\`category\`),
+          \`image_url\` = VALUES(\`image_url\`),
+          \`target_url\` = VALUES(\`target_url\`),
+          \`is_active\` = VALUES(\`is_active\`),
+          \`priority\` = VALUES(\`priority\`),
+          \`date\` = VALUES(\`date\`),
+          \`updated_at\` = NOW()
+      `, [id, type, title, content, summary, badge, category, imageUrl, targetUrl, isActive, priority, date]);
+    }
+
+    res.json({ success: true, item: formattedItem, message: 'اطلاعیه با موفقیت در دیتابیس MySQL ثبت و به‌روزرسانی شد.' });
+  } catch (err: any) {
+    console.error('Error saving news announcement:', err);
+    res.status(500).json({ error: 'خطا در ثبت خبر در MySQL', details: err?.message });
+  }
+});
+
+app.delete('/api/mysql/news-announcements/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'شناسه اطلاعیه الزامی است' });
+
+    if (Array.isArray(inMemoryStore.newsAnnouncements)) {
+      inMemoryStore.newsAnnouncements = inMemoryStore.newsAnnouncements.filter((i: any) => i.id !== id);
+      saveStoreToDisk();
+    }
+
+    if (mysqlPool && mysqlConnected) {
+      await mysqlPool.query('DELETE FROM mahash_news_announcements WHERE `id` = ?', [id]);
+    }
+
+    res.json({ success: true, message: 'اطلاعیه با موفقیت از MySQL حذف شد.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در حذف اطلاعیه از MySQL', details: err?.message });
+  }
+});
+
+app.put('/api/mysql/news-announcements/:id/toggle', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'شناسه اطلاعیه الزامی است' });
+
+    let newStatus = true;
+    if (Array.isArray(inMemoryStore.newsAnnouncements)) {
+      const target = inMemoryStore.newsAnnouncements.find((i: any) => i.id === id);
+      if (target) {
+        target.isActive = !target.isActive;
+        newStatus = target.isActive;
+        target.updatedAt = new Date().toISOString();
+        saveStoreToDisk();
+      }
+    }
+
+    if (mysqlPool && mysqlConnected) {
+      await mysqlPool.query('UPDATE mahash_news_announcements SET `is_active` = NOT `is_active`, `updated_at` = NOW() WHERE `id` = ?', [id]);
+    }
+
+    res.json({ success: true, isActive: newStatus, message: 'وضعیت نمایش اطلاعیه با موفقیت تغییر یافت.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در تغییر وضعیت اطلاعیه در MySQL', details: err?.message });
+  }
+});
+
+/* =========================================================================
+   DATABASE EXPORT (JSON & CSV BACKUP WITH UTF-8 BOM)
+   ========================================================================= */
+
+app.get('/api/mysql/export/json', async (req, res) => {
+  try {
+    const reports = inMemoryStore.customReports || [];
+    const scores = inMemoryStore.scores || [];
+    const announcements = inMemoryStore.newsAnnouncements || [];
+    const memberships = inMemoryStore.memberships || [];
+
+    const fullDump = {
+      metadata: {
+        exportedAt: new Date().toISOString(),
+        exportDateJalali: new Date().toLocaleDateString('fa-IR'),
+        appVersion: '2.5.0-production',
+        database: 'mahash_db',
+        system: 'سامانه مدیریت جامع مؤسسه و باشگاه جوانان محاش'
+      },
+      tables: {
+        mahash_reports: reports,
+        mahash_team_scores: scores,
+        mahash_news_announcements: announcements,
+        mahash_memberships: memberships,
+        mahash_assets_count: Object.keys(inMemoryAssets).length
+      }
+    };
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="mahash_database_backup_${Date.now()}.json"`);
+    res.send(JSON.stringify(fullDump, null, 2));
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در تهیه نسخه پشتیبان JSON', details: err?.message });
+  }
+});
+
+app.get('/api/mysql/export/csv', async (req, res) => {
+  try {
+    const table = (req.query.table as string) || 'reports';
+    let headers: string[] = [];
+    let rows: string[][] = [];
+
+    const escapeCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+    if (table === 'scores') {
+      headers = ['شناسه تیم', 'نام تیم', 'امتیاز کل', 'رتبه', 'توضیحات'];
+      const scores = inMemoryStore.scores || [];
+      rows = scores.map((s: any, idx: number) => [
+        escapeCsv(s.id),
+        escapeCsv(s.name),
+        escapeCsv(s.score),
+        escapeCsv(s.rank || idx + 1),
+        escapeCsv(s.achievements?.join(' | ') || '')
+      ]);
+    } else if (table === 'news') {
+      headers = ['شناسه', 'نوع', 'عنوان', 'برچسب', 'دسته‌بندی', 'مقصد', 'اولویت', 'وضعیت', 'تاریخ'];
+      const items = inMemoryStore.newsAnnouncements || [];
+      rows = items.map((i: any) => [
+        escapeCsv(i.id),
+        escapeCsv(i.type === 'ticker' ? 'نوار متحرک (Ticker)' : 'خبر صفحه اصلی'),
+        escapeCsv(i.title),
+        escapeCsv(i.badge || ''),
+        escapeCsv(i.category || ''),
+        escapeCsv(i.targetUrl || ''),
+        escapeCsv(i.priority || 0),
+        escapeCsv(i.isActive ? 'فعال' : 'غیرفعال'),
+        escapeCsv(i.date || '')
+      ]);
+    } else {
+      // Default: reports
+      headers = ['شناسه گزارش', 'تیم', 'عنوان', 'شماره گزارش', 'تاریخ', 'نوع', 'خلاصه', 'لینک ویدیو'];
+      const reports = inMemoryStore.customReports || [];
+      rows = reports.map((r: any) => [
+        escapeCsv(r.id),
+        escapeCsv(r.teamName),
+        escapeCsv(r.title),
+        escapeCsv(r.reportNum || ''),
+        escapeCsv(r.date || ''),
+        escapeCsv(r.reportType || 'video'),
+        escapeCsv(r.summary || ''),
+        escapeCsv(r.videoSrc || '')
+      ]);
+    }
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="mahash_${table}_export_${Date.now()}.csv"`);
+    res.send(csvContent);
+  } catch (err: any) {
+    res.status(500).json({ error: 'خطا در استخراج CSV', details: err?.message });
+  }
+});
+
 let inMemoryVideoErrors: any[] = [];
 
 // Video Monitor Telemetry Endpoints
@@ -3460,15 +4862,12 @@ app.get('/api/store', (req, res) => {
   const clientSince = req.query.since as string;
   if (clientSince && inMemoryStore.updatedAt && clientSince === inMemoryStore.updatedAt) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return res.status(200).json({ unchanged: true, updatedAt: inMemoryStore.updatedAt, store: inMemoryStore });
+    return res.status(200).json({ unchanged: true, updatedAt: inMemoryStore.updatedAt });
   }
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
-  res.json({
-    ...inMemoryStore,
-    store: inMemoryStore
-  });
+  res.json(inMemoryStore);
 });
 
 // Shared Server Store POST/Sync endpoint
@@ -3504,16 +4903,30 @@ app.post('/api/store', async (req, res) => {
       inMemoryStore.clubEmblem = await convertBase64ToUpload(payload.clubEmblem, 'emblem');
     }
 
+    // Update deleted reports first so that customReports can filter accordingly
+    if (Array.isArray(payload.deletedReports)) {
+      inMemoryStore.deletedReports = Array.from(new Set([
+        ...KNOWN_DEPRECATED_REPORT_IDS,
+        ...(inMemoryStore.deletedReports || []),
+        ...payload.deletedReports
+      ]));
+    }
+    const currentDeletedSet = new Set<string>([
+      ...KNOWN_DEPRECATED_REPORT_IDS,
+      ...(inMemoryStore.deletedReports || []),
+      ...(Array.isArray(payload.deletedReports) ? payload.deletedReports : [])
+    ]);
+
     // Update custom reports with automatic MySQL version snapshotting
     if (Array.isArray(payload.customReports)) {
-      const prevReports = inMemoryStore.customReports || [];
+      const prevReports = (inMemoryStore.customReports || []).filter((r: any) => r && r.id && !currentDeletedSet.has(r.id));
       const reportMap = new Map<string, any>();
-      // Seed with existing server reports
+      // Seed with existing server reports that are not deleted
       for (const r of prevReports) {
-        if (r && r.id) reportMap.set(r.id, r);
+        if (r && r.id && !currentDeletedSet.has(r.id)) reportMap.set(r.id, r);
       }
       for (const newRep of payload.customReports) {
-        if (!newRep || !newRep.id) continue;
+        if (!newRep || !newRep.id || currentDeletedSet.has(newRep.id)) continue;
         const oldRep = reportMap.get(newRep.id);
         const isNew = !oldRep;
         const hasChanged = oldRep && (
@@ -3563,14 +4976,9 @@ app.post('/api/store', async (req, res) => {
         }
         reportMap.set(newRep.id, newRep);
       }
-      inMemoryStore.customReports = Array.from(reportMap.values());
+      inMemoryStore.customReports = Array.from(reportMap.values()).filter(r => r && r.id && !currentDeletedSet.has(r.id));
       // Auto-sync videos to MySQL immediately upon report updates
       syncVideosToMySQLRegistry().catch(err => console.warn("Auto-sync videos error:", err));
-    }
-
-    // Update deleted reports
-    if (Array.isArray(payload.deletedReports)) {
-      inMemoryStore.deletedReports = payload.deletedReports;
     }
 
     // Update soft-delete trash bin
@@ -3727,6 +5135,7 @@ async function handleReportDeletion(req: express.Request, res: express.Response)
 
     // 5. Delete from MySQL tables if connected
     if (mysqlPool && mysqlConnected) {
+      mysqlPool.query('UPDATE mahash_reports SET is_deleted = 1 WHERE `id` = ?', [reportId]).catch(() => {});
       mysqlPool.query('DELETE FROM mahash_reports WHERE `id` = ?', [reportId]).catch(() => {});
       if (permanent) {
         mysqlPool.query('DELETE FROM mahash_report_versions WHERE `report_id` = ?', [reportId]).catch(() => {});
@@ -3785,6 +5194,7 @@ async function handleReportDeletion(req: express.Request, res: express.Response)
 
     inMemoryStore.updatedAt = new Date().toISOString();
     saveStoreToDisk();
+    saveStoreToMySQL().catch(() => {});
 
     res.json({
       success: true,
@@ -5917,6 +7327,24 @@ app.post('/api/upload-file', upload.single('file'), (req, res) => {
       }
     }
 
+    // Mirror newly uploaded file into public/uploads and dist/uploads, and trigger Netlify pack refresh
+    try {
+      const publicUp = path.join(process.cwd(), 'public', 'uploads', filename);
+      const distUp = path.join(process.cwd(), 'dist', 'uploads', filename);
+      const srcUp = path.join(UPLOADS_DIR, filename);
+      if (fs.existsSync(srcUp)) {
+        const publicUpDir = path.dirname(publicUp);
+        const distUpDir = path.dirname(distUp);
+        if (!fs.existsSync(publicUpDir)) fs.mkdirSync(publicUpDir, { recursive: true });
+        if (!fs.existsSync(distUpDir)) fs.mkdirSync(distUpDir, { recursive: true });
+        fs.copyFileSync(srcUp, publicUp);
+        fs.copyFileSync(srcUp, distUp);
+      }
+      refreshAssetsAndNetlifyPackage();
+    } catch (syncErr: any) {
+      console.warn('⚠️ Error mirroring uploaded file to dist/uploads:', syncErr?.message);
+    }
+
     res.json({ success: true, url: publicUrl, filename: req.file.filename });
   } catch (err: any) {
     console.error('File Upload Error:', err);
@@ -5960,6 +7388,11 @@ app.post('/api/upload', (req, res) => {
       if (!fs.existsSync(targetPublicFilePath)) {
         fs.writeFileSync(targetPublicFilePath, buf);
       }
+      const targetDistFilePath = path.join(process.cwd(), 'dist', 'uploads', targetFileName);
+      if (fs.existsSync(path.join(process.cwd(), 'dist', 'uploads'))) {
+        fs.writeFileSync(targetDistFilePath, buf);
+      }
+      refreshAssetsAndNetlifyPackage();
     } catch {}
 
     // Save asset record
@@ -6624,11 +8057,7 @@ function generateFallbackTeamSummary(
 
 // Vite middleware and static serving integration
 async function startApp() {
-  const isCjsBundle = typeof __filename !== 'undefined' && (__filename.endsWith('.cjs') || __filename.includes('dist'));
-  const hasDistIndex = fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'));
-  const isProduction = process.env.NODE_ENV === 'production' || isCjsBundle || hasDistIndex || !fs.existsSync(path.join(process.cwd(), 'src', 'main.tsx'));
-
-  if (!isProduction) {
+  if (process.env.NODE_ENV !== 'production') {
     try {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
@@ -6639,51 +8068,55 @@ async function startApp() {
     } catch (viteErr) {
       console.warn('⚠️ Could not start Vite dev middleware, falling back to static dist serving:', viteErr);
     }
+  } else {
+    const candidateDirs = [
+      path.join(process.cwd(), 'dist'),
+      process.cwd(),
+      typeof __dirname !== 'undefined' ? __dirname : '',
+      typeof __dirname !== 'undefined' ? path.join(__dirname, 'dist') : '',
+      typeof __dirname !== 'undefined' ? path.join(__dirname, '..', 'dist') : ''
+    ].filter(Boolean);
+
+    const distPath = candidateDirs.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) || path.join(process.cwd(), 'dist');
+
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }));
+
+    app.get('*', (req, res) => {
+      // If request is for an API route that didn't match, return 404 json instead of index.html
+      if (req.path.startsWith('/api/')) {
+        res.status(404).json({ error: 'Endpoint not found' });
+        return;
+      }
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(200).send('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>سامانه باشگاه جوانان مؤسسه محاش</title></head><body><div id="root"></div></body></html>');
+      }
+    });
   }
 
-  // Always mount static serving for production or fallback
-  const candidates = [
-    path.join(process.cwd(), 'dist'),
-    typeof __dirname !== 'undefined' ? __dirname : '',
-    typeof __dirname !== 'undefined' ? path.join(__dirname, '..', 'dist') : '',
-    typeof __dirname !== 'undefined' ? path.join(__dirname, 'dist') : '',
-    path.resolve('dist')
-  ].filter(Boolean);
-
-  let distPath = candidates.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) || path.join(process.cwd(), 'dist');
-
-  app.use(express.static(distPath, {
-    setHeaders: (res, filePath) => {
-      if (filePath.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      } else {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      }
-    }
-  }));
-
-  app.get('*', (req, res) => {
-    // If request is for an API route that didn't match, return 404 json instead of index.html
-    if (req.path.startsWith('/api/')) {
-      res.status(404).json({ error: 'Endpoint not found' });
-      return;
-    }
-    const indexPath = path.join(distPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(200).send('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>سامانه باشگاه جوانان مؤسسه محاش</title></head><body><div id="root"></div></body></html>');
-    }
+  const PORT = 3000;
+  const mainServer = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Mahash Portal server listening on http://0.0.0.0:${PORT}`);
   });
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Mahash Portal server running on http://localhost:${PORT}`);
+  mainServer.on('error', (err: any) => {
+    console.error(`Main server listener error on port ${PORT}:`, err);
   });
 
   const handleShutdown = (signal: string) => {
     console.log(`Received ${signal}, closing server gracefully...`);
-    server.close(() => {
-      console.log('Server closed successfully.');
+    mainServer.close(() => {
+      console.log('Server listener closed successfully.');
       process.exit(0);
     });
     setTimeout(() => {
