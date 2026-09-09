@@ -1829,22 +1829,36 @@ export function normalizeConsultantKey(name: string): string {
 export function updateTeamDetails(teamSlugOrId: string, updates: Partial<TeamData>): void {
   const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamSlugOrId);
 
-  const overrides = getTeamOverrides();
-  overrides[normSlug] = {
-    ...(overrides[normSlug] || {}),
-    ...(overrides[shortId] || {}),
-    ...updates
-  };
-  // Keep shortId and aliases in sync
-  overrides[shortId] = {
-    ...(overrides[normSlug] || {})
-  };
-  aliases.forEach((al) => {
-    overrides[al] = { ...(overrides[normSlug] || {}) };
-  });
+  const keysToProtect = [
+    TEAM_OVERRIDES_KEY,
+    `mahash_team_logo_${shortId}`,
+    `mahash_team_logo_${normSlug}`,
+    'logo:' + normSlug
+  ];
 
-  saveTeamOverrides(overrides);
-  triggerGlobalCacheBust();
+  executeStoreTransaction(keysToProtect, `به‌روزرسانی جزئیات تیم: ${normSlug}`, () => {
+    const overrides = getTeamOverrides();
+    overrides[normSlug] = {
+      ...(overrides[normSlug] || {}),
+      ...(overrides[shortId] || {}),
+      ...updates
+    };
+    // Keep shortId and aliases in sync
+    overrides[shortId] = {
+      ...(overrides[normSlug] || {})
+    };
+    aliases.forEach((al) => {
+      overrides[al] = { ...(overrides[normSlug] || {}) };
+    });
+
+    saveTeamOverrides(overrides);
+    return true;
+  }).then(() => {
+    triggerGlobalCacheBust();
+    syncLocalDataToServer().catch(console.warn);
+  }).catch((txErr) => {
+    console.error(`Transaction failed for updateTeamDetails: ${normSlug}`, txErr);
+  });
 }
 
 export function getTeamLogo(teamSlugOrId: string): string | null {
@@ -1901,60 +1915,64 @@ export function saveTeamLogo(teamSlugOrId: string, logoDataUrl: string): void {
   }
   const { slug: normSlug, shortId, aliases } = resolveCanonicalTeamIdentifiers(teamSlugOrId);
 
-  // 1. Update team overrides (primary store)
-  updateTeamDetails(normSlug, { logo: logoDataUrl });
+  executeStoreTransaction([TEAM_LOGOS_MAP_KEY, TEAM_OVERRIDES_KEY, SCORES_KEY], `ذخیره لوگوی اختصاصی تیم ${normSlug}`, () => {
+    // 1. Update team overrides (primary store)
+    updateTeamDetails(normSlug, { logo: logoDataUrl });
 
-  // 2. Team logos map persistence (clean single JSON entry)
-  try {
-    const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
-    const parsedMap = rawMap ? JSON.parse(rawMap) : {};
-    parsedMap[normSlug] = logoDataUrl;
-    parsedMap[shortId] = logoDataUrl;
-    aliases.forEach((al) => {
-      parsedMap[al] = logoDataUrl;
-    });
-    safeSetLocalStorage(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
+    // 2. Team logos map persistence (clean single JSON entry)
+    try {
+      const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
+      const parsedMap = rawMap ? JSON.parse(rawMap) : {};
+      parsedMap[normSlug] = logoDataUrl;
+      parsedMap[shortId] = logoDataUrl;
+      aliases.forEach((al) => {
+        parsedMap[al] = logoDataUrl;
+      });
+      safeSetLocalStorage(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
+    } catch {}
 
-  } catch {}
-  // 3. Keep individual localStorage keys in sync to prevent stale fallback recovery
-  try {
-    safeSetLocalStorage(`mahash_team_logo_${shortId}`, logoDataUrl);
-    safeSetLocalStorage(`mahash_team_logo_${normSlug}`, logoDataUrl);
-    safeSetLocalStorage(`team_logo_${shortId}`, logoDataUrl);
-    safeSetLocalStorage(`team_logo_${normSlug}`, logoDataUrl);
-    aliases.forEach((al) => {
-      safeSetLocalStorage(`mahash_team_logo_${al}`, logoDataUrl);
-      safeSetLocalStorage(`team_logo_${al}`, logoDataUrl);
-    });
+    // 3. Keep individual localStorage keys in sync to prevent stale fallback recovery
+    try {
+      safeSetLocalStorage(`mahash_team_logo_${shortId}`, logoDataUrl);
+      safeSetLocalStorage(`mahash_team_logo_${normSlug}`, logoDataUrl);
+      safeSetLocalStorage(`team_logo_${shortId}`, logoDataUrl);
+      safeSetLocalStorage(`team_logo_${normSlug}`, logoDataUrl);
+      aliases.forEach((al) => {
+        safeSetLocalStorage(`mahash_team_logo_${al}`, logoDataUrl);
+        safeSetLocalStorage(`team_logo_${al}`, logoDataUrl);
+      });
+    } catch {}
 
-  } catch {}
-  // 4. Keep scores list logo property updated as well
-  try {
-    const rawScores = getAllScores();
-    const updatedScores = rawScores.map((s) => {
-      if (s.id === shortId || s.id === normSlug || aliases.includes(s.id)) {
-        return { ...s, logo: logoDataUrl };
+    // 4. Keep scores list logo property updated as well
+    try {
+      const rawScores = getAllScores();
+      const updatedScores = rawScores.map((s) => {
+        if (s.id === shortId || s.id === normSlug || aliases.includes(s.id)) {
+          return { ...s, logo: logoDataUrl };
+        }
+        return s;
+      });
+      saveAllScores(updatedScores);
+    } catch {}
+
+    // 5. In-memory update of base TEAMS_DATA
+    try {
+      if (TEAMS_DATA[normSlug]) {
+        TEAMS_DATA[normSlug].logo = logoDataUrl;
       }
-      return s;
-    });
-    saveAllScores(updatedScores);
+    } catch {}
 
-  } catch {}
-  // 5. In-memory update of base TEAMS_DATA
-  try {
-    if (TEAMS_DATA[normSlug]) {
-      TEAMS_DATA[normSlug].logo = logoDataUrl;
-    }
+    markPendingSyncItem(`logo:${normSlug}`);
+    triggerGlobalCacheBust();
 
-  } catch {}
-  markPendingSyncItem(`logo:${normSlug}`);
-  triggerGlobalCacheBust();
-  try {
-    saveLogoToFirestore(normSlug, logoDataUrl).catch(() => {});
-  } catch {}
-  try {
-    syncLocalDataToServer().catch(() => {});
-  } catch {}
+    try {
+      saveLogoToFirestore(normSlug, logoDataUrl).catch(() => {});
+    } catch {}
+
+    try {
+      syncLocalDataToServer().catch(() => {});
+    } catch {}
+  }).catch(console.error);
 }
 
 
@@ -2198,37 +2216,43 @@ export function saveConsultantPhoto(consultantName: string, photoDataUrl: string
   const normalized = normalizeConsultantKey(trimmed);
   const docId = getCanonicalConsultantDocId(trimmed);
 
-  const photos = { ...getConsultantPhotos() };
-  photos[trimmed] = photoDataUrl;
-  if (normalized) {
-    photos[normalized] = photoDataUrl;
-  }
-  if (docId) {
-    photos[docId] = photoDataUrl;
-  }
+  const keysToProtect = [
+    CONSULTANT_PHOTOS_KEY,
+    `mahash_consultant_photo_${encodeURIComponent(trimmed)}`,
+    CONSULTANTS_STORAGE_KEY
+  ];
 
-  // Populate common aliases for complete resilience
-  if (normalized === 'nazi_abbasian' || docId === 'consultant_nazi_abbasian') {
-    photos['خانم دکتر نازی عباسیان'] = photoDataUrl;
-    photos['دکتر خانم نزی عباسیان'] = photoDataUrl;
-    photos['دکتر نازی عباسیان'] = photoDataUrl;
-    photos['نازی عباسیان'] = photoDataUrl;
-    photos['نزی عباسیان'] = photoDataUrl;
-    photos['nazi_abbasian'] = photoDataUrl;
-    photos['consultant_nazi_abbasian'] = photoDataUrl;
-  } else if (normalized === 'radin_oroumi' || docId === 'consultant_radin_oroumi') {
-    photos['آقای رادین اورومی'] = photoDataUrl;
-    photos['رادین اورومی'] = photoDataUrl;
-    photos['رادین ارومی'] = photoDataUrl;
-    photos['radin_oroumi'] = photoDataUrl;
-    photos['consultant_radin_oroumi'] = photoDataUrl;
-  }
+  executeStoreTransaction(keysToProtect, `ذخیره تصویر مشاور: ${trimmed}`, () => {
+    const photos = { ...getConsultantPhotos() };
+    photos[trimmed] = photoDataUrl;
+    if (normalized) {
+      photos[normalized] = photoDataUrl;
+    }
+    if (docId) {
+      photos[docId] = photoDataUrl;
+    }
 
-  // Update in-memory cache immediately
-  memoryConsultantPhotosCache = photos;
-  memoryConsultantsListCache = null;
+    // Populate common aliases for complete resilience
+    if (normalized === 'nazi_abbasian' || docId === 'consultant_nazi_abbasian') {
+      photos['خانم دکتر نازی عباسیان'] = photoDataUrl;
+      photos['دکتر خانم نزی عباسیان'] = photoDataUrl;
+      photos['دکتر نازی عباسیان'] = photoDataUrl;
+      photos['نازی عباسیان'] = photoDataUrl;
+      photos['نزی عباسیان'] = photoDataUrl;
+      photos['nazi_abbasian'] = photoDataUrl;
+      photos['consultant_nazi_abbasian'] = photoDataUrl;
+    } else if (normalized === 'radin_oroumi' || docId === 'consultant_radin_oroumi') {
+      photos['آقای رادین اورومی'] = photoDataUrl;
+      photos['رادین اورومی'] = photoDataUrl;
+      photos['رادین ارومی'] = photoDataUrl;
+      photos['radin_oroumi'] = photoDataUrl;
+      photos['consultant_radin_oroumi'] = photoDataUrl;
+    }
 
-  try {
+    // Update in-memory cache immediately
+    memoryConsultantPhotosCache = photos;
+    memoryConsultantsListCache = null;
+
     safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(photos));
     safeSetLocalStorage(`mahash_consultant_photo_${encodeURIComponent(trimmed)}`, photoDataUrl);
     if (normalized) {
@@ -2237,32 +2261,51 @@ export function saveConsultantPhoto(consultantName: string, photoDataUrl: string
     if (docId) {
       safeSetLocalStorage(`mahash_consultant_photo_${docId}`, photoDataUrl);
     }
-  } catch (err) {
-    console.warn('Failed to save consultant photo locally:', err);
-  }
 
-  // Persist directly to Firestore asynchronously
-  try {
-    saveConsultantPhotoToFirestore(consultantName, photoDataUrl).catch((cloudErr) => {
-      console.warn('Background Firestore save notice for consultant photo:', cloudErr);
-    });
+    // Also update in consultants storage list
+    try {
+      const list = getAllConsultants();
+      const updated = list.map((c) => {
+        const cNorm = normalizeConsultantKey(c.name);
+        if (c.name.trim() === trimmed || (normalized && cNorm === normalized) || getCanonicalConsultantDocId(c.name) === docId) {
+          return { ...c, image: photoDataUrl };
+        }
+        return c;
+      });
+      safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
 
-  } catch {}
-  // Also update in consultants storage list
-  try {
-    const list = getAllConsultants();
-    const updated = list.map((c) => {
-      const cNorm = normalizeConsultantKey(c.name);
-      if (c.name.trim() === trimmed || (normalized && cNorm === normalized) || getCanonicalConsultantDocId(c.name) === docId) {
-        return { ...c, image: photoDataUrl };
+    return true;
+  }).then(() => {
+    // Persist directly to Firestore asynchronously
+    try {
+      saveConsultantPhotoToFirestore(consultantName, photoDataUrl).catch((cloudErr) => {
+        console.warn('Background Firestore save notice for consultant photo:', cloudErr);
+      });
+    } catch {}
+
+    // Direct asynchronous persistence to MySQL assets endpoint
+    try {
+      if (typeof window !== 'undefined') {
+        fetch('/api/mysql/assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assetId: docId || `consultant_${normalized || 'custom'}`,
+            category: 'consultant_photo',
+            name: `عکس مشاور: ${trimmed}`,
+            data: photoDataUrl,
+            mimeType: photoDataUrl.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg'
+          })
+        }).catch(() => {});
       }
-      return c;
-    });
-    saveAllConsultants(updated);
+    } catch {}
 
-  } catch {}
-  triggerGlobalCacheBust();
-  syncLocalDataToServer().catch(console.warn);
+    triggerGlobalCacheBust();
+    syncLocalDataToServer().catch(console.warn);
+  }).catch((txErr) => {
+    console.error(`Transaction failed for saveConsultantPhoto: ${trimmed}`, txErr);
+  });
 }
 
 /**
@@ -2312,31 +2355,37 @@ export function resetConsultantPhoto(consultantName: string): void {
   const normalized = normalizeConsultantKey(trimmed);
   const docId = getCanonicalConsultantDocId(trimmed);
 
-  const photos = { ...getConsultantPhotos() };
-  delete photos[trimmed];
-  if (normalized) delete photos[normalized];
-  if (docId) delete photos[docId];
+  const keysToProtect = [
+    CONSULTANT_PHOTOS_KEY,
+    `mahash_consultant_photo_${encodeURIComponent(trimmed)}`,
+    CONSULTANTS_STORAGE_KEY
+  ];
 
-  if (normalized === 'nazi_abbasian' || docId === 'consultant_nazi_abbasian') {
-    delete photos['خانم دکتر نازی عباسیان'];
-    delete photos['دکتر خانم نزی عباسیان'];
-    delete photos['دکتر نازی عباسیان'];
-    delete photos['نازی عباسیان'];
-    delete photos['نزی عباسیان'];
-    delete photos['nazi_abbasian'];
-    delete photos['consultant_nazi_abbasian'];
-  } else if (normalized === 'radin_oroumi' || docId === 'consultant_radin_oroumi') {
-    delete photos['آقای رادین اورومی'];
-    delete photos['رادین اورومی'];
-    delete photos['رادین ارومی'];
-    delete photos['radin_oroumi'];
-    delete photos['consultant_radin_oroumi'];
-  }
+  executeStoreTransaction(keysToProtect, `حذف/بازنشانی تصویر مشاور: ${trimmed}`, () => {
+    const photos = { ...getConsultantPhotos() };
+    delete photos[trimmed];
+    if (normalized) delete photos[normalized];
+    if (docId) delete photos[docId];
 
-  memoryConsultantPhotosCache = photos;
-  memoryConsultantsListCache = null;
+    if (normalized === 'nazi_abbasian' || docId === 'consultant_nazi_abbasian') {
+      delete photos['خانم دکتر نازی عباسیان'];
+      delete photos['دکتر خانم نزی عباسیان'];
+      delete photos['دکتر نازی عباسیان'];
+      delete photos['نازی عباسیان'];
+      delete photos['نزی عباسیان'];
+      delete photos['nazi_abbasian'];
+      delete photos['consultant_nazi_abbasian'];
+    } else if (normalized === 'radin_oroumi' || docId === 'consultant_radin_oroumi') {
+      delete photos['آقای رادین اورومی'];
+      delete photos['رادین اورومی'];
+      delete photos['رادین ارومی'];
+      delete photos['radin_oroumi'];
+      delete photos['consultant_radin_oroumi'];
+    }
 
-  try {
+    memoryConsultantPhotosCache = photos;
+    memoryConsultantsListCache = null;
+
     safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(photos));
     safeRemoveLocalStorage(`mahash_consultant_photo_${encodeURIComponent(trimmed)}`);
     if (normalized) {
@@ -2346,29 +2395,33 @@ export function resetConsultantPhoto(consultantName: string): void {
       safeRemoveLocalStorage(`mahash_consultant_photo_${docId}`);
     }
 
-  } catch {}
-  // Delete from Firestore
-  try {
-    deleteConsultantPhotoFromFirestore(consultantName).catch(() => {});
+    // Also reset in consultants storage list
+    try {
+      const list = getAllConsultants();
+      const updated = list.map((c) => {
+        const cNorm = normalizeConsultantKey(c.name);
+        if (c.name.trim() === trimmed || (normalized && cNorm === normalized) || getCanonicalConsultantDocId(c.name) === docId) {
+          const copy = { ...c };
+          delete copy.image;
+          return copy;
+        }
+        return c;
+      });
+      safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
 
-  } catch {}
-  // Also reset in consultants storage list
-  try {
-    const list = getAllConsultants();
-    const updated = list.map((c) => {
-      const cNorm = normalizeConsultantKey(c.name);
-      if (c.name.trim() === trimmed || (normalized && cNorm === normalized) || getCanonicalConsultantDocId(c.name) === docId) {
-        const copy = { ...c };
-        delete copy.image;
-        return copy;
-      }
-      return c;
-    });
-    saveAllConsultants(updated);
+    return true;
+  }).then(() => {
+    // Delete from Firestore
+    try {
+      deleteConsultantPhotoFromFirestore(consultantName).catch(() => {});
+    } catch {}
 
-  } catch {}
-  triggerGlobalCacheBust();
-  syncLocalDataToServer().catch(console.warn);
+    triggerGlobalCacheBust();
+    syncLocalDataToServer().catch(console.warn);
+  }).catch((txErr) => {
+    console.error(`Transaction failed for resetConsultantPhoto: ${trimmed}`, txErr);
+  });
 }
 
 
@@ -2401,10 +2454,15 @@ export function getAllConsultants(): Consultant[] {
 
 export function saveAllConsultants(consultants: Consultant[]): void {
   memoryConsultantsListCache = consultants;
-  try {
+  executeStoreTransaction([CONSULTANTS_STORAGE_KEY], 'ذخیره فهرست کامل مشاوران', () => {
     safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(consultants));
-  } catch {}
-  triggerGlobalCacheBust();
+    return true;
+  }).then(() => {
+    triggerGlobalCacheBust();
+    syncLocalDataToServer().catch(console.warn);
+  }).catch((txErr) => {
+    console.error('Transaction failed for saveAllConsultants:', txErr);
+  });
 }
 
 
@@ -2473,9 +2531,15 @@ export function getAllScores(): ScoreItem[] {
 }
 
 export function saveAllScores(scores: ScoreItem[]): void {
-  safeSetLocalStorage(SCORES_KEY, JSON.stringify(scores));
-  triggerStoreUpdate();
-  syncLocalDataToServer().catch(console.warn);
+  executeStoreTransaction([SCORES_KEY], 'ذخیره جدول امتیازات تیم‌ها', () => {
+    safeSetLocalStorage(SCORES_KEY, JSON.stringify(scores));
+    return true;
+  }).then(() => {
+    triggerStoreUpdate();
+    syncLocalDataToServer().catch(console.warn);
+  }).catch((txErr) => {
+    console.error('Transaction failed for saveAllScores:', txErr);
+  });
 }
 
 export function updateTeamScore(teamId: string, newScore: number): void {
@@ -2665,7 +2729,497 @@ export function getPendingSyncCount(): number {
   }
 }
 
+export interface SyncDebugLogEntry {
+  id: string;
+  timestamp: string;
+  phase: 'FETCH_INIT' | 'NETWORK_RECV' | 'FALLBACK_TRIGGERED' | 'PAYLOAD_AUDIT' | 'MERGE_DECISION' | 'MERGE_CONFLICT' | 'PERSISTENCE_COMMIT' | 'PUSH_DISPATCH' | 'TRANSACTION_LOCK' | 'RETRY_INIT' | 'RETRY_SUCCESS' | 'CLIENT_PRIORITY_DISPATCH' | 'ERROR';
+  summary: string;
+  details?: Record<string, any>;
+  durationMs?: number;
+  level: 'info' | 'warn' | 'error' | 'success';
+}
+
+const SYNC_DEBUG_LOGS_KEY = 'mahash_sync_debug_logs_v2';
+let memorySyncDebugLogs: SyncDebugLogEntry[] = [];
+try {
+  if (typeof window !== 'undefined') {
+    const rawLogs = safeGetLocalStorage(SYNC_DEBUG_LOGS_KEY);
+    if (rawLogs) {
+      const parsed = JSON.parse(rawLogs);
+      if (Array.isArray(parsed)) memorySyncDebugLogs = parsed.slice(-80);
+    }
+  }
+} catch {}
+
+export function addSyncDebugLog(entry: Omit<SyncDebugLogEntry, 'id' | 'timestamp'>): SyncDebugLogEntry {
+  const newLog: SyncDebugLogEntry = {
+    id: `sync_dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    ...entry
+  };
+  memorySyncDebugLogs.unshift(newLog);
+  if (memorySyncDebugLogs.length > 100) {
+    memorySyncDebugLogs = memorySyncDebugLogs.slice(0, 100);
+  }
+  try {
+    if (typeof window !== 'undefined') {
+      safeSetLocalStorage(SYNC_DEBUG_LOGS_KEY, JSON.stringify(memorySyncDebugLogs));
+    }
+  } catch {}
+  globalEventBus.emit('SYNC_DEBUG_LOGS_UPDATED', memorySyncDebugLogs);
+  return newLog;
+}
+
+export function getSyncDebugLogs(): SyncDebugLogEntry[] {
+  return [...memorySyncDebugLogs];
+}
+
+export function clearSyncDebugLogs(): void {
+  memorySyncDebugLogs = [];
+  try {
+    if (typeof window !== 'undefined') {
+      safeSetLocalStorage(SYNC_DEBUG_LOGS_KEY, '[]');
+    }
+  } catch {}
+  globalEventBus.emit('SYNC_DEBUG_LOGS_UPDATED', []);
+}
+
+export function subscribeToSyncDebugLogs(callback: (logs: SyncDebugLogEntry[]) => void): () => void {
+  const handler = (logs: any) => callback(Array.isArray(logs) ? logs : memorySyncDebugLogs);
+  globalEventBus.on('SYNC_DEBUG_LOGS_UPDATED', handler);
+  return () => globalEventBus.off('SYNC_DEBUG_LOGS_UPDATED', handler);
+}
+
+export function exportSyncDebugLogsAsJson(): string {
+  return JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    totalLogs: memorySyncDebugLogs.length,
+    pendingKeys: getPendingSyncKeys(),
+    lastStoreUpdatedAt,
+    logs: memorySyncDebugLogs
+  }, null, 2);
+}
+
+// ----------------------------------------------------
+// Centralized MySQL Transaction Error Logger
+// ----------------------------------------------------
+export interface MySQLTransactionErrorRecord {
+  id: string;
+  timestamp: string;
+  operation: string;
+  table: string;
+  severity: 'error' | 'warning' | 'fatal';
+  errorMessage: string;
+  sqlCode?: string;
+  parameters: Record<string, any>;
+  stack?: string;
+  source: 'client' | 'server';
+  status: 'failed' | 'retrying' | 'resolved';
+  resolvedAt?: string;
+}
+
+export const MYSQL_TX_ERRORS_KEY = 'mahash_mysql_tx_errors_v1';
+let memoryMySQLTxErrors: MySQLTransactionErrorRecord[] = (() => {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = safeGetLocalStorage(MYSQL_TX_ERRORS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.slice(0, 100);
+      }
+    } catch {}
+  }
+  return [];
+})();
+
+export function getMySQLTransactionErrors(): MySQLTransactionErrorRecord[] {
+  return [...memoryMySQLTxErrors];
+}
+
+export function recordMySQLTransactionError(entry: {
+  operation: string;
+  table: string;
+  severity?: 'error' | 'warning' | 'fatal';
+  errorMessage: string;
+  sqlCode?: string;
+  parameters?: Record<string, any>;
+  stack?: string;
+  source?: 'client' | 'server';
+  status?: 'failed' | 'retrying' | 'resolved';
+}): MySQLTransactionErrorRecord {
+  const newErr: MySQLTransactionErrorRecord = {
+    id: `tx-err-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    severity: entry.severity || 'error',
+    source: entry.source || 'client',
+    status: entry.status || 'failed',
+    parameters: entry.parameters || {},
+    ...entry
+  };
+
+  memoryMySQLTxErrors = [newErr, ...memoryMySQLTxErrors.filter(e => e.id !== newErr.id)].slice(0, 100);
+  if (typeof window !== 'undefined') {
+    safeSetLocalStorage(MYSQL_TX_ERRORS_KEY, JSON.stringify(memoryMySQLTxErrors));
+    // Asynchronously log to server centralized endpoint
+    fetch('/api/mysql/transaction-errors/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newErr)
+    }).catch(() => {});
+  }
+
+  globalEventBus.emit('MYSQL_TX_ERRORS_UPDATED', memoryMySQLTxErrors);
+  return newErr;
+}
+
+export async function fetchRemoteTransactionErrors(): Promise<MySQLTransactionErrorRecord[]> {
+  if (typeof window === 'undefined') return memoryMySQLTxErrors;
+  try {
+    const res = await fetch('/api/mysql/transaction-errors');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.errors)) {
+        // Merge server errors with client errors, deduplicating by ID
+        const errorMap = new Map<string, MySQLTransactionErrorRecord>();
+        data.errors.forEach((e: MySQLTransactionErrorRecord) => errorMap.set(e.id, e));
+        memoryMySQLTxErrors.forEach((e: MySQLTransactionErrorRecord) => {
+          if (!errorMap.has(e.id)) errorMap.set(e.id, e);
+        });
+        const merged = Array.from(errorMap.values()).sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        ).slice(0, 100);
+        memoryMySQLTxErrors = merged;
+        safeSetLocalStorage(MYSQL_TX_ERRORS_KEY, JSON.stringify(merged));
+        globalEventBus.emit('MYSQL_TX_ERRORS_UPDATED', merged);
+        return merged;
+      }
+    }
+  } catch (e) {
+    console.warn('Notice fetching remote MySQL transaction errors:', e);
+  }
+  return memoryMySQLTxErrors;
+}
+
+export function clearMySQLTransactionErrors(): void {
+  memoryMySQLTxErrors = [];
+  if (typeof window !== 'undefined') {
+    safeSetLocalStorage(MYSQL_TX_ERRORS_KEY, '[]');
+    fetch('/api/mysql/transaction-errors/clear', { method: 'POST' }).catch(() => {});
+  }
+  globalEventBus.emit('MYSQL_TX_ERRORS_UPDATED', []);
+}
+
+export function resolveTransactionError(id: string): void {
+  const found = memoryMySQLTxErrors.find(e => e.id === id);
+  if (found) {
+    found.status = 'resolved';
+    found.resolvedAt = new Date().toISOString();
+    if (typeof window !== 'undefined') {
+      safeSetLocalStorage(MYSQL_TX_ERRORS_KEY, JSON.stringify(memoryMySQLTxErrors));
+      fetch(`/api/mysql/transaction-errors/${encodeURIComponent(id)}/resolve`, { method: 'POST' }).catch(() => {});
+    }
+    globalEventBus.emit('MYSQL_TX_ERRORS_UPDATED', memoryMySQLTxErrors);
+  }
+}
+
+export function subscribeToTransactionErrors(callback: (errors: MySQLTransactionErrorRecord[]) => void): () => void {
+  const handler = (errors: any) => callback(Array.isArray(errors) ? errors : memoryMySQLTxErrors);
+  globalEventBus.on('MYSQL_TX_ERRORS_UPDATED', handler);
+  return () => globalEventBus.off('MYSQL_TX_ERRORS_UPDATED', handler);
+}
+
+export function exportTransactionErrorsAsJson(): string {
+  return JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    totalErrors: memoryMySQLTxErrors.length,
+    unresolvedCount: memoryMySQLTxErrors.filter(e => e.status !== 'resolved').length,
+    lastSuccessfulSync: getLastSuccessfulSync(),
+    errors: memoryMySQLTxErrors
+  }, null, 2);
+}
+
+// ----------------------------------------------------
+// Data Persistence Errors & Visual Alerts System
+// ----------------------------------------------------
+export interface PersistenceErrorAlert {
+  id: string;
+  category: 'logo' | 'consultant' | 'report' | 'score' | 'general';
+  target: string;
+  message: string;
+  timestamp: string;
+  errorDetails?: any;
+}
+
+let activePersistenceErrors: PersistenceErrorAlert[] = (() => {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = safeGetLocalStorage('mahash_active_persistence_errors');
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  }
+  return [];
+})();
+
+export function getActivePersistenceErrors(): PersistenceErrorAlert[] {
+  return [...activePersistenceErrors];
+}
+
+export function addPersistenceError(err: Omit<PersistenceErrorAlert, 'id' | 'timestamp'>): void {
+  const newErr: PersistenceErrorAlert = {
+    id: `pe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: new Date().toISOString(),
+    ...err
+  };
+  activePersistenceErrors = [newErr, ...activePersistenceErrors.filter(e => !(e.category === err.category && e.target === err.target))].slice(0, 20);
+  if (typeof window !== 'undefined') {
+    safeSetLocalStorage('mahash_active_persistence_errors', JSON.stringify(activePersistenceErrors));
+  }
+  globalEventBus.emit('PERSISTENCE_ERROR_UPDATED', activePersistenceErrors);
+  globalEventBus.emit('STORE_UPDATED');
+}
+
+export function clearPersistenceError(idOrCategory: string): void {
+  activePersistenceErrors = activePersistenceErrors.filter(
+    e => e.id !== idOrCategory && e.category !== idOrCategory && e.target !== idOrCategory
+  );
+  if (typeof window !== 'undefined') {
+    safeSetLocalStorage('mahash_active_persistence_errors', JSON.stringify(activePersistenceErrors));
+  }
+  globalEventBus.emit('PERSISTENCE_ERROR_UPDATED', activePersistenceErrors);
+  globalEventBus.emit('STORE_UPDATED');
+}
+
+export function clearAllPersistenceErrors(): void {
+  activePersistenceErrors = [];
+  if (typeof window !== 'undefined') {
+    safeRemoveLocalStorage('mahash_active_persistence_errors');
+  }
+  globalEventBus.emit('PERSISTENCE_ERROR_UPDATED', []);
+  globalEventBus.emit('STORE_UPDATED');
+}
+
+export function subscribeToPersistenceErrors(callback: (errors: PersistenceErrorAlert[]) => void): () => void {
+  const handler = (errors: any) => callback(Array.isArray(errors) ? errors : activePersistenceErrors);
+  globalEventBus.on('PERSISTENCE_ERROR_UPDATED', handler);
+  return () => globalEventBus.off('PERSISTENCE_ERROR_UPDATED', handler);
+}
+
+// ----------------------------------------------------
+// Client Transaction Manager (ACID Rollback & Protection)
+// ----------------------------------------------------
+let isStoreTxActive = false;
+let storeTxActiveKeys: string[] = [];
+let storeTxStartTime = 0;
+
+export function isStoreTransactionLocked(): boolean {
+  if (!isStoreTxActive) return false;
+  if (Date.now() - storeTxStartTime > 7000) {
+    isStoreTxActive = false;
+    storeTxActiveKeys = [];
+    return false;
+  }
+  return true;
+}
+
+export function getActiveTransactionKeys(): string[] {
+  return isStoreTransactionLocked() ? [...storeTxActiveKeys] : [];
+}
+
+export async function executeStoreTransaction<T>(
+  keysToProtect: string[],
+  operationName: string,
+  operation: () => Promise<T> | T
+): Promise<T> {
+  if (typeof window === 'undefined') {
+    return operation();
+  }
+
+  isStoreTxActive = true;
+  storeTxActiveKeys = keysToProtect;
+  storeTxStartTime = Date.now();
+
+  addSyncDebugLog({
+    phase: 'TRANSACTION_LOCK',
+    level: 'info',
+    summary: `آغاز تراکنش امن ذخیره‌سازی داده: ${operationName}`,
+    details: { protectedKeys: keysToProtect }
+  });
+
+  // Snapshot before mutation to allow atomic rollback
+  const snapshot = new Map<string, string | null>();
+  for (const key of keysToProtect) {
+    snapshot.set(key, safeGetLocalStorage(key));
+  }
+
+  try {
+    const result = await operation();
+
+    // Mark keys as pending sync to shield them from race-condition server overwrites
+    for (const key of keysToProtect) {
+      markPendingSyncItem(key);
+    }
+
+    addSyncDebugLog({
+      phase: 'TRANSACTION_LOCK',
+      level: 'success',
+      summary: `تراکنش ${operationName} با موفقیت در مخزن کلاینت ثبت شد (Commit)`,
+      durationMs: Date.now() - storeTxStartTime,
+      details: { committedKeys: keysToProtect }
+    });
+
+    // Clear any previous error alerts for this domain
+    const isLogo = keysToProtect.some(k => k.includes('logo') || k.includes('emblem') || k.includes('badge'));
+    const isConsultant = keysToProtect.some(k => k.includes('consultant'));
+    if (isLogo) clearPersistenceError('logo');
+    if (isConsultant) clearPersistenceError('consultant');
+
+    isStoreTxActive = false;
+    storeTxActiveKeys = [];
+    return result;
+  } catch (err: any) {
+    console.error(`[StoreTransaction Rollback] Error during ${operationName}:`, err);
+    // Rollback every modified key to original snapshot
+    for (const [key, val] of snapshot.entries()) {
+      if (val === null) {
+        safeRemoveLocalStorage(key);
+      } else {
+        safeSetLocalStorage(key, val);
+      }
+    }
+
+    addSyncDebugLog({
+      phase: 'TRANSACTION_LOCK',
+      level: 'error',
+      summary: `خطا در تراکنش ${operationName} - بازگردانی کامل به حالت پیشین (Rollback)`,
+      durationMs: Date.now() - storeTxStartTime,
+      details: { error: err?.message || String(err), rolledBackKeys: keysToProtect }
+    });
+
+    // Register in centralized error logger
+    recordMySQLTransactionError({
+      operation: operationName,
+      table: keysToProtect.join(', '),
+      severity: 'error',
+      errorMessage: err?.message || String(err),
+      parameters: { protectedKeys: keysToProtect },
+      stack: err?.stack,
+      source: 'client',
+      status: 'failed'
+    });
+
+    // Generate visual error alert if logo or consultant was involved
+    const isLogo = keysToProtect.some(k => k.includes('logo') || k.includes('emblem') || k.includes('badge'));
+    const isConsultant = keysToProtect.some(k => k.includes('consultant'));
+    if (isLogo || isConsultant) {
+      addPersistenceError({
+        category: isLogo ? 'logo' : 'consultant',
+        target: operationName,
+        message: `خطا در ذخیره‌سازی در پایگاه داده (${err?.message || 'تراکنش بازگردانی شد'})`,
+        errorDetails: { keys: keysToProtect, error: err?.message }
+      });
+    }
+
+    isStoreTxActive = false;
+    storeTxActiveKeys = [];
+    throw err;
+  }
+}
+
+// ----------------------------------------------------
+// Client-Priority Retry Mechanism
+// ----------------------------------------------------
+let clientPriorityRetryTimer: any = null;
+let clientPriorityRetryCount = 0;
+const MAX_CLIENT_PRIORITY_RETRIES = 3;
+
+export async function retrySyncWithClientPriority(
+  reason: string,
+  priorityKeys: string[] = []
+): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+
+  for (const k of priorityKeys) {
+    markPendingSyncItem(k);
+  }
+
+  addSyncDebugLog({
+    phase: 'RETRY_INIT',
+    level: 'warn',
+    summary: `آغاز مکانیزم Retry با اولویت قطعی کلاینت: ${reason}`,
+    details: { reason, priorityKeys, attempt: clientPriorityRetryCount + 1 }
+  });
+
+  globalEventBus.emit('DATA_PERSISTENCE_RETRY_ACTIVE', {
+    active: true,
+    reason,
+    attempt: clientPriorityRetryCount + 1,
+    keys: priorityKeys
+  });
+
+  const delays = [400, 1500, 3200];
+  const delay = delays[Math.min(clientPriorityRetryCount, delays.length - 1)];
+
+  return new Promise<boolean>((resolve) => {
+    if (clientPriorityRetryTimer) clearTimeout(clientPriorityRetryTimer);
+    clientPriorityRetryTimer = setTimeout(async () => {
+      try {
+        clientPriorityRetryCount++;
+        const pushOk = await syncLocalDataToServer();
+        if (pushOk) {
+          clientPriorityRetryCount = 0;
+          addSyncDebugLog({
+            phase: 'RETRY_SUCCESS',
+            level: 'success',
+            summary: `تلاش مجدد با اولویت کلاینت با موفقیت انجام شد و داده‌ها در MySQL تثبیت شدند: ${reason}`,
+            details: { reason, priorityKeys }
+          });
+          priorityKeys.forEach(k => {
+            if (k.includes('logo') || k.includes('emblem')) clearPersistenceError('logo');
+            if (k.includes('consultant')) clearPersistenceError('consultant');
+          });
+          globalEventBus.emit('DATA_PERSISTENCE_RETRY_ACTIVE', { active: false, success: true });
+          resolve(true);
+        } else {
+          if (clientPriorityRetryCount < MAX_CLIENT_PRIORITY_RETRIES) {
+            console.warn(`[Client-Priority Retry] Attempt ${clientPriorityRetryCount} failed, retrying...`);
+            resolve(await retrySyncWithClientPriority(reason, priorityKeys));
+          } else {
+            clientPriorityRetryCount = 0;
+            const errMsg = `تلاش‌های مجدد برای همگام‌سازی (${reason}) با خطا مواجه شد`;
+            addPersistenceError({
+              category: priorityKeys.some(k => k.includes('logo')) ? 'logo' : (priorityKeys.some(k => k.includes('consultant')) ? 'consultant' : 'general'),
+              target: priorityKeys.join(', ') || reason,
+              message: errMsg
+            });
+            globalEventBus.emit('DATA_PERSISTENCE_RETRY_ACTIVE', { active: false, success: false });
+            resolve(false);
+          }
+        }
+      } catch (err: any) {
+        console.error('[Client-Priority Retry Error]:', err);
+        globalEventBus.emit('DATA_PERSISTENCE_RETRY_ACTIVE', { active: false, success: false, error: err?.message });
+        resolve(false);
+      }
+    }, delay);
+  });
+}
+
+// Expose diagnostic tools to window object for browser devtools inspection
+if (typeof window !== 'undefined') {
+  (window as any).__MAHASH_STORE_DEBUG__ = {
+    getLogs: getSyncDebugLogs,
+    clearLogs: clearSyncDebugLogs,
+    exportLogs: exportSyncDebugLogsAsJson,
+    getPending: getPendingSyncKeys,
+    isLocked: isStoreTransactionLocked
+  };
+}
+
 let lastSyncCallTime = 0;
+
+export async function triggerForceServerSync(): Promise<boolean> {
+  return fetchAndMergeServerStore(true);
+}
 
 export async function fetchAndMergeServerStore(force: boolean = false): Promise<boolean> {
   if (typeof window === 'undefined') return false;
@@ -2676,6 +3230,26 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
   lastSyncCallTime = now;
   const startTime = performance.now();
   const attemptType: SyncAttemptLog['type'] = force ? 'force_refresh' : 'pull';
+
+  // 1. Transaction lock check (Race condition protection)
+  if (isStoreTransactionLocked()) {
+    const activeKeys = getActiveTransactionKeys();
+    addSyncDebugLog({
+      phase: 'TRANSACTION_LOCK',
+      level: 'warn',
+      summary: `همگام‌سازی موقتاً متوقف شد؛ تراکنش نوشتن محلی در جریان است (${activeKeys.join(', ')})`,
+      details: { activeKeys }
+    });
+    return false;
+  }
+
+  addSyncDebugLog({
+    phase: 'FETCH_INIT',
+    level: 'info',
+    summary: `آغاز فراخوانی همگام‌سازی مخزن با سرور مرکزی (حالت: ${force ? 'اجباری' : 'تدریجی'})`,
+    details: { force, lastStoreUpdatedAt }
+  });
+
   try {
     if (force) {
       lastStoreUpdatedAt = null;
@@ -2693,6 +3267,12 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
         headers: force ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : {}
       });
     } catch (networkErr: any) {
+      addSyncDebugLog({
+        phase: 'ERROR',
+        level: 'warn',
+        summary: `خطای شبکه در اتصال به روت /api/store: ${networkErr?.message || networkErr}`,
+        details: { error: String(networkErr) }
+      });
       console.warn('[reportsStore] Network error fetching server store:', networkErr);
     } finally {
       clearTimeout(fetchTimeout);
@@ -2701,7 +3281,14 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
     let apiStoreData: any = null;
 
     if (!response || (response.status !== 200 && response.status !== 201)) {
-      // Fallback: Fetch build-time static offline baseline database for offline resilience or static hosting (Netlify/Cloudflare)
+      addSyncDebugLog({
+        phase: 'FALLBACK_TRIGGERED',
+        level: 'warn',
+        summary: response ? `پاسخ سرور با وضعیت ناموفق (${response.status})` : 'سرور در دسترس نیست؛ استفاده از دیتابیس پشتیبان آفلاین',
+        details: { status: response?.status }
+      });
+
+      // Fallback: Fetch build-time static offline baseline database for offline resilience or static hosting
       const fallbackBaseline = await fetch('/offline_baseline.json', { cache: 'default' })
         .then(r => r.ok ? r.json() : null)
         .catch(() => null);
@@ -2722,6 +3309,19 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       }
     } else {
       apiStoreData = await response.json().catch(() => null);
+      addSyncDebugLog({
+        phase: 'NETWORK_RECV',
+        level: 'success',
+        summary: `پاسخ سرور با وضعیت ${response.status} با موفقیت دریافت شد`,
+        durationMs: Math.round(performance.now() - startTime),
+        details: {
+          hasSchema: Boolean(apiStoreData?.schema),
+          customReportsCount: apiStoreData?.customReports?.length || 0,
+          mysql_persisted: apiStoreData?.mysql_persisted,
+          mysql_connected: apiStoreData?.mysql_connected
+        }
+      });
+
       // If response is not a valid store object (e.g. index.html was served by Netlify SPA rewrite)
       if (!apiStoreData || typeof apiStoreData !== 'object' || (!apiStoreData.schema && !Array.isArray(apiStoreData.customReports))) {
         console.log('[reportsStore] 🔄 Endpoint returned non-API payload (Netlify/static). Hydrating from offline_baseline.json...');
@@ -2735,8 +3335,14 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       }
     }
 
-    // Fast-path: If server data has not changed since last poll, skip heavy parsing (unless force is requested)
+    // Fast-path: If server data has not changed since last poll, skip heavy parsing
     if (!force && apiStoreData && apiStoreData.unchanged === true) {
+      addSyncDebugLog({
+        phase: 'PAYLOAD_AUDIT',
+        level: 'info',
+        summary: 'داده‌های سرور بدون تغییر بوده است (Fast-path 304)',
+        durationMs: Math.round(performance.now() - startTime)
+      });
       return false;
     }
 
@@ -2746,6 +3352,12 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
         lastStoreUpdatedAt = apiStoreData.updatedAt;
       }
     } else {
+      addSyncDebugLog({
+        phase: 'ERROR',
+        level: 'error',
+        summary: 'عدم دریافت ساختار معتبر داده از سرور MySQL',
+        durationMs: Math.round(performance.now() - startTime)
+      });
       addSyncAttemptLog({
         timestamp: new Date().toISOString(),
         type: attemptType,
@@ -2756,75 +3368,110 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       return false;
     }
 
-    // Merge in server endpoint data as fallback or supplementary
-    if (apiStoreData && typeof apiStoreData === 'object') {
-      if (apiStoreData.teamLogos && (!serverData.teamLogos || Object.keys(serverData.teamLogos).length === 0)) {
-        serverData.teamLogos = apiStoreData.teamLogos;
+    // Retrieve pending sync keys to protect any unpersisted client updates
+    const pendingKeys = getPendingSyncKeys();
+    const pendingKeysSet = new Set(pendingKeys);
+
+    addSyncDebugLog({
+      phase: 'PAYLOAD_AUDIT',
+      level: 'info',
+      summary: `ممیزی بسته سرور: ${serverData.customReports?.length || 0} گزارش، ${Object.keys(serverData.teamLogos || {}).length} لوگوی تیم، ${serverData.scores?.length || 0} ردیف امتیاز`,
+      details: {
+        reportsCount: serverData.customReports?.length || 0,
+        logosCount: Object.keys(serverData.teamLogos || {}).length,
+        hasMahashLogo: Boolean(serverData.mahashLogo),
+        hasClubEmblem: Boolean(serverData.clubEmblem),
+        pendingSyncCount: pendingKeys.length
       }
-      if (apiStoreData.teamOverrides && (!serverData.teamOverrides || Object.keys(serverData.teamOverrides).length === 0)) {
-        serverData.teamOverrides = apiStoreData.teamOverrides;
-      }
-      if (apiStoreData.customReports && (!serverData.customReports || serverData.customReports.length === 0)) {
-        serverData.customReports = apiStoreData.customReports;
-      }
-      if (apiStoreData.scores && (!serverData.scores || serverData.scores.length === 0)) {
-        serverData.scores = apiStoreData.scores;
-      }
-      if (apiStoreData.events && (!serverData.events || serverData.events.length === 0)) {
-        serverData.events = apiStoreData.events;
-      }
-      if (apiStoreData.mahashLogo && !serverData.mahashLogo) {
-        serverData.mahashLogo = apiStoreData.mahashLogo;
-      }
-      if (apiStoreData.clubEmblem && !serverData.clubEmblem) {
-        serverData.clubEmblem = apiStoreData.clubEmblem;
-      }
-      if (apiStoreData.consultantPhotos && (!serverData.consultantPhotos || Object.keys(serverData.consultantPhotos).length === 0)) {
-        serverData.consultantPhotos = apiStoreData.consultantPhotos;
-      }
-      if (apiStoreData.consultantsList && (!serverData.consultantsList || serverData.consultantsList.length === 0)) {
-        serverData.consultantsList = apiStoreData.consultantsList;
-      }
-      if (apiStoreData.memberAvatars && (!serverData.memberAvatars || Object.keys(serverData.memberAvatars).length === 0)) {
-        serverData.memberAvatars = apiStoreData.memberAvatars;
-      }
-      if (apiStoreData.memberships && (!serverData.memberships || serverData.memberships.length === 0)) {
-        serverData.memberships = apiStoreData.memberships;
-      }
-    }
+    });
 
     let modified = false;
     let needsPushToServer = false;
+    const conflictPriorityKeys: string[] = [];
 
     // Auto-restore from admin browser if server is wiped (Serverless container restart recovery)
     if (Object.keys(serverData.teamLogos || {}).length === 0) {
       const localLogos = safeGetLocalStorage('mahash_team_logos_map');
       if (localLogos && Object.keys(JSON.parse(localLogos)).length > 0) {
         needsPushToServer = true;
+        conflictPriorityKeys.push(TEAM_LOGOS_MAP_KEY);
       }
     }
 
-    const currentMahash = safeGetLocalStorage(MAHASH_LOGO_KEY);
-    if (currentMahash && isCustomImageDataUrlOrUrl(currentMahash) && (!serverData.mahashLogo || !isCustomImageDataUrlOrUrl(serverData.mahashLogo))) {
+    const currentMahash = safeGetLocalStorage(MAHASH_LOGO_KEY) || memoryMahashLogoCache;
+    const localHasMahash = isCustomImageDataUrlOrUrl(currentMahash);
+    const serverHasMahash = isCustomImageDataUrlOrUrl(serverData.mahashLogo);
+    const isMahashPending = pendingKeysSet.has(MAHASH_LOGO_KEY) || pendingKeysSet.has('logo:mahash');
+    if (localHasMahash && (!serverHasMahash || (currentMahash !== serverData.mahashLogo && !force) || isMahashPending)) {
       needsPushToServer = true;
+      conflictPriorityKeys.push(MAHASH_LOGO_KEY);
+      addSyncDebugLog({
+        phase: 'MERGE_DECISION',
+        level: 'info',
+        summary: 'لوگوی رسمی محاش محلی به دلیل اولویت لایه کلاینت/کش حفظ شد',
+        details: { isMahashPending, localHasMahash, serverHasMahash }
+      });
     }
 
-    const currentClub = safeGetLocalStorage(CLUB_EMBLEM_KEY);
-    if (currentClub && isCustomImageDataUrlOrUrl(currentClub) && (!serverData.clubEmblem || !isCustomImageDataUrlOrUrl(serverData.clubEmblem))) {
+    const currentClub = safeGetLocalStorage(CLUB_EMBLEM_KEY) || memoryYouthClubBadgeCache;
+    const localHasClub = isCustomImageDataUrlOrUrl(currentClub);
+    const serverHasClub = isCustomImageDataUrlOrUrl(serverData.clubEmblem);
+    const isClubPending = pendingKeysSet.has(CLUB_EMBLEM_KEY) || pendingKeysSet.has('logo:club_emblem');
+    if (localHasClub && (!serverHasClub || (currentClub !== serverData.clubEmblem && !force) || isClubPending)) {
       needsPushToServer = true;
+      conflictPriorityKeys.push(CLUB_EMBLEM_KEY);
+      addSyncDebugLog({
+        phase: 'MERGE_DECISION',
+        level: 'info',
+        summary: 'نشان باشگاه جوانان محلی به دلیل اولویت لایه کلاینت/کش حفظ شد',
+        details: { isClubPending, localHasClub, serverHasClub }
+      });
     }
 
-    // Merge team logos
+    // Merge team logos with protection for unpushed local modifications & Cache/Persist layer check
+    const isLogoPending = pendingKeysSet.has(TEAM_LOGOS_MAP_KEY) || pendingKeys.some(k => k.startsWith('logo:'));
     if (serverData.teamLogos && typeof serverData.teamLogos === 'object' && Object.keys(serverData.teamLogos).length > 0) {
       const rawMap = safeGetLocalStorage(TEAM_LOGOS_MAP_KEY);
       const parsedMap = rawMap ? JSON.parse(rawMap) : {};
+      let hasLogoConflict = false;
+
+      // Prioritize local custom logos over server empty/differing values
       Object.entries(serverData.teamLogos).forEach(([k, v]) => {
         if (typeof v === 'string' && v.trim()) {
-          parsedMap[k] = v;
+          const localVal = parsedMap[k];
+          const isThisLogoPending = pendingKeysSet.has('logo:' + k);
+          if (localVal && localVal !== v && (isThisLogoPending || !force)) {
+            hasLogoConflict = true;
+            conflictPriorityKeys.push('logo:' + k);
+          } else {
+            parsedMap[k] = v;
+            modified = true;
+          }
         }
       });
+
+      // Ensure any local custom logos that server lacks are preserved
+      Object.entries(parsedMap).forEach(([k, localV]) => {
+        if (typeof localV === 'string' && localV.trim()) {
+          const serverV = (serverData.teamLogos as any)[k];
+          if (!serverV || serverV !== localV) {
+            hasLogoConflict = true;
+            conflictPriorityKeys.push('logo:' + k);
+          }
+        }
+      });
+
+      if (hasLogoConflict && !force) {
+        needsPushToServer = true;
+        addSyncDebugLog({
+          phase: 'MERGE_DECISION',
+          level: 'warn',
+          summary: 'لوگوهای تیم‌های محلی به دلیل تضاد با سرور و اولویت کلاینت حفظ شدند',
+          details: { isLogoPending, conflictCount: conflictPriorityKeys.length }
+        });
+      }
+
       safeSetLocalStorage(TEAM_LOGOS_MAP_KEY, JSON.stringify(parsedMap));
-      modified = true;
     }
 
     // Merge team overrides
@@ -2907,14 +3554,21 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
             const localRep = grouped[teamSlug][existingIdx];
             const localUpdated = localRep.updatedAt || 0;
             const serverUpdated = sanitizedReport.updatedAt || 0;
+            const isPendingLocal = pendingKeysSet.has(`report:${sanitizedReport.id}`) || pendingKeysSet.has(sanitizedReport.id);
 
-            // If local report has strictly newer changes (not yet pushed), preserve local
-            if (localUpdated > serverUpdated) {
+            // If local report has pending changes or strictly newer timestamp, preserve local
+            if (!force && (isPendingLocal || localUpdated > serverUpdated)) {
               needsPushToServer = true;
+              addSyncDebugLog({
+                phase: 'MERGE_DECISION',
+                level: 'info',
+                summary: `گزارش «${sanitizedReport.title}» محلی حفظ شد (تغییر محلی اولویت دارد)`,
+                details: { reportId: sanitizedReport.id, localUpdated, serverUpdated, isPendingLocal }
+              });
               return;
             }
 
-            // Server update is newer or equal: apply all server edits (texts, videos, summary, etc.)
+            // Server update is newer or equal: apply all server edits
             const serverVideo = sanitizedReport.videoSrc || (sanitizedReport as any).videoUrl;
             const hasServerVideo = Boolean(serverVideo && serverVideo !== '#' && serverVideo.trim() !== '' && !serverVideo.startsWith('blob:'));
             const isServerText = sanitizedReport.reportType === 'text';
@@ -2958,7 +3612,6 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
             indexedDBService.saveReport(sanitizedReport, teamSlug).catch(() => {});
           } catch {}
         }
-
       });
 
       // Ensure each team list in grouped is strictly deduplicated
@@ -2973,6 +3626,12 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
     }
 
     if (needsPushToServer && typeof window !== 'undefined') {
+      addSyncDebugLog({
+        phase: 'PUSH_DISPATCH',
+        level: 'info',
+        summary: 'تغییرات محلی اولویت‌دار به سمت سرور MySQL جهت ثبت دائم ارسال می‌شود',
+        details: { needsPushToServer }
+      });
       setTimeout(() => {
         syncLocalDataToServer().catch(console.warn);
       }, 500);
@@ -2990,9 +3649,21 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       modified = true;
     }
 
+    // Merge scores with protection for unpushed local changes
+    const isScoresPending = pendingKeysSet.has(SCORES_KEY) || pendingKeysSet.has('scores');
     if (serverData.scores && Array.isArray(serverData.scores) && serverData.scores.length > 0) {
-      safeSetLocalStorage(SCORES_KEY, JSON.stringify(serverData.scores));
-      modified = true;
+      if (isScoresPending && !force) {
+        needsPushToServer = true;
+        addSyncDebugLog({
+          phase: 'MERGE_DECISION',
+          level: 'warn',
+          summary: 'امتیازات محلی به دلیل وجود تغییرات ارسال‌نشده حفظ شدند و از رونویسی سرور جلوگیری شد',
+          details: { isScoresPending }
+        });
+      } else {
+        safeSetLocalStorage(SCORES_KEY, JSON.stringify(serverData.scores));
+        modified = true;
+      }
     }
 
     if (serverData.events && Array.isArray(serverData.events) && serverData.events.length > 0) {
@@ -3005,18 +3676,70 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
       modified = true;
     }
 
+    // Merge consultant photos with strict Cache/Persist protection & client priority
+    const currentPhotos = getConsultantPhotos();
+    const isConsultantPending = pendingKeysSet.has(CONSULTANT_PHOTOS_KEY) || pendingKeys.some(k => k.startsWith('consultant:'));
     if (serverData.consultantPhotos && Object.keys(serverData.consultantPhotos).length > 0) {
-      const currentPhotos = getConsultantPhotos();
-      const mergedPhotos = { ...currentPhotos, ...serverData.consultantPhotos };
+      let consultantConflict = false;
+      const mergedPhotos: Record<string, string> = { ...serverData.consultantPhotos };
+
+      // Client-side priority: Check cache/persist layer before replacing local data
+      for (const [cName, cPhoto] of Object.entries(currentPhotos)) {
+        if (typeof cPhoto === 'string' && cPhoto.trim()) {
+          const serverPhoto = serverData.consultantPhotos[cName];
+          if (!serverPhoto || serverPhoto !== cPhoto) {
+            consultantConflict = true;
+          }
+          if (isConsultantPending || !force || !serverPhoto) {
+            mergedPhotos[cName] = cPhoto;
+          }
+        }
+      }
+
+      if (consultantConflict && (isConsultantPending || !force)) {
+        needsPushToServer = true;
+        conflictPriorityKeys.push(CONSULTANT_PHOTOS_KEY);
+        addSyncDebugLog({
+          phase: 'MERGE_DECISION',
+          level: 'warn',
+          summary: 'تصاویر مشاوران محلی به دلیل اولویت کلاینت حفظ شدند و تضاد با سرور شناسایی شد',
+          details: { isConsultantPending }
+        });
+      }
+
       safeSetLocalStorage(CONSULTANT_PHOTOS_KEY, JSON.stringify(mergedPhotos));
       memoryConsultantPhotosCache = mergedPhotos;
       modified = true;
+    } else if (Object.keys(currentPhotos).length > 0) {
+      needsPushToServer = true;
+      conflictPriorityKeys.push(CONSULTANT_PHOTOS_KEY);
     }
 
+    // Merge consultants list with Cache/Persist layer check
+    const currentConsultants = getAllConsultants();
+    const isConsultantsListPending = pendingKeysSet.has(CONSULTANTS_STORAGE_KEY) || pendingKeys.some(k => k.startsWith('consultant:'));
     if (serverData.consultantsList && Array.isArray(serverData.consultantsList) && serverData.consultantsList.length > 0) {
-      safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(serverData.consultantsList));
-      memoryConsultantsListCache = null;
-      modified = true;
+      if (isConsultantsListPending && !force) {
+        needsPushToServer = true;
+        conflictPriorityKeys.push(CONSULTANTS_STORAGE_KEY);
+        addSyncDebugLog({
+          phase: 'MERGE_DECISION',
+          level: 'warn',
+          summary: 'اطلاعات محلی مشاوران به دلیل وجود تغییرات محلی حفظ شد (اولویت کلاینت)',
+          details: { isConsultantsListPending }
+        });
+      } else {
+        const mergedList = serverData.consultantsList.map((serverC: any) => {
+          const localMatch = currentConsultants.find(lc => lc.name.trim() === serverC.name.trim());
+          if (localMatch?.image && !serverC.image) {
+            return { ...serverC, image: localMatch.image };
+          }
+          return serverC;
+        });
+        safeSetLocalStorage(CONSULTANTS_STORAGE_KEY, JSON.stringify(mergedList));
+        memoryConsultantsListCache = mergedList;
+        modified = true;
+      }
     }
 
     if (serverData.memberAvatars && Object.keys(serverData.memberAvatars).length > 0) {
@@ -3028,6 +3751,7 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
 
     if (serverData.mahashLogo && isCustomImageDataUrlOrUrl(serverData.mahashLogo)) {
       safeSetLocalStorage(MAHASH_LOGO_KEY, serverData.mahashLogo);
+      memoryMahashLogoCache = serverData.mahashLogo;
       for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
         safeSetLocalStorage(mKey, serverData.mahashLogo);
       }
@@ -3036,6 +3760,7 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
     
     if (serverData.clubEmblem && isCustomImageDataUrlOrUrl(serverData.clubEmblem)) {
       safeSetLocalStorage(CLUB_EMBLEM_KEY, serverData.clubEmblem);
+      memoryYouthClubBadgeCache = serverData.clubEmblem;
       for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
         safeSetLocalStorage(cKey, serverData.clubEmblem);
       }
@@ -3049,15 +3774,39 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
 
     if (modified) {
       triggerGlobalCacheBust(false);
+      triggerStoreUpdate();
     }
 
     if (force) {
       clearPendingSyncItems();
     }
 
+    // Trigger retrySyncWithClientPriority if conflicts detected or server requires update
+    if (needsPushToServer || conflictPriorityKeys.length > 0) {
+      addSyncDebugLog({
+        phase: 'CLIENT_PRIORITY_DISPATCH',
+        level: 'warn',
+        summary: `فعال‌سازی مکانیزم Retry با اولویت کلاینت برای تثبیت ${conflictPriorityKeys.length} تضاد داده در MySQL`,
+        details: { conflictPriorityKeys, needsPushToServer }
+      });
+      retrySyncWithClientPriority(
+        'همگام‌سازی و تثبیت تغییرات لایه Cache/Persist با اولویت کلاینت در دیتابیس MySQL',
+        conflictPriorityKeys
+      ).catch(console.warn);
+    }
+
     const nowIso = new Date().toISOString();
     lastSuccessfulSyncTimestamp = nowIso;
     safeSetLocalStorage('mahash_last_successful_sync', nowIso);
+
+    addSyncDebugLog({
+      phase: 'PERSISTENCE_COMMIT',
+      level: 'success',
+      summary: `همگام‌سازی با موفقیت انجام شد (تغییرات اعمال‌شده: ${modified ? 'بله' : 'خیر'})`,
+      durationMs: Math.round(performance.now() - startTime),
+      details: { modified, force, conflictsResolved: conflictPriorityKeys.length }
+    });
+
     addSyncAttemptLog({
       timestamp: nowIso,
       type: attemptType,
@@ -3068,6 +3817,13 @@ export async function fetchAndMergeServerStore(force: boolean = false): Promise<
 
     return true;
   } catch (err: any) {
+    addSyncDebugLog({
+      phase: 'ERROR',
+      level: 'error',
+      summary: `خطا در فرآیند همگام‌سازی: ${err?.message || err}`,
+      durationMs: Math.round(performance.now() - startTime),
+      details: { error: String(err), stack: err?.stack }
+    });
     console.warn('[reportsStore] Could not fetch server store:', err);
     addSyncAttemptLog({
       timestamp: new Date().toISOString(),
@@ -3453,49 +4209,64 @@ export function resetReportViews(): void {
 
 export function getMahashLogo(): string {
   if (typeof window === 'undefined') return MAHESH_LOGO_SVG;
-  if (memoryMahashLogoCache && isCustomImageDataUrlOrUrl(memoryMahashLogoCache)) {
+  if (memoryMahashLogoCache && memoryMahashLogoCache !== MAHESH_LOGO_SVG && isCustomImageDataUrlOrUrl(memoryMahashLogoCache)) {
     return memoryMahashLogoCache;
   }
   autoRecoverAllSavedLogos();
   const saved = safeGetLocalStorage(MAHASH_LOGO_KEY);
-  if (saved && isCustomImageDataUrlOrUrl(saved)) {
+  if (saved && saved !== MAHESH_LOGO_SVG && isCustomImageDataUrlOrUrl(saved)) {
     memoryMahashLogoCache = saved;
     return saved;
   }
   for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
     const legacy = safeGetLocalStorage(mKey);
-    if (legacy && isCustomImageDataUrlOrUrl(legacy)) {
+    if (legacy && legacy !== MAHESH_LOGO_SVG && isCustomImageDataUrlOrUrl(legacy)) {
       memoryMahashLogoCache = legacy;
       return legacy;
     }
   }
-  const fallback = saved || MAHESH_LOGO_SVG;
-  memoryMahashLogoCache = fallback;
-  return fallback;
+  return MAHESH_LOGO_SVG;
 }
 
 export function setMahashLogo(logo: string): void {
   if (typeof window === 'undefined') return;
-  memoryMahashLogoCache = logo || MAHESH_LOGO_SVG;
-  if (!logo) {
-    safeRemoveLocalStorage(MAHASH_LOGO_KEY);
-    for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-      safeRemoveLocalStorage(mKey);
+  executeStoreTransaction([MAHASH_LOGO_KEY, ...MAHASH_LOGO_LEGACY_KEYS], 'ذخیره لوگوی رسمی محاش', () => {
+    memoryMahashLogoCache = logo || MAHESH_LOGO_SVG;
+    if (!logo) {
+      safeRemoveLocalStorage(MAHASH_LOGO_KEY);
+      for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
+        safeRemoveLocalStorage(mKey);
+      }
+    } else {
+      safeSetLocalStorage(MAHASH_LOGO_KEY, logo);
+      for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
+        safeSetLocalStorage(mKey, logo);
+      }
     }
-  } else {
-    safeSetLocalStorage(MAHASH_LOGO_KEY, logo);
-    for (const mKey of MAHASH_LOGO_LEGACY_KEYS) {
-      safeSetLocalStorage(mKey, logo);
-    }
-  }
-  triggerGlobalCacheBust();
-  markPendingSyncItem('logo:mahash');
-  try {
-    saveMahashLogoToFirestore(logo || '').catch(() => {});
-  } catch {}
-  try {
-    syncLocalDataToServer().catch(() => {});
-  } catch {}
+    triggerGlobalCacheBust();
+    markPendingSyncItem('logo:mahash');
+    try {
+      if (typeof window !== 'undefined' && logo) {
+        fetch('/api/mysql/assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assetId: 'mahash_official_logo',
+            category: 'logo',
+            name: 'لوگوی رسمی کانون محاش',
+            data: logo,
+            mimeType: logo.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg'
+          })
+        }).catch(() => {});
+      }
+    } catch {}
+    try {
+      saveMahashLogoToFirestore(logo || '').catch(() => {});
+    } catch {}
+    try {
+      syncLocalDataToServer().catch(() => {});
+    } catch {}
+  }).catch(console.error);
 }
 
 
@@ -3519,49 +4290,64 @@ export function resetMahashLogo(): void {
 
 export function getYouthClubBadge(): string {
   if (typeof window === 'undefined') return MAHESH_CLUB_EMBLEM_SVG;
-  if (memoryYouthClubBadgeCache && isCustomImageDataUrlOrUrl(memoryYouthClubBadgeCache)) {
+  if (memoryYouthClubBadgeCache && memoryYouthClubBadgeCache !== MAHESH_CLUB_EMBLEM_SVG && isCustomImageDataUrlOrUrl(memoryYouthClubBadgeCache)) {
     return memoryYouthClubBadgeCache;
   }
   autoRecoverAllSavedLogos();
   const saved = safeGetLocalStorage(CLUB_EMBLEM_KEY);
-  if (saved && isCustomImageDataUrlOrUrl(saved)) {
+  if (saved && saved !== MAHESH_CLUB_EMBLEM_SVG && isCustomImageDataUrlOrUrl(saved)) {
     memoryYouthClubBadgeCache = saved;
     return saved;
   }
   for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
     const legacy = safeGetLocalStorage(cKey);
-    if (legacy && isCustomImageDataUrlOrUrl(legacy)) {
+    if (legacy && legacy !== MAHESH_CLUB_EMBLEM_SVG && isCustomImageDataUrlOrUrl(legacy)) {
       memoryYouthClubBadgeCache = legacy;
       return legacy;
     }
   }
-  const fallback = saved || MAHESH_CLUB_EMBLEM_SVG;
-  memoryYouthClubBadgeCache = fallback;
-  return fallback;
+  return MAHESH_CLUB_EMBLEM_SVG;
 }
 
 export function setYouthClubBadge(badge: string): void {
   if (typeof window === 'undefined') return;
-  memoryYouthClubBadgeCache = badge || MAHESH_CLUB_EMBLEM_SVG;
-  if (!badge) {
-    safeRemoveLocalStorage(CLUB_EMBLEM_KEY);
-    for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-      safeRemoveLocalStorage(cKey);
+  executeStoreTransaction([CLUB_EMBLEM_KEY, ...CLUB_EMBLEM_LEGACY_KEYS], 'ذخیره نشان باشگاه جوانان', () => {
+    memoryYouthClubBadgeCache = badge || MAHESH_CLUB_EMBLEM_SVG;
+    if (!badge) {
+      safeRemoveLocalStorage(CLUB_EMBLEM_KEY);
+      for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
+        safeRemoveLocalStorage(cKey);
+      }
+    } else {
+      safeSetLocalStorage(CLUB_EMBLEM_KEY, badge);
+      for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
+        safeSetLocalStorage(cKey, badge);
+      }
     }
-  } else {
-    safeSetLocalStorage(CLUB_EMBLEM_KEY, badge);
-    for (const cKey of CLUB_EMBLEM_LEGACY_KEYS) {
-      safeSetLocalStorage(cKey, badge);
-    }
-  }
-  triggerGlobalCacheBust();
-  markPendingSyncItem('logo:club_emblem');
-  try {
-    saveYouthClubEmblemToFirestore(badge || '').catch(() => {});
-  } catch {}
-  try {
-    syncLocalDataToServer().catch(() => {});
-  } catch {}
+    triggerGlobalCacheBust();
+    markPendingSyncItem('logo:club_emblem');
+    try {
+      if (typeof window !== 'undefined' && badge) {
+        fetch('/api/mysql/assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assetId: 'mahash_youth_club_emblem',
+            category: 'badge',
+            name: 'مدال و نشان رسمی باشگاه جوانان',
+            data: badge,
+            mimeType: badge.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg'
+          })
+        }).catch(() => {});
+      }
+    } catch {}
+    try {
+      saveYouthClubEmblemToFirestore(badge || '').catch(() => {});
+    } catch {}
+    try {
+      syncLocalDataToServer().catch(() => {});
+    } catch {}
+  }).catch(console.error);
 }
 
 

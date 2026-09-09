@@ -157,6 +157,39 @@ async function getFallbackVideos(params?: {
     } catch {}
   }
 
+  // 3. Always include baseline team reports to guarantee video visibility
+  const builtInVideos = [
+    {
+      id: 'thinker',
+      title: 'گزارش مستند و دستاوردهای تیم مغز متفکر',
+      teamSlug: 'team-thinker',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788578992197-266181433.mp4'
+    },
+    {
+      id: 'tomorrow',
+      title: 'گزارش فعالیت‌ها و مأموریت تیم باشگاه فردا',
+      teamSlug: 'team-tomorrow',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788634842211-171697532.mp4'
+    },
+    {
+      id: 'report-angels-intro',
+      title: 'معرفی اعضای پر انرژی و هنرمند تیم فرشتگان ناشنوایان',
+      teamSlug: 'team-angels',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788580054502-531839423.mp4'
+    }
+  ];
+  builtInVideos.forEach(bv => {
+    if (!reports.some(r => r.id === bv.id || r.videoSrc === bv.videoSrc)) {
+      reports.push(bv);
+    }
+  });
+
   // Filter unique reports with valid video URLs
   const seenUrls = new Set<string>();
   const videoItems: MySQLVideoItem[] = [];
@@ -168,7 +201,9 @@ async function getFallbackVideos(params?: {
     seenUrls.add(url);
 
     const vidId = `vid_${r.id || Math.random().toString(36).substring(2, 9)}`;
-    const isPublic = videoVisibility[vidId] !== undefined ? videoVisibility[vidId] : true;
+    const isPublic = videoVisibility[vidId] !== undefined
+      ? videoVisibility[vidId]
+      : (r.status === 'draft' ? false : (r.isPublic !== undefined ? r.isPublic : true));
     const teamSlug = r.teamSlug || (r.teamId ? (r.teamId.startsWith('team-') ? r.teamId : `team-${r.teamId}`) : 'team-thinker');
 
     videoItems.push({

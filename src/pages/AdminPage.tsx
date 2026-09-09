@@ -89,6 +89,7 @@ import { VideoRemovalConfirmModal } from '../components/VideoRemovalConfirmModal
 import { OrphanMediaRepairUtility } from '../components/OrphanMediaRepairUtility';
 import { VideoGalleryView } from '../components/VideoGalleryView';
 import { SyncStatusBadge } from '../components/SyncStatusBadge';
+import { DatabaseStatusMonitoringWidget } from '../components/DatabaseStatusMonitoringWidget';
 import { AdminLogoManager } from '../components/admin/AdminLogoManager';
 import { MediaContentManager } from '../components/admin/MediaContentManager';
 import { MySQLMediaFileManager } from '../components/admin/MySQLMediaFileManager';
@@ -2704,6 +2705,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </div>
         </div>
       </div>
+
+      {/* Real-time MySQL Database Connection Monitoring & Offline Alert Widget */}
+      <DatabaseStatusMonitoringWidget
+        onNavigateToLogs={() => setActiveTab('mysql_logs')}
+        className="mb-1"
+      />
 
       {/* Real-time High Priority Consultation Alert Banner (Task 4) */}
       {unreadConsultationCount > 0 && !hasDismissedAlertBanner && (

@@ -61,6 +61,7 @@ export const ComprehensiveExportHub: React.FC<ComprehensiveExportHubProps> = ({
   const [masterProgress, setMasterProgress] = useState<number>(0);
   const [masterStatus, setMasterStatus] = useState<string>('');
   const [isDownloadingNetlify, setIsDownloadingNetlify] = useState(false);
+  const [netlifyStatus, setNetlifyStatus] = useState<string>('');
 
   const reports = getAllReports();
   const scores = getAllScores();
@@ -98,16 +99,21 @@ export const ComprehensiveExportHub: React.FC<ComprehensiveExportHubProps> = ({
   const handleDownloadNetlify = async () => {
     try {
       setIsDownloadingNetlify(true);
+      setNetlifyStatus('در حال اتصال به سرور...');
       const res = await downloadNetlifyDeploymentZip((msg) => {
+        if (msg) setNetlifyStatus(msg);
         if (onSuccessToast && msg) onSuccessToast(msg);
       });
       if (res.success && onSuccessToast) {
-        onSuccessToast('بسته استقرار Netlify با موفقیت دریافت شد.');
+        onSuccessToast(res.message || 'بسته استقرار Netlify با موفقیت دریافت شد.');
       }
     } catch (err: any) {
       alert('خطا در دانلود بسته Netlify: ' + err?.message);
     } finally {
-      setIsDownloadingNetlify(false);
+      setTimeout(() => {
+        setIsDownloadingNetlify(false);
+        setNetlifyStatus('');
+      }, 1500);
     }
   };
 
@@ -150,15 +156,33 @@ export const ComprehensiveExportHub: React.FC<ComprehensiveExportHubProps> = ({
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleDownloadNetlify}
-                disabled={isDownloadingNetlify}
-                className="px-5 py-2.5 bg-white/10 hover:bg-white/15 border border-white/20 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <Download className={`w-4 h-4 ${isDownloadingNetlify ? 'animate-spin text-amber-300' : ''}`} />
-                <span>دانلود سریع پکیج وب استاتیک Netlify (ZIP)</span>
-              </button>
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadNetlify}
+                  disabled={isDownloadingNetlify}
+                  className="px-5 py-2.5 bg-white/10 hover:bg-white/15 border border-white/20 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  title="دانلود پکیج بهینه‌شده وب استاتیک و ویدیوها برای Netlify"
+                >
+                  <Download className={`w-4 h-4 ${isDownloadingNetlify ? 'animate-spin text-amber-300' : ''}`} />
+                  <span className="truncate max-w-xs">
+                    {isDownloadingNetlify
+                      ? (netlifyStatus || 'در حال دریافت پکیج Netlify...')
+                      : 'دانلود سریع پکیج وب استاتیک Netlify (ZIP)'}
+                  </span>
+                </button>
+                <div className="flex items-center justify-between px-1 text-[10px] text-indigo-200/80">
+                  <span className="font-mono">حجم فوق‌بهینه: ۶.۸ MB</span>
+                  <a
+                    href="/api/export-netlify-zip"
+                    download="mahash-dist-netlify.zip"
+                    className="text-cyan-300 hover:text-white underline cursor-pointer"
+                    title="دانلود مستقیم با دانلود منیجر مرورگر بدون وقفه"
+                  >
+                    لینک دانلود مستقیم (Direct)
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
 

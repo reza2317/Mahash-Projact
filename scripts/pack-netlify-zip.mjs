@@ -574,12 +574,16 @@ export function packNetlifyZip() {
   const wpSql = buildWordPressMySQLDump(store);
 
   const fullDumpPath = path.join(distDatabaseDir, 'mahash_full_database_dump.sql');
-  const rootDumpPath = path.join(distPath, 'mahash_production.sql');
-  const wpDumpPath = path.join(distPath, 'mahash_wordpress_mysql_backup.sql');
+  const wpDumpPath = path.join(distDatabaseDir, 'mahash_wordpress_mysql_backup.sql');
 
   fs.writeFileSync(fullDumpPath, productionSql, 'utf8');
-  fs.writeFileSync(rootDumpPath, productionSql, 'utf8');
   fs.writeFileSync(wpDumpPath, wpSql, 'utf8');
+  // Clean up any legacy root sql files in distPath to keep ZIP lightweight
+  const legacyRootSql = path.join(distPath, 'mahash_production.sql');
+  if (fs.existsSync(legacyRootSql)) fs.unlinkSync(legacyRootSql);
+  const legacyWpSql = path.join(distPath, 'mahash_wordpress_mysql_backup.sql');
+  if (fs.existsSync(legacyWpSql)) fs.unlinkSync(legacyWpSql);
+
   console.log(`[PackNetlify] 🗄️ Generated production MySQL dump: ${fullDumpPath} (${(Buffer.byteLength(productionSql) / 1024).toFixed(1)} KB)`);
 
   // 5. Ensure Netlify _redirects and _headers with video streaming support
@@ -656,9 +660,14 @@ export function packNetlifyZip() {
     }
   }
 
-  // Write output zip to dist only (avoid bloating public folder and Vite build artifacts)
+  // Write output zip to dist and mirror to public for ultra-fast static serving
   const outDist = path.join(distPath, 'mahash-dist-netlify.zip');
   zip.writeZip(outDist);
+
+  const outPublic = path.join(publicPath, 'mahash-dist-netlify.zip');
+  try {
+    fs.copyFileSync(outDist, outPublic);
+  } catch {}
 
   const zipSizeBytes = fs.statSync(outDist).size;
   const zipSizeMb = (zipSizeBytes / (1024 * 1024)).toFixed(2);

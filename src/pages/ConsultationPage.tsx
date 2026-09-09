@@ -62,23 +62,46 @@ export const ConsultationPage: React.FC<ConsultationPageProps> = ({ onNavigate }
     const radinPhotoExists = !!currentPhotos['آقای رادین اورومی'] || !!currentPhotos['consultant_radin_oroumi'] || !!currentPhotos['radin_oroumi'];
 
     if (!naziPhotoExists || !radinPhotoExists) {
-      Promise.all([
-        !naziPhotoExists ? getConsultantPhotoFromFirestore('خانم دکتر نازی عباسیان') : Promise.resolve(null),
-        !radinPhotoExists ? getConsultantPhotoFromFirestore('آقای رادین اورومی') : Promise.resolve(null)
-      ]).then(([naziPhoto, radinPhoto]) => {
-        let updated = false;
-        if (naziPhoto && isCustomImageDataUrlOrUrl(naziPhoto)) {
-          saveConsultantPhoto('خانم دکتر نازی عباسیان', naziPhoto);
-          updated = true;
-        }
-        if (radinPhoto && isCustomImageDataUrlOrUrl(radinPhoto)) {
-          saveConsultantPhoto('آقای رادین اورومی', radinPhoto);
-          updated = true;
-        }
-        if (updated) {
-          syncData();
-        }
-      }).catch(() => {});
+      // First attempt fast retrieval from MySQL assets endpoint
+      fetch('/api/mysql/assets')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          let updated = false;
+          if (data && Array.isArray(data.assets)) {
+            for (const asset of data.assets) {
+              if (!asset || !asset.data || !isCustomImageDataUrlOrUrl(asset.data)) continue;
+              if (asset.id.includes('nazi') || asset.name?.includes('نازی')) {
+                saveConsultantPhoto('خانم دکتر نازی عباسیان', asset.data);
+                updated = true;
+              } else if (asset.id.includes('radin') || asset.name?.includes('رادین')) {
+                saveConsultantPhoto('آقای رادین اورومی', asset.data);
+                updated = true;
+              }
+            }
+          }
+          if (updated) syncData();
+        })
+        .catch(() => {})
+        .finally(() => {
+          // Second tier: Firestore hydration
+          Promise.all([
+            !naziPhotoExists ? getConsultantPhotoFromFirestore('خانم دکتر نازی عباسیان') : Promise.resolve(null),
+            !radinPhotoExists ? getConsultantPhotoFromFirestore('آقای رادین اورومی') : Promise.resolve(null)
+          ]).then(([naziPhoto, radinPhoto]) => {
+            let updated = false;
+            if (naziPhoto && isCustomImageDataUrlOrUrl(naziPhoto)) {
+              saveConsultantPhoto('خانم دکتر نازی عباسیان', naziPhoto);
+              updated = true;
+            }
+            if (radinPhoto && isCustomImageDataUrlOrUrl(radinPhoto)) {
+              saveConsultantPhoto('آقای رادین اورومی', radinPhoto);
+              updated = true;
+            }
+            if (updated) {
+              syncData();
+            }
+          }).catch(() => {});
+        });
     }
 
     const unsub = subscribeToStoreUpdates(syncData);

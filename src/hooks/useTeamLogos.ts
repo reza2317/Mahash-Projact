@@ -12,7 +12,8 @@ import {
   getGlobalCacheVersion,
   triggerGlobalCacheBust,
   isCustomImageDataUrlOrUrl,
-  resolveCanonicalTeamIdentifiers
+  resolveCanonicalTeamIdentifiers,
+  saveConsultantPhoto
 } from '../utils/reportsStore';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
 import { getTeamLogoPlaceholder, MAHESH_LOGO_SVG } from '../utils/assets';
@@ -270,6 +271,10 @@ export function useTeamLogos() {
                 const teamSlug = asset.id.replace(/^logo-/, '');
                 saveTeamLogoStore(teamSlug, asset.data);
                 saveTeamLogoStore(`team-${teamSlug}`, asset.data);
+                hasUpdates = true;
+              } else if (asset.id.startsWith('consultant_') || asset.category === 'consultant_photo') {
+                const cName = asset.name ? asset.name.replace(/^تصویر مشاور:\s*/, '').replace(/^عکس مشاور:\s*/, '') : asset.id.replace(/^consultant_/, '');
+                saveConsultantPhoto(cName, asset.data);
                 hasUpdates = true;
               }
             }

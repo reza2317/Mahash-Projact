@@ -66,8 +66,10 @@ export const VideoGalleryView: React.FC<VideoGalleryViewProps> = ({
     setActivePlayingReport({ report, teamSlug });
   };
 
-  const handleShareLink = (reportId: string) => {
-    const url = `${window.location.origin}/#report-${reportId}`;
+  const handleShareLink = (reportId: string, teamSlug?: string) => {
+    const cleanId = reportId.startsWith('report-') ? reportId : `report-${reportId}`;
+    const slug = teamSlug && teamSlug !== 'general' && teamSlug !== 'all' ? `${teamSlug}/` : '';
+    const url = `${window.location.origin}/#/${slug}${cleanId}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopiedId(reportId);
       setTimeout(() => setCopiedId(null), 2500);
@@ -313,7 +315,7 @@ export const VideoGalleryView: React.FC<VideoGalleryViewProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); handleShareLink(video.id); }}
+                        onClick={(e) => { e.stopPropagation(); handleShareLink(video.id, video.teamSlug); }}
                         className="hover:text-indigo-300 transition-colors flex items-center gap-1"
                         title="اشتراک‌گذاری لینک ویدیو"
                         aria-label={`اشتراک‌گذاری لینک ویدیوی ${video.title}`}

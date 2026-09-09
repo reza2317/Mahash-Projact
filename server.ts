@@ -240,20 +240,93 @@ try {
 let inMemoryAssets: Record<string, any> = {};
 
 function insertAuditLog(actionType: string, title: string, details: string, actor: string = 'سیستم') {
-  if (typeof mysqlPool === 'undefined' || !mysqlPool) return;
   const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+  const newLog = {
+    id: logId,
+    action_type: actionType,
+    title,
+    details,
+    user_name: actor,
+    status: 'success',
+    created_at: new Date().toISOString()
+  };
+
+  // 1. Always record in in-memory store so audit trail is preserved in all modes
+  try {
+    if (typeof inMemoryStore !== 'undefined' && inMemoryStore) {
+      if (!Array.isArray(inMemoryStore.activityLogs)) {
+        inMemoryStore.activityLogs = [];
+      }
+      inMemoryStore.activityLogs.unshift(newLog);
+      if (inMemoryStore.activityLogs.length > 500) {
+        inMemoryStore.activityLogs = inMemoryStore.activityLogs.slice(0, 500);
+      }
+    }
+  } catch {}
+
+  // 2. Only write to MySQL if pool is initialized AND connection is verified active
+  if (typeof mysqlPool === 'undefined' || !mysqlPool || !mysqlConnected) return;
+
   mysqlPool.query(
     `INSERT INTO mahash_activity_logs 
       (\`id\`, \`action_type\`, \`title\`, \`details\`, \`user_name\`, \`status\`, \`created_at\`)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [logId, actionType, title, details, actor, 'success', new Date()]
-  ).catch((err: any) => console.warn('Audit log fail', err));
+  ).catch((err: any) => {
+    // If MySQL connection drops or is refused, safely mark as disconnected
+    if (err?.code === 'ECONNREFUSED' || err?.code === 'PROTOCOL_CONNECTION_LOST' || err?.code === 'ETIMEDOUT') {
+      mysqlConnected = false;
+    } else {
+      console.warn('Audit log write error:', err?.message || err);
+    }
+  });
 }
 
 // Ensure permanent fallback video assets and official images exist on disk for all container instances
 function ensureUploadsAndHydrate() {
   if (!fs.existsSync(UPLOADS_DIR)) {
     try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {} 
+  }
+  const pubUploads = path.join(process.cwd(), 'public', 'uploads');
+  if (!fs.existsSync(pubUploads)) {
+    try { fs.mkdirSync(pubUploads, { recursive: true }); } catch {}
+  }
+  const distUploads = path.join(process.cwd(), 'dist', 'uploads');
+  if (!fs.existsSync(distUploads)) {
+    try { fs.mkdirSync(distUploads, { recursive: true }); } catch {}
+  }
+
+  // Materialize all base64 assets from inMemoryAssets to disk
+  try {
+    for (const [id, asset] of Object.entries(inMemoryAssets)) {
+      if (asset && typeof asset.data === 'string' && asset.data.startsWith('data:image/')) {
+        const matches = asset.data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches[2]) {
+          const buffer = Buffer.from(matches[2], 'base64');
+          const rawExt = matches[1].split('/')[1] || 'webp';
+          const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+          const candidateNames = new Set<string>();
+          if (asset.name) candidateNames.add(asset.name);
+          if (id.startsWith('upload_')) candidateNames.add(id.replace('upload_', ''));
+          candidateNames.add(`asset-${id}.${ext}`);
+
+          for (const cName of candidateNames) {
+            try {
+              const p1 = path.join(UPLOADS_DIR, cName);
+              if (!fs.existsSync(p1)) fs.writeFileSync(p1, buffer);
+              const p2 = path.join(pubUploads, cName);
+              if (!fs.existsSync(p2)) fs.writeFileSync(p2, buffer);
+              if (fs.existsSync(distUploads)) {
+                const p3 = path.join(distUploads, cName);
+                if (!fs.existsSync(p3)) fs.writeFileSync(p3, buffer);
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Warning in ensureUploadsAndHydrate:', err);
   }
 }
 // Initial hydration
@@ -286,11 +359,12 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 app.get('/uploads/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(UPLOADS_DIR, filename);
+  const pubFilePath = path.join(process.cwd(), 'public', 'uploads', filename);
   const distFilePath = path.join(process.cwd(), 'dist', 'uploads', filename);
 
   const resolvedPath = fs.existsSync(filePath)
     ? filePath
-    : (fs.existsSync(distFilePath) ? distFilePath : null);
+    : (fs.existsSync(pubFilePath) ? pubFilePath : (fs.existsSync(distFilePath) ? distFilePath : null));
 
   if (resolvedPath) {
     try {
@@ -310,32 +384,83 @@ app.get('/uploads/:filename', (req, res) => {
     }
   }
 
-  // Check inMemoryAssets for dynamically stored media/base64
-  const assetRecord = inMemoryAssets[`upload_${filename}`] || inMemoryAssets[filename] || Object.values(inMemoryAssets).find((a: any) => a?.name === filename);
-  if (assetRecord && assetRecord.data && typeof assetRecord.data === 'string') {
+  // Helper to serve and cache base64 image data dynamically
+  const serveAndCacheBase64 = (dataUrl: string): boolean => {
     try {
-      if (assetRecord.data.startsWith('data:')) {
-        const parts = assetRecord.data.split(';base64,');
-        const mime = parts[0].replace('data:', '') || 'image/png';
-        const buffer = Buffer.from(parts[1], 'base64');
+      const match = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (match && match[2]) {
+        const mime = match[1];
+        const buffer = Buffer.from(match[2], 'base64');
         try {
           fs.writeFileSync(filePath, buffer);
-          if (fs.existsSync(path.join(process.cwd(), 'public', 'uploads'))) {
-          }
+          const pubUploads = path.join(process.cwd(), 'public', 'uploads');
+          if (fs.existsSync(pubUploads)) fs.writeFileSync(path.join(pubUploads, filename), buffer);
         } catch {}
         res.setHeader('Content-Type', mime);
         res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.send(buffer);
-      } else if (assetRecord.data.startsWith('<svg')) {
-        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.send(assetRecord.data);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.send(buffer);
+        return true;
       }
     } catch {}
+    return false;
+  };
+
+  // Check inMemoryAssets for dynamically stored media/base64
+  const assetRecord = inMemoryAssets[`upload_${filename}`] ||
+                      inMemoryAssets[filename] ||
+                      inMemoryAssets[`consultant_${filename}`] ||
+                      inMemoryAssets[`team_${filename}`] ||
+                      Object.values(inMemoryAssets).find((a: any) => a?.name === filename);
+  if (assetRecord && assetRecord.data && typeof assetRecord.data === 'string') {
+    if (assetRecord.data.startsWith('data:image/')) {
+      if (serveAndCacheBase64(assetRecord.data)) return;
+    } else if (assetRecord.data.startsWith('<svg')) {
+      res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(assetRecord.data);
+    }
   }
 
-  // Dynamic synthesis for known Mahash assets
+  // Check consultant photos in inMemoryStore or inMemoryAssets
   const lower = filename.toLowerCase();
+  if (lower.includes('nazi') || lower.includes('4385004063') || lower.includes('7bafc02fc6') || lower.includes('284f763688') || lower.includes('consultant-1')) {
+    const naziData = inMemoryAssets['upload_consultant-7bafc02fc6.webp']?.data ||
+                     inMemoryAssets['consultant_nazi_abbasian']?.data ||
+                     inMemoryStore.consultantPhotos?.['nazi_abbasian'] ||
+                     inMemoryStore.consultantPhotos?.['خانم دکتر نازی عباسیان'];
+    if (naziData && typeof naziData === 'string' && naziData.startsWith('data:image/') && serveAndCacheBase64(naziData)) {
+      return;
+    }
+  }
+
+  if (lower.includes('radin') || lower.includes('f513d1c735') || lower.includes('5a4f81e45e') || lower.includes('01916cb489') || lower.includes('consultant-2')) {
+    const radinData = inMemoryAssets['upload_consultant-5a4f81e45e.webp']?.data ||
+                      inMemoryAssets['consultant_radin_oroumi']?.data ||
+                      inMemoryStore.consultantPhotos?.['radin_oroumi'] ||
+                      inMemoryStore.consultantPhotos?.['آقای رادین اورومی'];
+    if (radinData && typeof radinData === 'string' && radinData.startsWith('data:image/') && serveAndCacheBase64(radinData)) {
+      return;
+    }
+  }
+
+  // Check Mahash official logo
+  if (lower.includes('mahash') || lower.includes('logo')) {
+    const mahashData = inMemoryAssets['mahash_official_logo']?.data || inMemoryStore.mahashLogo;
+    if (mahashData && typeof mahashData === 'string' && mahashData.startsWith('data:image/') && serveAndCacheBase64(mahashData)) {
+      return;
+    }
+  }
+
+  // Check youth club emblem
+  if (lower.includes('emblem') || lower.includes('badge')) {
+    const emblemData = inMemoryAssets['mahash_youth_club_emblem']?.data || inMemoryStore.clubEmblem;
+    if (emblemData && typeof emblemData === 'string' && emblemData.startsWith('data:image/') && serveAndCacheBase64(emblemData)) {
+      return;
+    }
+  }
+
+  // Dynamic synthesis for known Mahash assets (ultimate fallback)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'public, max-age=86400');
 
@@ -347,11 +472,11 @@ app.get('/uploads/:filename', (req, res) => {
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     return res.send(OFFICIAL_MAHASH_EMBLEM_SVG);
   }
-  if (lower.includes('284f763688') || lower.includes('4385004063') || lower.includes('nazi') || lower.includes('consultant-1')) {
+  if (lower.includes('nazi') || lower.includes('consultant-1')) {
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     return res.send(OFFICIAL_NAZI_AVATAR_SVG);
   }
-  if (lower.includes('01916cb489') || lower.includes('f513d1c735') || lower.includes('radin') || lower.includes('consultant-2')) {
+  if (lower.includes('radin') || lower.includes('consultant-2')) {
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     return res.send(OFFICIAL_RADIN_AVATAR_SVG);
   }
@@ -826,6 +951,67 @@ app.get('/api/probe-url', handleUrlProbe);
 // ----------------------------------------------------
 const DATA_STORE_FILE = path.join(process.cwd(), 'data_store.json');
 const ASSETS_STORE_FILE = path.join(process.cwd(), 'assets_store.json');
+const MYSQL_TX_ERRORS_FILE = path.join(process.cwd(), 'mysql_tx_errors.json');
+
+export interface MySQLTransactionErrorRecord {
+  id: string;
+  timestamp: string;
+  operation: string;
+  table: string;
+  severity: 'error' | 'warning' | 'fatal';
+  errorMessage: string;
+  sqlCode?: string;
+  parameters: Record<string, any>;
+  stack?: string;
+  source: 'client' | 'server';
+  status: 'failed' | 'retrying' | 'resolved';
+  resolvedAt?: string;
+}
+
+let mysqlTransactionErrorLogs: MySQLTransactionErrorRecord[] = [];
+
+try {
+  if (fs.existsSync(MYSQL_TX_ERRORS_FILE)) {
+    const raw = fs.readFileSync(MYSQL_TX_ERRORS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      mysqlTransactionErrorLogs = parsed;
+    }
+  }
+} catch (e) {
+  console.warn('Could not read mysql_tx_errors.json:', e);
+}
+
+function saveTransactionErrorsToDisk(): void {
+  try {
+    fs.writeFile(MYSQL_TX_ERRORS_FILE, JSON.stringify(mysqlTransactionErrorLogs.slice(0, 100), null, 2), 'utf-8', () => {});
+  } catch {}
+}
+
+export function recordServerTransactionError(entry: {
+  operation: string;
+  table: string;
+  severity?: 'error' | 'warning' | 'fatal';
+  errorMessage: string;
+  sqlCode?: string;
+  parameters?: Record<string, any>;
+  stack?: string;
+  source?: 'client' | 'server';
+  status?: 'failed' | 'retrying' | 'resolved';
+}): MySQLTransactionErrorRecord {
+  const record: MySQLTransactionErrorRecord = {
+    id: `tx-err-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    severity: entry.severity || 'error',
+    source: entry.source || 'server',
+    status: entry.status || 'failed',
+    parameters: entry.parameters || {},
+    ...entry
+  };
+  mysqlTransactionErrorLogs = [record, ...mysqlTransactionErrorLogs].slice(0, 100);
+  saveTransactionErrorsToDisk();
+  return record;
+}
 
 export const KNOWN_DEPRECATED_REPORT_IDS = [
   'angels-01',
@@ -1098,19 +1284,26 @@ async function initMySQL() {
     const database = process.env.MYSQL_DATABASE || 'mahash_db';
     const hasExplicitHost = true;
 
-    // 1. Try to create database if not exists (might fail on shared/WordPress hosting due to permissions)
+    // 1. Verify connection to host/port before creating pool
     try {
       const tempConn = await mysql.createConnection({
         host,
         port,
         user,
         password,
-        connectTimeout: hasExplicitHost ? 10000 : 1500
+        connectTimeout: 2500
       });
-      await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+      try {
+        await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+      } catch (dbCreateErr: any) {
+        console.warn('Skipping CREATE DATABASE step (common in shared hosting environments):', dbCreateErr.message);
+      }
       await tempConn.end();
-    } catch (err: any) {
-      console.warn('Skipping CREATE DATABASE step (common in shared WordPress hosting environments):', err.message);
+    } catch (connErr: any) {
+      mysqlConnected = false;
+      mysqlPool = null;
+      console.warn(`⚠️ MySQL service unavailable at ${host}:${port} (${connErr.message || connErr}). Operating smoothly in persistent local file / disk store mode.`);
+      return;
     }
 
     // 2. Create high-capacity connection pool (increased limits and keepalive)
@@ -1409,6 +1602,12 @@ async function initMySQL() {
     }
   } catch (err: any) {
     mysqlConnected = false;
+    if (mysqlPool) {
+      try {
+        mysqlPool.end().catch(() => {});
+      } catch {}
+      mysqlPool = null;
+    }
     console.warn('⚠️ MySQL connection inactive (using local file/memory store fallback):', err?.message || err);
   }
 
@@ -1632,11 +1831,34 @@ async function initMySQL() {
 // Initialize on startup
 initMySQL();
 
-async function saveStoreToMySQL() {
-  if (!mysqlPool || !mysqlConnected) return;
+async function saveStoreToMySQL(): Promise<boolean> {
+  // Always update emulated fallback WordPress/MySQL database store first to guarantee zero-data-loss
   try {
+    if (!wpDbStore) wpDbStore = {} as any;
+    if (!Array.isArray(wpDbStore.mahash_kv_store)) wpDbStore.mahash_kv_store = [];
+    const kvIdx = wpDbStore.mahash_kv_store.findIndex((x: any) => x.key === 'main_store');
+    const kvRec = { key: 'main_store', value: JSON.stringify(inMemoryStore), updated_at: new Date().toISOString() };
+    if (kvIdx >= 0) {
+      wpDbStore.mahash_kv_store[kvIdx] = kvRec;
+    } else {
+      wpDbStore.mahash_kv_store.push(kvRec);
+    }
+    saveWpDbToDisk();
+  } catch (e) {
+    console.warn('⚠️ Could not update fallback wpDbStore:', e);
+  }
+
+  if (!mysqlPool || !mysqlConnected) {
+    return false;
+  }
+
+  let conn: any = null;
+  try {
+    conn = await mysqlPool.getConnection();
+    await conn.beginTransaction();
+
     const jsonStr = JSON.stringify(inMemoryStore);
-    await mysqlPool.query(
+    await conn.query(
       'INSERT INTO mahash_kv_store (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?',
       ['main_store', jsonStr, jsonStr]
     );
@@ -1645,7 +1867,7 @@ async function saveStoreToMySQL() {
     if (Array.isArray(inMemoryStore.trashBin) && inMemoryStore.trashBin.length > 0) {
       for (const item of inMemoryStore.trashBin) {
         if (item && item.id) {
-          await mysqlPool.query(
+          await conn.query(
             `INSERT INTO mahash_trash_bin (\`id\`, \`original_type\`, \`item_id\`, \`title\`, \`team_slug\`, \`data\`, \`deleted_by\`, \`deleted_at\`)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`title\` = VALUES(\`title\`)`,
@@ -1659,7 +1881,7 @@ async function saveStoreToMySQL() {
               item.deletedBy || 'مدیر سامانه',
               item.deletedAt ? new Date(item.deletedAt) : new Date()
             ]
-          ).catch(() => {});
+          );
         }
       }
     }
@@ -1668,7 +1890,7 @@ async function saveStoreToMySQL() {
     if (Array.isArray(inMemoryStore.customReports) && inMemoryStore.customReports.length > 0) {
       for (const rep of inMemoryStore.customReports) {
         if (rep && rep.id && !inMemoryStore.deletedReports.includes(rep.id)) {
-          await mysqlPool.query(`
+          await conn.query(`
             INSERT INTO mahash_reports (\`id\`, \`team_slug\`, \`title\`, \`summary\`, \`content\`, \`video_url\`, \`thumbnail_url\`, \`attachments\`, \`report_date\`, \`is_deleted\`)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON DUPLICATE KEY UPDATE
@@ -1690,7 +1912,7 @@ async function saveStoreToMySQL() {
             rep.posterSrc || rep.thumbnailUrl || '',
             JSON.stringify(rep.attachments || []),
             rep.date || ''
-          ]).catch(() => {});
+          ]);
         }
       }
     }
@@ -1698,8 +1920,8 @@ async function saveStoreToMySQL() {
     // Direct permanent purge of deleted reports from mahash_reports table
     if (Array.isArray(inMemoryStore.deletedReports) && inMemoryStore.deletedReports.length > 0) {
       for (const delId of inMemoryStore.deletedReports) {
-        await mysqlPool.query('UPDATE mahash_reports SET is_deleted = 1 WHERE `id` = ?', [delId]).catch(() => {});
-        await mysqlPool.query('DELETE FROM mahash_reports WHERE `id` = ?', [delId]).catch(() => {});
+        await conn.query('UPDATE mahash_reports SET is_deleted = 1 WHERE `id` = ?', [delId]);
+        await conn.query('DELETE FROM mahash_reports WHERE `id` = ?', [delId]);
       }
     }
 
@@ -1710,11 +1932,11 @@ async function saveStoreToMySQL() {
           const assetId = `team_${teamKey}_logo`;
           const sizeBytes = logoUrl.length;
           inMemoryAssets[assetId] = { id: assetId, category: 'logo', name: `لوگوی تیم ${teamKey}`, data: logoUrl, mime_type: 'image/webp', size_bytes: sizeBytes };
-          await mysqlPool.query(`
+          await conn.query(`
             INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`)
             VALUES (?, 'logo', ?, ?, 'image/webp', ?)
             ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`size_bytes\` = VALUES(\`size_bytes\`)
-          `, [assetId, `لوگوی تیم ${teamKey}`, logoUrl, sizeBytes]).catch(() => {});
+          `, [assetId, `لوگوی تیم ${teamKey}`, logoUrl, sizeBytes]);
         }
       }
     }
@@ -1723,22 +1945,22 @@ async function saveStoreToMySQL() {
       const assetId = 'mahash_official_logo';
       const sizeBytes = inMemoryStore.mahashLogo.length;
       inMemoryAssets[assetId] = { id: assetId, category: 'logo', name: 'لوگوی رسمی کانون ماهش', data: inMemoryStore.mahashLogo, mime_type: 'image/webp', size_bytes: sizeBytes };
-      await mysqlPool.query(`
+      await conn.query(`
         INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`)
         VALUES (?, 'logo', 'لوگوی رسمی کانون ماهش', ?, 'image/webp', ?)
         ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`size_bytes\` = VALUES(\`size_bytes\`)
-      `, [assetId, inMemoryStore.mahashLogo, sizeBytes]).catch(() => {});
+      `, [assetId, inMemoryStore.mahashLogo, sizeBytes]);
     }
 
     if (inMemoryStore.clubEmblem && typeof inMemoryStore.clubEmblem === 'string') {
       const assetId = 'mahash_youth_club_emblem';
       const sizeBytes = inMemoryStore.clubEmblem.length;
       inMemoryAssets[assetId] = { id: assetId, category: 'badge', name: 'مدال و نشان رسمی باشگاه جوانان', data: inMemoryStore.clubEmblem, mime_type: 'image/webp', size_bytes: sizeBytes };
-      await mysqlPool.query(`
+      await conn.query(`
         INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`)
         VALUES (?, 'badge', 'مدال و نشان رسمی باشگاه جوانان', ?, 'image/webp', ?)
         ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`size_bytes\` = VALUES(\`size_bytes\`)
-      `, [assetId, inMemoryStore.clubEmblem, sizeBytes]).catch(() => {});
+      `, [assetId, inMemoryStore.clubEmblem, sizeBytes]);
     }
 
     if (inMemoryStore.consultantPhotos && typeof inMemoryStore.consultantPhotos === 'object') {
@@ -1747,11 +1969,11 @@ async function saveStoreToMySQL() {
           const assetId = `consultant_${cKey}`;
           const sizeBytes = cPhoto.length;
           inMemoryAssets[assetId] = { id: assetId, category: 'consultant_photo', name: `عکس مشاور ${cKey}`, data: cPhoto, mime_type: 'image/webp', size_bytes: sizeBytes };
-          await mysqlPool.query(`
+          await conn.query(`
             INSERT INTO mahash_assets (\`id\`, \`category\`, \`name\`, \`data\`, \`mime_type\`, \`size_bytes\`)
             VALUES (?, 'consultant_photo', ?, ?, 'image/webp', ?)
             ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`), \`size_bytes\` = VALUES(\`size_bytes\`)
-          `, [assetId, `عکس مشاور ${cKey}`, cPhoto, sizeBytes]).catch(() => {});
+          `, [assetId, `عکس مشاور ${cKey}`, cPhoto, sizeBytes]);
         }
       }
     }
@@ -1759,11 +1981,11 @@ async function saveStoreToMySQL() {
     // Direct permanent sync of global preferences to mahash_preferences in MySQL
     if (inMemoryStore.preferences) {
       const prefStr = JSON.stringify(inMemoryStore.preferences);
-      await mysqlPool.query(`
+      await conn.query(`
         INSERT INTO mahash_preferences (\`key\`, \`data\`)
         VALUES ('global_preferences', ?)
         ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`)
-      `, [prefStr]).catch(() => {});
+      `, [prefStr]);
     }
 
     // Direct permanent sync of team scores to mahash_team_scores in MySQL
@@ -1771,7 +1993,7 @@ async function saveStoreToMySQL() {
       for (let idx = 0; idx < inMemoryStore.scores.length; idx++) {
         const item = inMemoryStore.scores[idx];
         if (item && item.id) {
-          await mysqlPool.query(`
+          await conn.query(`
             INSERT INTO mahash_team_scores (\`team_id\`, \`team_name\`, \`score\`, \`rank_order\`, \`logo_url\`, \`raw_data\`)
             VALUES (?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
@@ -1787,12 +2009,46 @@ async function saveStoreToMySQL() {
             idx + 1,
             item.logo || '',
             JSON.stringify(item)
-          ]).catch(() => {});
+          ]);
         }
       }
     }
-  } catch (err) {
-    console.warn('⚠️ Failed to sync store to MySQL:', err);
+
+    // Atomically commit all changes
+    await conn.commit();
+    return true;
+  } catch (err: any) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch (rbErr) {
+        console.warn('⚠️ Rollback warning:', rbErr);
+      }
+    }
+    console.warn('⚠️ Transaction failed in saveStoreToMySQL (rolled back safely):', err);
+    recordServerTransactionError({
+      operation: 'TRANSACTION_SAVE_STORE',
+      table: 'mahash_kv_store, mahash_reports, mahash_assets, mahash_team_scores',
+      severity: 'error',
+      errorMessage: err?.message || String(err),
+      sqlCode: err?.code,
+      parameters: {
+        customReportsCount: inMemoryStore.customReports?.length || 0,
+        scoresCount: inMemoryStore.scores?.length || 0,
+        teamLogosCount: Object.keys(inMemoryStore.teamLogos || {}).length,
+        hasMahashLogo: Boolean(inMemoryStore.mahashLogo),
+        hasClubEmblem: Boolean(inMemoryStore.clubEmblem),
+        consultantPhotosCount: Object.keys(inMemoryStore.consultantPhotos || {}).length
+      },
+      stack: err?.stack
+    });
+    return false;
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch {}
+    }
   }
 }
 
@@ -1823,6 +2079,15 @@ function saveStoreToDisk() {
   saveStoreToMySQL();
 }
 
+function saveAssetsToDisk(): void {
+  try {
+    const assetsStr = JSON.stringify(inMemoryAssets);
+    fs.writeFile(ASSETS_STORE_FILE, assetsStr, 'utf-8', () => {});
+  } catch (assetsWriteErr) {
+    console.warn('⚠️ Could not write assets_store.json:', assetsWriteErr);
+  }
+}
+
 async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<string> {
   if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
     try {
@@ -1832,7 +2097,7 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
         const hash = crypto.createHash('md5').update(matches[2]).digest('hex').substring(0, 10);
         const filename = `${prefix}-${hash}.${ext}`;
         const filePath = path.join(UPLOADS_DIR, filename);
-        let buffer;
+        let buffer: Buffer;
         if (!fs.existsSync(filePath)) {
           buffer = Buffer.from(matches[2], 'base64');
           fs.writeFileSync(filePath, buffer);
@@ -1840,9 +2105,13 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
           buffer = fs.readFileSync(filePath);
         }
         try {
+          const pubUploads = path.join(process.cwd(), 'public', 'uploads');
+          if (fs.existsSync(pubUploads)) fs.writeFileSync(path.join(pubUploads, filename), buffer);
+          const distUploads = path.join(process.cwd(), 'dist', 'uploads');
+          if (fs.existsSync(distUploads)) fs.writeFileSync(path.join(distUploads, filename), buffer);
         } catch {}
         
-        // Persist to MySQL mahash_assets
+        // Persist to in-memory assets and disk assets
         const assetId = `upload_${filename}`;
         const mimeType = `image/${matches[1]}`;
         const sizeBytes = buffer.length;
@@ -1854,6 +2123,20 @@ async function convertBase64ToUpload(dataUrl: string, prefix: string): Promise<s
           mime_type: mimeType,
           size_bytes: sizeBytes
         };
+        saveAssetsToDisk();
+
+        // Also sync to wpDbStore and mysql_database.json
+        try {
+          if (!Array.isArray(wpDbStore.mahash_assets)) wpDbStore.mahash_assets = [];
+          const exIdx = wpDbStore.mahash_assets.findIndex((a: any) => a.id === assetId);
+          const rec = { id: assetId, category: 'upload', name: filename, data: dataUrl, mime_type: mimeType, size_bytes: sizeBytes, updated_at: new Date().toISOString() };
+          if (exIdx >= 0) {
+            wpDbStore.mahash_assets[exIdx] = rec;
+          } else {
+            wpDbStore.mahash_assets.push(rec);
+          }
+          saveWpDbToDisk();
+        } catch {}
         
         if (mysqlPool && mysqlConnected) {
           mysqlPool.query(`
@@ -1926,19 +2209,26 @@ app.get(['/api/mysql/status', '/api/mysql/capacity'], async (req, res) => {
     if (dbLatency < 0.5) dbLatency = 1.4;
   }
 
+  const isOnline = Boolean(mysqlConnected && mysqlPool);
   res.json({
-    connected: mysqlConnected,
+    connected: isOnline,
+    status: isOnline ? 'online' : 'offline',
+    mode: isOnline ? 'live_mysql' : 'fallback_file_db',
+    fallback_active: true,
     latency_ms: dbLatency,
-    host: process.env.MYSQL_HOST || 'localhost',
+    host: process.env.MYSQL_HOST || '127.0.0.1',
     port: process.env.MYSQL_PORT || '3306',
-    database: process.env.MYSQL_DATABASE || 'mahash_db',
+    database: process.env.MYSQL_DATABASE || 'mahash',
     user: process.env.MYSQL_USER || 'root',
-    engine: 'InnoDB (High-Performance LongText Engine)',
+    engine: isOnline ? 'InnoDB Live MySQL (High-Performance LongText Engine)' : 'InnoDB Fallback Storage (mysql_database.json & data_store.json)',
     max_allowed_packet: '1073741824 bytes (1 GB)',
     connection_limit: 100,
     max_idle_connections: 25,
     storage_type: 'LONGTEXT (4GB per column)',
     charset: 'utf8mb4_unicode_ci',
+    diagnostic: isOnline 
+      ? 'ارتباط مستقیم و پایدار با سرور پایگاه داده MySQL با موفقیت برقرار است و کلیه تراکنش‌ها مستقیماً در دیتابیس ثبت می‌شوند.' 
+      : 'ارتباط مستقیم سوکت TCP با سرور MySQL برقرار نیست. سیستم به‌صورت خودکار در حالت موتور پشتیبان محلی (InnoDB JSON Fallback) فعالیت می‌کند تا هیچ داده‌ای از دست نرود. لطفاً سرویس MySQL یا تنظیمات محیطی را بررسی کنید.',
     trash_bin: {
       count: inMemoryStore.trashBin.length,
       deleted_reports_count: inMemoryStore.deletedReports.length,
@@ -1947,6 +2237,30 @@ app.get(['/api/mysql/status', '/api/mysql/capacity'], async (req, res) => {
     tables: tableStats,
     timestamp: new Date().toISOString()
   });
+});
+
+// Endpoint to force reconnect to MySQL server
+app.post('/api/mysql/reconnect', async (req, res) => {
+  try {
+    console.log('🔄 Reconnecting to MySQL requested by admin...');
+    await initMySQL();
+    const isConn = Boolean(mysqlConnected && mysqlPool);
+    res.json({
+      success: true,
+      connected: isConn,
+      status: isConn ? 'online' : 'offline',
+      message: isConn
+        ? 'ارتباط زنده با پایگاه داده MySQL با موفقیت برقرار شد.'
+        : 'سرور MySQL در دسترس نیست. سیستم در وضعیت ذخیره‌سازی محافظت‌شده محلی (Fallback) به کار خود ادامه می‌دهد.'
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      connected: false,
+      status: 'offline',
+      error: err?.message || 'خطا در برقراری ارتباط با MySQL'
+    });
+  }
 });
 
 // Dedicated MySQL Ping Test Endpoint for Live Latency measurement
@@ -1972,6 +2286,66 @@ app.all('/api/mysql/ping', async (req, res) => {
     engine: 'InnoDB',
     timestamp: new Date().toISOString()
   });
+});
+
+// Centralized MySQL Transaction Error Logging Endpoints
+app.get('/api/mysql/transaction-errors', (req, res) => {
+  const unresolvedCount = mysqlTransactionErrorLogs.filter(e => e.status !== 'resolved').length;
+  res.json({
+    success: true,
+    errors: mysqlTransactionErrorLogs,
+    totalCount: mysqlTransactionErrorLogs.length,
+    unresolvedCount,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/api/mysql/transaction-errors/log', (req, res) => {
+  try {
+    const { operation, table, errorMessage, sqlCode, parameters, severity, source, stack } = req.body || {};
+    if (!operation || !errorMessage) {
+      return res.status(400).json({ error: 'operation and errorMessage are required' });
+    }
+    const logged = recordServerTransactionError({
+      operation,
+      table: table || 'mysql_general',
+      severity: severity || 'error',
+      errorMessage,
+      sqlCode,
+      parameters: parameters || {},
+      stack,
+      source: source || 'client'
+    });
+    res.json({ success: true, logged });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to record error log', details: err?.message });
+  }
+});
+
+app.post('/api/mysql/transaction-errors/clear', (req, res) => {
+  try {
+    mysqlTransactionErrorLogs = [];
+    saveTransactionErrorsToDisk();
+    res.json({ success: true, message: 'کلیه لاگ‌های خطای تراکنش پاکسازی شدند.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to clear error logs', details: err?.message });
+  }
+});
+
+app.post('/api/mysql/transaction-errors/:id/resolve', (req, res) => {
+  try {
+    const { id } = req.params;
+    const found = mysqlTransactionErrorLogs.find(e => e.id === id);
+    if (found) {
+      found.status = 'resolved';
+      found.resolvedAt = new Date().toISOString();
+      saveTransactionErrorsToDisk();
+      return res.json({ success: true, resolved: found });
+    }
+    res.status(404).json({ error: 'لاگ مورد نظر یافت نشد' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to resolve error log', details: err?.message });
+  }
 });
 
 // Soft-Delete / Trash Bin API
@@ -3568,6 +3942,20 @@ app.post('/api/mysql/assets', async (req, res) => {
     res.json({ success: true, assetId: cleanId, sizeBytes });
   } catch (err: any) {
     console.error('Error saving asset to MySQL:', err);
+    recordServerTransactionError({
+      operation: 'INSERT_ASSET',
+      table: 'mahash_assets',
+      severity: 'error',
+      errorMessage: err?.message || String(err),
+      sqlCode: err?.code,
+      parameters: {
+        assetId: req.body?.assetId,
+        category: req.body?.category,
+        name: req.body?.name,
+        sizeBytes: typeof req.body?.data === 'string' ? req.body.data.length : 0
+      },
+      stack: err?.stack
+    });
     res.status(500).json({ error: 'خطا در ثبت فایل در MySQL', details: err?.message });
   }
 });
@@ -4895,12 +5283,16 @@ app.post('/api/store', async (req, res) => {
       };
     }
 
-    // Update logos & emblems if supplied
-    if (payload.mahashLogo !== undefined) {
+    // Update logos & emblems safely if supplied
+    if (payload.mahashLogo && typeof payload.mahashLogo === 'string' && payload.mahashLogo.trim().length > 10) {
       inMemoryStore.mahashLogo = await convertBase64ToUpload(payload.mahashLogo, 'mahash');
+    } else if (payload.resetMahashLogo === true) {
+      inMemoryStore.mahashLogo = null;
     }
-    if (payload.clubEmblem !== undefined) {
+    if (payload.clubEmblem && typeof payload.clubEmblem === 'string' && payload.clubEmblem.trim().length > 10) {
       inMemoryStore.clubEmblem = await convertBase64ToUpload(payload.clubEmblem, 'emblem');
+    } else if (payload.resetClubEmblem === true) {
+      inMemoryStore.clubEmblem = null;
     }
 
     // Update deleted reports first so that customReports can filter accordingly
@@ -5016,21 +5408,25 @@ app.post('/api/store', async (req, res) => {
       inMemoryStore.customBadges = processed;
     }
 
-    // Update consultant and member info
-    if (payload.consultantPhotos && typeof payload.consultantPhotos === 'object') {
-      const processed: Record<string, string> = {};
+    // Update consultant and member info safely with merging (prevent wiping out on empty client payload)
+    if (payload.consultantPhotos && typeof payload.consultantPhotos === 'object' && Object.keys(payload.consultantPhotos).length > 0) {
+      const processed: Record<string, string> = { ...(inMemoryStore.consultantPhotos || {}) };
       for (const [k, v] of Object.entries(payload.consultantPhotos)) {
-        processed[k] = await convertBase64ToUpload(v as string, 'consultant');
+        if (v && typeof v === 'string' && v.trim().length > 10) {
+          processed[k] = await convertBase64ToUpload(v as string, 'consultant');
+        }
       }
       inMemoryStore.consultantPhotos = processed;
     }
-    if (Array.isArray(payload.consultantsList)) {
+    if (Array.isArray(payload.consultantsList) && payload.consultantsList.length > 0) {
       inMemoryStore.consultantsList = payload.consultantsList;
     }
-    if (payload.memberAvatars && typeof payload.memberAvatars === 'object') {
-      const processed: Record<string, string> = {};
+    if (payload.memberAvatars && typeof payload.memberAvatars === 'object' && Object.keys(payload.memberAvatars).length > 0) {
+      const processed: Record<string, string> = { ...(inMemoryStore.memberAvatars || {}) };
       for (const [k, v] of Object.entries(payload.memberAvatars)) {
-        processed[k] = await convertBase64ToUpload(v as string, 'avatar');
+        if (v && typeof v === 'string' && v.trim().length > 10) {
+          processed[k] = await convertBase64ToUpload(v as string, 'avatar');
+        }
       }
       inMemoryStore.memberAvatars = processed;
     }
@@ -5045,6 +5441,17 @@ app.post('/api/store', async (req, res) => {
 
     inMemoryStore.updatedAt = new Date().toISOString();
     saveStoreToDisk();
+
+    // Synchronously commit store changes within atomic MySQL transaction and fallback database
+    let mysqlPersistOk = false;
+    let mysqlError: string | null = null;
+    try {
+      mysqlPersistOk = await saveStoreToMySQL();
+    } catch (dbErr: any) {
+      mysqlError = dbErr?.message || String(dbErr);
+      console.warn('⚠️ Synchronous saveStoreToMySQL error during /api/store:', mysqlError);
+    }
+
     setImmediate(() => {
       try {
         syncAllAssetsToWordPress();
@@ -5053,7 +5460,13 @@ app.post('/api/store', async (req, res) => {
       }
     });
 
-    res.json({ success: true, store: inMemoryStore });
+    res.json({ 
+      success: true, 
+      mysql_persisted: mysqlPersistOk,
+      mysql_connected: Boolean(mysqlPool && mysqlConnected),
+      mysql_error: mysqlError,
+      store: inMemoryStore 
+    });
   } catch (err: any) {
     console.error('Error updating store:', err);
     res.status(500).json({ error: 'Failed to update server store', details: err?.message });
@@ -5215,12 +5628,107 @@ app.post('/api/reports/:id/delete', handleReportDeletion);
 // Optimized MySQL Video Management & Streaming APIs
 // ----------------------------------------------------
 
-// Auto-sync & register videos in mahash_videos helper
+// Helper to resolve all reports across custom reports, baseline database, and known team media
+function getAllAvailableReportsForVideos(): any[] {
+  const allReports: any[] = [];
+  const seenReportIds = new Set<string>();
+
+  // 1. In-memory custom reports
+  if (Array.isArray(inMemoryStore.customReports)) {
+    inMemoryStore.customReports.forEach((r: any) => {
+      if (r && r.id && !seenReportIds.has(r.id)) {
+        seenReportIds.add(r.id);
+        allReports.push(r);
+      }
+    });
+  }
+
+  // 2. Offline baseline database if available
+  try {
+    const baselinePath = path.join(process.cwd(), 'public', 'offline_baseline.json');
+    if (fs.existsSync(baselinePath)) {
+      const rawBaseline = fs.readFileSync(baselinePath, 'utf8');
+      const baselineData = JSON.parse(rawBaseline);
+      if (Array.isArray(baselineData.customReports)) {
+        baselineData.customReports.forEach((r: any) => {
+          if (r && r.id && !seenReportIds.has(r.id)) {
+            seenReportIds.add(r.id);
+            allReports.push(r);
+          }
+        });
+      }
+    }
+  } catch {}
+
+  // 3. Known built-in team reports & baseline media
+  const builtInReports = [
+    {
+      id: 'thinker',
+      title: 'گزارش مستند و دستاوردهای تیم مغز متفکر',
+      teamSlug: 'team-thinker',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788578992197-266181433.mp4'
+    },
+    {
+      id: 'tomorrow',
+      title: 'گزارش فعالیت‌ها و مأموریت تیم باشگاه فردا',
+      teamSlug: 'team-tomorrow',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788634842211-171697532.mp4'
+    },
+    {
+      id: 'report-angels-intro',
+      title: 'معرفی اعضای پر انرژی و هنرمند تیم فرشتگان ناشنوایان',
+      teamSlug: 'team-angels',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788580054502-531839423.mp4'
+    },
+    {
+      id: 'report-1788433195363-raw',
+      title: 'پیام ویدیویی، شروعی برای همکاری و خبرهای خوب',
+      teamSlug: 'team-thinker',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/file-1788063327590-917009814.mp4'
+    },
+    {
+      id: 'report-1788433044116',
+      title: 'گزارش برنامه‌ریزی و راه‌اندازی اپلیکیشن اختصاصی موسسه محاش',
+      teamSlug: 'team-thinker',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/mahash-sample-video.mp4'
+    },
+    {
+      id: 'mahash-sample-root',
+      title: 'ویدئو کلیپ پیش‌نمایش و فعالیت‌های رسمی باشگاه جوانان محاش',
+      teamSlug: 'general',
+      status: 'published',
+      isPublic: true,
+      videoSrc: '/uploads/mahash-sample-video.mp4'
+    }
+  ];
+
+  builtInReports.forEach(br => {
+    if (!seenReportIds.has(br.id)) {
+      seenReportIds.add(br.id);
+      allReports.push(br);
+    }
+  });
+
+  return allReports;
+}
+
+// Auto-sync & register videos in mahash_videos helper with guaranteed public publishing
 async function syncVideosToMySQLRegistry() {
   if (!mysqlPool || !mysqlConnected) return;
   try {
     const videoMap = new Map<string, any>();
     const deletedList = Array.isArray(inMemoryStore.deletedVideos) ? inMemoryStore.deletedVideos : [];
+    const allReps = getAllAvailableReportsForVideos();
 
     // 1. Scan uploads directory
     if (fs.existsSync(UPLOADS_DIR)) {
@@ -5228,7 +5736,7 @@ async function syncVideosToMySQLRegistry() {
       for (const file of files) {
         if (file.endsWith('.mp4') || file.endsWith('.webm') || file.endsWith('.mov')) {
           const videoUrl = `/uploads/${file}`;
-          const videoId = `vid_${crypto.createHash('md5').update(file).digest('hex').substring(0, 12)}`;
+          const videoId = `vid_${file}`;
           // Skip if explicitly deleted
           if (deletedList.includes(videoUrl) || deletedList.includes(videoId) || deletedList.includes(file)) {
             continue;
@@ -5236,62 +5744,96 @@ async function syncVideosToMySQLRegistry() {
 
           const filePath = path.join(UPLOADS_DIR, file);
           const stats = fs.statSync(filePath);
-          // Default unlinked raw media files to 0 (private) so public video storage doesn't grow uncontrollably
-          const isPub = inMemoryStore.videoVisibility?.[videoId] !== undefined
-            ? (inMemoryStore.videoVisibility[videoId] ? 1 : 0)
-            : 0;
+
+          // Check if attached to any report (by URL, filename or root alias)
+          const attachedRep = allReps.find(r => {
+            const vUrl = (r.videoSrc || r.videoUrl || r.video_url || '').trim();
+            return vUrl === videoUrl || vUrl.endsWith(file) || (file === 'mahash-sample-video.mp4' && vUrl.includes('mahash-sample-video.mp4'));
+          });
+
+          // Determine public publishing status
+          let isPub = 1; // Default uploaded media to public so team reports publish immediately
+          if (inMemoryStore.videoVisibility?.[videoId] !== undefined) {
+            isPub = inMemoryStore.videoVisibility[videoId] ? 1 : 0;
+          } else if (inMemoryStore.videoVisibility?.[videoUrl] !== undefined) {
+            isPub = inMemoryStore.videoVisibility[videoUrl] ? 1 : 0;
+          } else if (attachedRep) {
+            if (attachedRep.status === 'draft') {
+              isPub = 0;
+            } else if (attachedRep.isPublic !== undefined) {
+              isPub = attachedRep.isPublic ? 1 : 0;
+            } else {
+              isPub = 1; // Published reports always publish video publicly
+            }
+          }
+
+          let resolvedTeamSlug = attachedRep?.teamSlug || 'general';
+          if (resolvedTeamSlug === 'general') {
+            if (file.includes('thinker')) resolvedTeamSlug = 'team-thinker';
+            else if (file.includes('angels')) resolvedTeamSlug = 'team-angels';
+            else if (file.includes('tomorrow')) resolvedTeamSlug = 'team-tomorrow';
+            else if (file.includes('ghorbani')) resolvedTeamSlug = 'team-ghorbani';
+            else if (file.includes('silence')) resolvedTeamSlug = 'team-silence';
+          }
 
           videoMap.set(videoUrl, {
             id: videoId,
-            title: file.replace(/[-_]/g, ' ').replace(/\.(mp4|webm|mov)$/i, ''),
-            team_slug: file.includes('thinker') ? 'team-thinker' : 
-                       (file.includes('angels') ? 'team-angels' : 
-                       (file.includes('tomorrow') ? 'team-tomorrow' : 
-                       (file.includes('ghorbani') ? 'team-ghorbani' : 
-                       (file.includes('silence') ? 'team-silence' : 'general')))),
-            report_id: null,
+            title: attachedRep?.title || file.replace(/[-_]/g, ' ').replace(/\.(mp4|webm|mov)$/i, ''),
+            team_slug: resolvedTeamSlug,
+            report_id: attachedRep?.id || null,
             video_url: videoUrl,
+            thumbnail_url: attachedRep?.coverImage || null,
             file_name: file,
             file_size_bytes: stats.size,
             mime_type: file.endsWith('.webm') ? 'video/webm' : 'video/mp4',
             duration_seconds: 45,
             is_public: isPub,
-            views_count: 0
+            views_count: attachedRep ? (inMemoryStore.reportViews?.[attachedRep.id] || 0) : 0
           });
         }
       }
     }
 
-    // 2. Scan customReports & built-in reports
-    const allReps = Array.isArray(inMemoryStore.customReports) ? inMemoryStore.customReports : [];
+    // 2. Scan all available reports (custom & baseline) to ensure exact linkage and public status
     for (const rep of allReps) {
-      const vUrlRaw = rep.videoSrc || rep.videoUrl;
+      const vUrlRaw = rep.videoSrc || rep.videoUrl || rep.video_url;
       if (vUrlRaw && vUrlRaw !== '#' && vUrlRaw.trim() !== '') {
         const vUrl = vUrlRaw.trim();
         if (vUrl.startsWith('indexeddb:') || vUrl.startsWith('blob:')) continue;
-        const existing = videoMap.get(vUrl) || {};
-        const videoId = existing.id || `vid_${rep.id || crypto.createHash('md5').update(vUrl).digest('hex').substring(0, 12)}`;
+        const existing = videoMap.get(vUrl) || videoMap.get(`/uploads/${path.basename(vUrl)}`) || {};
+        const videoId = existing.id || `vid_${path.basename(vUrl)}`;
 
         // Skip if explicitly deleted
-        if (deletedList.includes(vUrl) || deletedList.includes(videoId)) {
+        if (deletedList.includes(vUrl) || deletedList.includes(videoId) || deletedList.includes(path.basename(vUrl))) {
           continue;
         }
 
-        const isPub = inMemoryStore.videoVisibility?.[videoId] !== undefined
-          ? (inMemoryStore.videoVisibility[videoId] ? 1 : 0)
-          : (rep.isPublic !== undefined ? (rep.isPublic ? 1 : 0) : 1);
+        let isPub = 1;
+        if (inMemoryStore.videoVisibility?.[videoId] !== undefined) {
+          isPub = inMemoryStore.videoVisibility[videoId] ? 1 : 0;
+        } else if (inMemoryStore.videoVisibility?.[vUrl] !== undefined) {
+          isPub = inMemoryStore.videoVisibility[vUrl] ? 1 : 0;
+        } else if (rep.status === 'draft') {
+          isPub = 0;
+        } else if (rep.isPublic !== undefined) {
+          isPub = rep.isPublic ? 1 : 0;
+        } else {
+          isPub = 1;
+        }
+
+        const teamSlug = rep.teamSlug || existing.team_slug || 'general';
 
         videoMap.set(vUrl, {
           ...existing,
           id: videoId,
           title: rep.title || existing.title || 'ویدیوی گزارش رسمی',
-          team_slug: rep.teamSlug || existing.team_slug || 'general',
+          team_slug: teamSlug,
           report_id: rep.id || null,
           video_url: vUrl,
-          thumbnail_url: rep.coverImage || null,
+          thumbnail_url: rep.coverImage || existing.thumbnail_url || null,
           file_name: existing.file_name || path.basename(vUrl),
           file_size_bytes: existing.file_size_bytes || 1128375,
-          mime_type: 'video/mp4',
+          mime_type: vUrl.endsWith('.webm') ? 'video/webm' : 'video/mp4',
           duration_seconds: existing.duration_seconds || 60,
           is_public: isPub,
           views_count: inMemoryStore.reportViews?.[rep.id] || existing.views_count || 0
@@ -5299,7 +5841,7 @@ async function syncVideosToMySQLRegistry() {
       }
     }
 
-    // Insert or update batch in MySQL
+    // Insert or update batch in MySQL with explicit is_public update
     for (const vid of videoMap.values()) {
       await mysqlPool.query(`
         INSERT INTO mahash_videos 
@@ -5313,7 +5855,10 @@ async function syncVideosToMySQLRegistry() {
           thumbnail_url = VALUES(thumbnail_url),
           file_name = VALUES(file_name),
           file_size_bytes = VALUES(file_size_bytes),
-          mime_type = VALUES(mime_type)
+          mime_type = VALUES(mime_type),
+          duration_seconds = VALUES(duration_seconds),
+          is_public = VALUES(is_public),
+          views_count = VALUES(views_count)
       `, [
         vid.id,
         vid.title,
@@ -5329,7 +5874,7 @@ async function syncVideosToMySQLRegistry() {
         vid.views_count
       ]).catch(() => {});
     }
-    console.log(`✅ Synced ${videoMap.size} videos to MySQL mahash_videos registry.`);
+    console.log(`✅ Synced ${videoMap.size} videos to MySQL mahash_videos registry (all published reports public).`);
   } catch (err) {
     console.warn('⚠️ Error syncing videos to MySQL registry:', err);
   }
@@ -5547,6 +6092,7 @@ app.get('/api/mysql/videos/optimized', async (req, res) => {
     // In-memory fallback if MySQL temporarily disconnected
     let videos: any[] = [];
     const deletedList = Array.isArray(inMemoryStore.deletedVideos) ? inMemoryStore.deletedVideos : [];
+    const allAvailableReps = getAllAvailableReportsForVideos();
 
     if (fs.existsSync(UPLOADS_DIR)) {
       const files = fs.readdirSync(UPLOADS_DIR);
@@ -5560,29 +6106,33 @@ app.get('/api/mysql/videos/optimized', async (req, res) => {
 
           const stats = fs.statSync(path.join(UPLOADS_DIR, file));
           // Find if attached to any report
-          const attachedRep = Array.isArray(inMemoryStore.customReports)
-            ? inMemoryStore.customReports.find(r => r.videoSrc === videoUrl || r.videoUrl === videoUrl)
-            : null;
+          const attachedRep = allAvailableReps.find(r => {
+            const vUrl = (r.videoSrc || r.videoUrl || r.video_url || '').trim();
+            return vUrl === videoUrl || vUrl.endsWith(file) || (file === 'mahash-sample-video.mp4' && vUrl.includes('mahash-sample-video.mp4'));
+          });
 
-          const isPub = inMemoryStore.videoVisibility?.[vidId] !== undefined
-            ? (inMemoryStore.videoVisibility[vidId] ? 1 : 0)
-            : (inMemoryStore.videoVisibility?.[videoUrl] !== undefined
-                ? (inMemoryStore.videoVisibility[videoUrl] ? 1 : 0)
-                : (attachedRep ? (attachedRep.isPublic !== false ? 1 : 0) : 0));
+          let isPub = 1; // Default to public
+          if (inMemoryStore.videoVisibility?.[vidId] !== undefined) {
+            isPub = inMemoryStore.videoVisibility[vidId] ? 1 : 0;
+          } else if (inMemoryStore.videoVisibility?.[videoUrl] !== undefined) {
+            isPub = inMemoryStore.videoVisibility[videoUrl] ? 1 : 0;
+          } else if (attachedRep) {
+            if (attachedRep.status === 'draft') {
+              isPub = 0;
+            } else if (attachedRep.isPublic !== undefined) {
+              isPub = attachedRep.isPublic ? 1 : 0;
+            } else {
+              isPub = 1;
+            }
+          }
 
-          let videoTeamSlug = 'general';
-          if (attachedRep?.teamSlug) {
-            videoTeamSlug = attachedRep.teamSlug;
-          } else if (file.includes('thinker')) {
-            videoTeamSlug = 'team-thinker';
-          } else if (file.includes('angels')) {
-            videoTeamSlug = 'team-angels';
-          } else if (file.includes('tomorrow')) {
-            videoTeamSlug = 'team-tomorrow';
-          } else if (file.includes('ghorbani')) {
-            videoTeamSlug = 'team-ghorbani';
-          } else if (file.includes('silence')) {
-            videoTeamSlug = 'team-silence';
+          let videoTeamSlug = attachedRep?.teamSlug || 'general';
+          if (videoTeamSlug === 'general') {
+            if (file.includes('thinker')) videoTeamSlug = 'team-thinker';
+            else if (file.includes('angels')) videoTeamSlug = 'team-angels';
+            else if (file.includes('tomorrow')) videoTeamSlug = 'team-tomorrow';
+            else if (file.includes('ghorbani')) videoTeamSlug = 'team-ghorbani';
+            else if (file.includes('silence')) videoTeamSlug = 'team-silence';
           }
 
           videos.push({
@@ -5773,6 +6323,9 @@ interface WordPressDatabase {
   }>;
   wp_options: Record<string, string>;
   wp_users: Array<{ id: number; user_login: string; role: string }>;
+  mahash_kv_store?: Array<{ key: string; value: string; updated_at?: string }>;
+  mahash_assets?: Array<any>;
+  [key: string]: any;
 }
 
 let wpDbStore: WordPressDatabase = {

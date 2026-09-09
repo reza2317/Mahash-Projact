@@ -14,6 +14,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, currentPage }) => {
   const [logoSrc, setLogoSrc] = useState<string>(() => getMahashLogo() || MAHESH_LOGO_SVG);
   const [isAdmin, setIsAdmin] = useState<boolean>(isAdminAuthenticated());
   const [downloadingZip, setDownloadingZip] = useState<boolean>(false);
+  const [zipStatus, setZipStatus] = useState<string>('');
 
   useEffect(() => {
     const updateFooterState = () => {
@@ -200,14 +201,16 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, currentPage }) => {
                   disabled={downloadingZip}
                   onClick={async () => {
                     setDownloadingZip(true);
-                    await downloadNetlifyDeploymentZip();
+                    setZipStatus('در حال اتصال...');
+                    await downloadNetlifyDeploymentZip((msg) => setZipStatus(msg));
                     setDownloadingZip(false);
+                    setZipStatus('');
                   }}
                   className="text-[#5eead4] hover:text-white transition flex items-center gap-1 font-bold cursor-pointer bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-md text-[11px]"
                   title="دانلود مستقیم بسته خروجی برای آپلود در Netlify"
                 >
-                  <Download className={`w-3.5 h-3.5 ${downloadingZip ? 'animate-bounce' : ''}`} />
-                  <span>{downloadingZip ? 'در حال دریافت...' : 'دانلود پکیج Netlify'}</span>
+                  <Download className={`w-3.5 h-3.5 ${downloadingZip ? 'animate-bounce text-amber-300' : ''}`} />
+                  <span className="truncate max-w-[200px]">{downloadingZip ? (zipStatus || 'در حال دریافت...') : 'دانلود پکیج Netlify'}</span>
                 </button>
               </>
             )}

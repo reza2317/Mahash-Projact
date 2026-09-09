@@ -231,7 +231,9 @@ export const ReportVideoPlayer: React.FC<ReportVideoPlayerProps> = ({
   }, [isFullscreen]);
 
   const handleDirectShare = async () => {
-    const reportUrl = `${window.location.origin}${window.location.pathname}#report-${report.id}`;
+    const cleanId = report.id.startsWith('report-') ? report.id : `report-${report.id}`;
+    const slug = teamSlug && teamSlug !== 'default' ? `${teamSlug}/` : '';
+    const reportUrl = `${window.location.origin}${window.location.pathname}#/${slug}${cleanId}`;
     const shareTitle = `ویدیوی گزارش ${report.reportNum || ''}: ${report.title} (${teamName})`;
     const shareText = `مشاهده ویدیوی گزارش رسمی تیم «${teamName}» در باشگاه جوانان محاش:\n«${report.title}»`;
 

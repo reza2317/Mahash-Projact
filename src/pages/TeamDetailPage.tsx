@@ -141,6 +141,12 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({ teamSlug, target
       setTeam(updated);
       setIsAdmin(isAdminAuthenticated());
       setOpenReportId((prevOpen) => {
+        if (targetReportId && updated?.reports) {
+          const match = updated.reports.find(
+            (r) => r.id === targetReportId || r.id.endsWith(targetReportId) || targetReportId.endsWith(r.id)
+          );
+          if (match) return match.id;
+        }
         if (prevOpen && updated?.reports?.some((r) => r.id === prevOpen)) {
           return prevOpen;
         }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { fetchAndMergeServerStore, getAllReports } from './utils/reportsStore';
+import { fetchAndMergeServerStore, getAllReports, subscribeToStoreUpdates } from './utils/reportsStore';
 import { globalEventBus } from './utils/eventBus';
 import { OfflineBanner } from './components/OfflineBanner';
 import { usePerformanceMonitor } from './hooks/usePerformanceMonitor';
@@ -78,10 +78,20 @@ function MainApp() {
     };
   }, [notifyError, notifyWarning, notifySuccess, notifyInfo]);
 
+  // Auto-subscribe to reports store updates to immediately re-resolve links when server sync completes
+  const [, setStoreVersion] = useState<number>(0);
+  useEffect(() => {
+    const unsub = subscribeToStoreUpdates(() => {
+      setStoreVersion((v) => v + 1);
+    });
+    return () => unsub();
+  }, []);
+
   // Handle URL hash routing if present
   useEffect(() => {
     const handleHash = () => {
-      const hash = window.location.hash.replace('#/', '').replace('#', '');
+      const rawHash = window.location.hash;
+      const hash = rawHash.replace(/^#\/?/, '').replace(/^#/, '');
       if (hash && hash !== '') {
         setCurrentPage(hash as string);
       }
@@ -106,14 +116,46 @@ function MainApp() {
 
   const renderContent = () => {
     // Dynamic report direct link hash routing
-    if (currentPage.startsWith('report-')) {
-      const cleanReportId = currentPage.replace(/^report-/, '');
+    // Handles formats:
+    // - #/report-1788629792288
+    // - #/team-thinker/report-1788629792288
+    // - #report-report-1788629792288
+    // - #/team-thinker#report-1788629792288
+    const isReportRoute =
+      currentPage.startsWith('report-') ||
+      currentPage.includes('/report-') ||
+      currentPage.includes('#report-') ||
+      currentPage.includes('?report=');
+
+    if (isReportRoute) {
+      let explicitTeamSlug: string | undefined;
+      let rawReportId = currentPage;
+
+      if (currentPage.includes('/') || currentPage.includes('#')) {
+        const segments = currentPage.split(/[/#]/);
+        const teamSeg = segments.find((p) => p.startsWith('team-') || ['thinker', 'tomorrow', 'angels', 'ghorbani', 'silence'].includes(p));
+        if (teamSeg) {
+          explicitTeamSlug = teamSeg.startsWith('team-') ? teamSeg : `team-${teamSeg}`;
+        }
+        const repSeg = segments.find((p) => p.includes('report-') || p.startsWith('rep-'));
+        if (repSeg) rawReportId = repSeg;
+      }
+
+      const cleanReportId = rawReportId.replace(/^[#/]+/, '').replace(/^report-/, '').replace(/^report-/, '');
+      const possibleIds = [
+        rawReportId,
+        cleanReportId,
+        `report-${cleanReportId}`,
+        `rep-${cleanReportId}`
+      ];
+
       const allReports = getAllReports();
-      const matchedReport = allReports.find(
-        (r) => r.id === currentPage || r.id === cleanReportId || r.id === `report-${cleanReportId}`
+      const matchedReport = allReports.find((r) =>
+        possibleIds.includes(r.id) ||
+        possibleIds.some((pid) => r.id.endsWith(pid) || pid.endsWith(r.id))
       );
       
-      let targetTeamSlug = matchedReport?.teamSlug;
+      let targetTeamSlug = matchedReport?.teamSlug || explicitTeamSlug;
       if (!targetTeamSlug) {
         if (currentPage.includes('angel') || currentPage.includes('فرشتگان')) {
           targetTeamSlug = 'team-angels';
@@ -126,13 +168,14 @@ function MainApp() {
         } else if (currentPage.includes('silence') || currentPage.includes('سکوت')) {
           targetTeamSlug = 'team-silence';
         } else {
-          targetTeamSlug = 'team-angels';
+          targetTeamSlug = 'team-thinker';
         }
       }
+
       return (
         <TeamDetailPage
           teamSlug={targetTeamSlug}
-          targetReportId={matchedReport?.id || cleanReportId}
+          targetReportId={matchedReport?.id || (rawReportId.startsWith('report-') ? rawReportId : `report-${cleanReportId}`)}
           onNavigate={navigateTo}
         />
       );
